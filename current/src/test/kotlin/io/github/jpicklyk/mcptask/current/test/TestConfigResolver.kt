@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.mockk.coEvery

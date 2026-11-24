@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.config.internal.wire.CfgYaml
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.CfgYaml
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

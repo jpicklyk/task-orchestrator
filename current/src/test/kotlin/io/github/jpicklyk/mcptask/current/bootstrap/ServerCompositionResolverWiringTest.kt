@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

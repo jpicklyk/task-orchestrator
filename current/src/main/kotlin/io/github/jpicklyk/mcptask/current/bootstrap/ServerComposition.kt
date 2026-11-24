@@ -2,18 +2,23 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.report.ReportRunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
+import io.github.jpicklyk.mcptask.current.config.ConfigService
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile
+import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.internal.wire.checkRemovedServerConfig
+import io.github.jpicklyk.mcptask.current.config.internal.wire.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
@@ -22,10 +27,6 @@ import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.toKeySource
-import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackfillStep
@@ -37,7 +38,6 @@ import io.github.jpicklyk.mcptask.current.platform.port.EventSink
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.security.FileBodySource
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
-import io.github.jpicklyk.mcptask.current.platform.settings.checkRemovedServerConfig
 import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork

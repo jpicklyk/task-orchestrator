@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentAdoptOutcome
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStashOutcome
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager

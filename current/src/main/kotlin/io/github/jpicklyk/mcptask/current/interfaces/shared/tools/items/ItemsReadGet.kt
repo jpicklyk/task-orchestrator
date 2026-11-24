@@ -71,7 +71,7 @@ object ItemsReadGet {
                                     )
                                 } else {
                                     val wanted = req.fields.orEmpty().toSet()
-                                    var view = ItemView.full(item, pin = env.schemaPinService.view(item))
+                                    var view = ItemView.full(item, pin = env.pinViews.view(item))
                                     for (name in listOf("createdAt", "modifiedAt", "roleChangedAt")) {
                                         if (name in wanted) view = ItemView.with(view, name, timestamp(item, name))
                                     }

@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -9,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.intKey
 import io.github.jpicklyk.mcptask.current.claim.ok
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig

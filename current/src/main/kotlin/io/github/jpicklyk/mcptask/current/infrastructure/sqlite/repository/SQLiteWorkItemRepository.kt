@@ -12,7 +12,7 @@ import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 /**
  * SQLite [WorkItemRepository]: a facade over the three stores. It holds no SQL; each narrow port is
  * delegated to its store ([SqliteItemStore], [SqliteHierarchyStore], [SqliteClaimStore]). Full-text search is the
- * separate [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search.SqliteSearchEngine].
+ * knowledge slice's `SqliteSearchEngine`.
  * The stores share one [Clock]; callers that need a single store take it from
  * [io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider].
  */

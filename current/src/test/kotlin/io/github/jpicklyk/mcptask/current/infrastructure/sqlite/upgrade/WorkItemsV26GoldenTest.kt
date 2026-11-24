@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.port.Analyzer
-import io.github.jpicklyk.mcptask.current.application.port.Corpus
-import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
-import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.knowledge.Analyzer
+import io.github.jpicklyk.mcptask.current.knowledge.Corpus
+import io.github.jpicklyk.mcptask.current.knowledge.ScopeFilter
+import io.github.jpicklyk.mcptask.current.knowledge.TextQuery
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.perf
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.application.port.Corpus
-import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.knowledge.Corpus
+import io.github.jpicklyk.mcptask.current.knowledge.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.knowledge.SearchRequest
+import io.github.jpicklyk.mcptask.current.knowledge.SearchService
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document

@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
-import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
+import io.github.jpicklyk.mcptask.current.knowledge.LinkStore
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork

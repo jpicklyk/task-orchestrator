@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.retention
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
+import io.github.jpicklyk.mcptask.current.config.Fingerprint
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyRecord

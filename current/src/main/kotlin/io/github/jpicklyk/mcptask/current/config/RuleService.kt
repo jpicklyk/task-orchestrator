@@ -1,0 +1,177 @@
+package io.github.jpicklyk.mcptask.current.config
+
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.knowledge.PlanSlugs
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
+import io.github.jpicklyk.mcptask.current.platform.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.platform.support.legacyReadFault
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * Transport-agnostic read pipeline for git-tracked rule text, stored as `rule/<key>` plan
+ * documents (see [PlanDocumentStore]) -- the same table `docs_write`/`PlanDocumentService`
+ * already write to, so the `config` tool's `rules` op is a pure READ surface over that
+ * store with no new table and no migration.
+ *
+ * Depends only on domain repositories ([PlanDocumentStore], [WorkItemRepository]) -- no
+ * infrastructure import -- so the `config` tool's `rules` op (MCP and `POST /api/v1/ops/config`) can share
+ * one instance without violating the `domain -> application -> infrastructure -> interfaces`
+ * layering rule ([io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] exposes the
+ * `RepositoryProvider` port and its domain-repository instances, never an infrastructure type).
+ *
+ * Pipeline for both [get] and [list]: root exists -> root is depth-0 -> (for [get]) document
+ * exists at `rule/<key>`. Callers resolving a skill-pointer (item mode) resolve the item's
+ * effective schema themselves (via `EffectiveConfigResolver.resolveSchema`, which this class does not
+ * depend on) and pass the resolved rule key straight to [get].
+ */
+class RuleService(
+    private val planDocumentRepository: PlanDocumentStore,
+    private val workItemRepository: WorkItemRepository,
+) {
+    /**
+     * Reads the rule document at `rule/<key>` under [rootId]. See [RuleGetResult] for the possible
+     * outcomes. [key] is assumed to already have been validated against [KEY_PATTERN] by the caller
+     * (the `config` tool's `rules` op checks this before calling in, so a bad key stays an `invalid_request`
+     * at `/key` rather than a generic service error).
+     */
+    suspend fun get(
+        rootId: UUID,
+        key: String,
+    ): RuleGetResult {
+        // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
+        val item =
+            legacyReadFault({ return RuleGetResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+                ?: return RuleGetResult.RootNotFound(rootId)
+        if (item.depth != 0) {
+            return RuleGetResult.NotDepthZero(rootId, item.depth)
+        }
+
+        val slug = RULE_SLUG_PREFIX + key
+        return run {
+            val result = legacyReadFault({ return@run RuleGetResult.RepositoryError(it) }) { planDocumentRepository.get(rootId, slug) }
+            val document = result ?: return RuleGetResult.RuleNotFound(rootId, key)
+            RuleGetResult.Success(document)
+        }
+    }
+
+    /**
+     * Lists every `rule/<key>` document under [rootId] whose key matches [KEY_PATTERN] -- slugs
+     * that fail the grammar (writable via `docs_write`, per P5, but never served) are
+     * silently excluded, as are non-`rule/` slugs; `status` is ignored (both PENDING and ADOPTED
+     * rule documents are listed and served -- adoption freezes a rule's content, it does not hide
+     * it). Sorted by key ascending. See [RuleListResult] for the possible outcomes.
+     */
+    suspend fun list(rootId: UUID): RuleListResult {
+        // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
+        val item =
+            legacyReadFault({ return RuleListResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+                ?: return RuleListResult.RootNotFound(rootId)
+        if (item.depth != 0) {
+            return RuleListResult.NotDepthZero(rootId, item.depth)
+        }
+
+        return run {
+            val result =
+                legacyReadFault({ return@run RuleListResult.RepositoryError(it) }) { planDocumentRepository.list(rootId, status = null) }
+            val rules =
+                result
+                    .filter { it.slug.startsWith(RULE_SLUG_PREFIX) }
+                    .mapNotNull { summary ->
+                        val key = summary.slug.removePrefix(RULE_SLUG_PREFIX)
+                        if (!KEY_PATTERN.matches(key)) return@mapNotNull null
+                        RuleSummary(key, summary.contentHash, summary.modifiedAt)
+                    }.sortedBy { it.key }
+            RuleListResult.Success(rules)
+        }
+    }
+
+    companion object {
+        /** Plan-document slug prefix a rule document is stored under: `rule/<key>`. */
+        const val RULE_SLUG_PREFIX = PlanSlugs.RULE_PREFIX
+
+        /**
+         * Hard cap on a rule document body's UTF-8 byte size, enforced by
+         * `PlanDocumentService.stash` for any slug starting with [RULE_SLUG_PREFIX] (tighter than
+         * that service's general 64 KiB cap for non-rule plan documents).
+         */
+        const val MAX_RULE_BODY_BYTES = DocumentService.MAX_RULE_BODY_BYTES
+
+        /**
+         * Rule-key grammar: lowercase alphanumeric, `.`, `_`, `-`; must start with an alphanumeric;
+         * max 100 characters. No `/`, uppercase, or `:` -- a key is a single path segment usable
+         * verbatim in a REST URL and as a plan-document slug suffix.
+         */
+        val KEY_PATTERN: Regex = Regex("^[a-z0-9][a-z0-9._-]{0,99}$")
+    }
+}
+
+/** One row of [RuleService.list] -- metadata only, never the body. */
+data class RuleSummary(
+    val key: String,
+    val rulesVersion: String,
+    val updatedAt: Instant,
+)
+
+/** Outcome of [RuleService.get]. */
+sealed class RuleGetResult {
+    /** The rule document was found. */
+    data class Success(
+        val document: PlanDocument,
+    ) : RuleGetResult()
+
+    /** No WorkItem exists for [rootId]. */
+    data class RootNotFound(
+        val rootId: UUID,
+    ) : RuleGetResult()
+
+    /** [rootId] resolved to a WorkItem, but it is not depth-0 (rules anchor to project roots only). */
+    data class NotDepthZero(
+        val rootId: UUID,
+        val depth: Int,
+    ) : RuleGetResult()
+
+    /** [rootId] is a valid depth-0 root, but no `rule/<key>` document exists there. */
+    data class RuleNotFound(
+        val rootId: UUID,
+        val key: String,
+    ) : RuleGetResult()
+
+    /** The repository call itself failed. */
+    data class RepositoryError(
+        val error: DomainError,
+    ) : RuleGetResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
+}
+
+/** Outcome of [RuleService.list]. */
+sealed class RuleListResult {
+    /** The (possibly empty) list of rule summaries under the root. */
+    data class Success(
+        val rules: List<RuleSummary>,
+    ) : RuleListResult()
+
+    /** No WorkItem exists for [rootId]. */
+    data class RootNotFound(
+        val rootId: UUID,
+    ) : RuleListResult()
+
+    /** [rootId] resolved to a WorkItem, but it is not depth-0 (rules anchor to project roots only). */
+    data class NotDepthZero(
+        val rootId: UUID,
+        val depth: Int,
+    ) : RuleListResult()
+
+    /** The repository call itself failed. */
+    data class RepositoryError(
+        val error: DomainError,
+    ) : RuleListResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
+}

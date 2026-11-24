@@ -5,6 +5,10 @@ import io.github.jpicklyk.mcptask.current.claim.CLAIM_T
 import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.claim.ClaimRig
 import io.github.jpicklyk.mcptask.current.claim.ok
+import io.github.jpicklyk.mcptask.current.config.internal.wire.CfgKit
+import io.github.jpicklyk.mcptask.current.config.internal.wire.effectiveOp
+import io.github.jpicklyk.mcptask.current.config.internal.wire.list
+import io.github.jpicklyk.mcptask.current.config.internal.wire.obj
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -13,10 +17,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphB
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.AdvanceTwin
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.CfgKit
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.effectiveOp
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.list
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.obj
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome

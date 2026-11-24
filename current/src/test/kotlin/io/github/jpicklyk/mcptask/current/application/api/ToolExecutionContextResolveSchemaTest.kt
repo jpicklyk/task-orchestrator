@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.model.item.*
 import io.github.jpicklyk.mcptask.current.model.note.*
 import io.github.jpicklyk.mcptask.current.model.schema.*

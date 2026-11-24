@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.ConfigSupport
+import io.github.jpicklyk.mcptask.current.config.ConfigService
+import io.github.jpicklyk.mcptask.current.config.ServerFeatures
+import io.github.jpicklyk.mcptask.current.config.internal.wire.ConfigSupport
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal

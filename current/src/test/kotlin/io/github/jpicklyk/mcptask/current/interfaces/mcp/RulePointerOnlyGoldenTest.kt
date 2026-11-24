@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
@@ -86,7 +86,7 @@ class RulePointerOnlyGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
+        val serverConfig: io.github.jpicklyk.mcptask.current.config.ServerConfigSource,
     )
 
     /** Reuses the A1 golden fixture verbatim, then stashes two rule/ documents at ROOT_ID (this item's addition). */

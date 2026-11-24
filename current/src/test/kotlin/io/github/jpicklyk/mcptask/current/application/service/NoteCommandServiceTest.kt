@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.claim.ok
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind

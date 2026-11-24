@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepReport
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig

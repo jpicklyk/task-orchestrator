@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * scenarios S4-S7 (O1: REST gate/advance share MCP's `PerRootConfigService`, and therefore its
  * last-known-good cache). Oracle: `task-scope`'s invariant statement, "After any MCP or REST read
  * has warmed a root, a transient per-root read failure on the REST advance/gate route serves the
- * LKG instead of returning 503", plus [io.github.jpicklyk.mcptask.current.application.config.LegacyPrecedenceCharacterizationTest]'s
+ * LKG instead of returning 503", plus `LegacyPrecedenceCharacterizationTest`'s
  * S5 ("a warm-then-error read serves the last-known-good per-root schema") for the underlying
  * [PerRootConfigService] LKG mechanism, and [AdvanceParityTest]'s established 422/`missingNotes`
  * shape for a gate-blocked REST advance.

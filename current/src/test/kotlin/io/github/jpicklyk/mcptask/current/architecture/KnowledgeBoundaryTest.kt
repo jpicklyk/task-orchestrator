@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * Knowledge-boundary guard (item 23faed48, seat test-author; task-scope D14, AC6, test-plan S19): the knowledge kernel
  * must not depend on the orchestration lifecycle.
  *
- * Scope: production files under `application/knowledge/` and `infrastructure/sqlite/knowledge/`. Rule: such a file must not
+ * Scope: production files under the knowledge slice, `knowledge/`. Rule: such a file must not
  * import or fully-qualify
  *  - anything under `io.github.jpicklyk.mcptask.current.domain.lifecycle`, nor
  *  - any `io.github.jpicklyk.mcptask.current.*` type whose simple name starts with `Claim`, `Seat`, `Transition`,
@@ -40,7 +40,7 @@ class KnowledgeBoundaryTest {
         private const val LIFECYCLE = "$ROOT.domain.lifecycle"
         private val FORBIDDEN_NAME_PREFIXES = listOf("Claim", "Seat", "Transition", "RoleTransition", "Advance", "Run", "DecisionRequest")
         private val FQN = Regex("""io\.github\.jpicklyk\.mcptask\.current(?:\.[A-Za-z0-9_]+)+""")
-        private val SCOPE_DIRS = listOf("application/knowledge/", "infrastructure/sqlite/knowledge/")
+        private val SCOPE_DIRS = listOf("knowledge/")
         private const val BASELINE = "src/test/resources/architecture/knowledge-boundary-baseline.txt"
 
         fun inScope(path: String): Boolean = SCOPE_DIRS.any { path.startsWith(it) }
@@ -118,24 +118,27 @@ class KnowledgeBoundaryTest {
         listOf("DocumentService.kt", "SearchService.kt", "SqliteLinkStore.kt", "LinkService.kt", "LinkParser.kt").forEach { name ->
             assertTrue(paths.any { it.substringAfterLast('/') == name }, "scope must include $name, saw $paths")
         }
-        assertTrue(paths.any { it.startsWith("infrastructure/sqlite/knowledge/") }, "the SQLite kernel directory is scanned")
-        assertTrue(paths.any { it.startsWith("application/knowledge/") }, "the application kernel directory is scanned")
+        assertTrue(paths.any { it.startsWith("knowledge/internal/sqlite/") }, "the slice's SQLite folder is scanned")
+        assertTrue(paths.any { it.startsWith("knowledge/internal/app/") }, "the slice's application folder is scanned")
+        assertTrue(paths.any { it.startsWith("knowledge/internal/wire/") }, "the slice's wire folder is scanned")
     }
 
     @Test
-    fun `the scope function includes the two kernel directories and excludes everything else`() {
+    fun `the scope function includes the knowledge slice and excludes everything else`() {
         listOf(
-            "application/knowledge/link/LinkService.kt",
-            "application/knowledge/document/DocumentService.kt",
-            "application/knowledge/search/SearchService.kt",
-            "infrastructure/sqlite/knowledge/document/SqliteLinkStore.kt",
-            "infrastructure/sqlite/knowledge/search/SqliteSearchEngine.kt"
+            "knowledge/LinkService.kt",
+            "knowledge/DocumentService.kt",
+            "knowledge/SearchService.kt",
+            "knowledge/internal/sqlite/document/SqliteLinkStore.kt",
+            "knowledge/internal/sqlite/search/SqliteSearchEngine.kt"
         ).forEach { assertTrue(inScope(it), "must be scanned: $it") }
         listOf(
             "application/service/AdvanceService.kt",
             "application/service/NoteCommandService.kt",
             "application/port/LinkStore.kt",
             "application/knowledgebase/Other.kt",
+            "application/knowledge/link/LinkService.kt",
+            "knowledgebase/Other.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/knowledge/Other.kt",
             "domain/lifecycle/TransitionTable.kt",
@@ -171,7 +174,7 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.model.item.Role",
             "import io.github.jpicklyk.mcptask.current.model.knowledge.Link",
             "import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider",
-            "import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService",
+            "import io.github.jpicklyk.mcptask.current.knowledge.DocumentService",
             "import io.github.jpicklyk.mcptask.current.domain.lifecycleish.NotLifecycle",
             "// import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable",
             "     * see [io.github.jpicklyk.mcptask.current.application.service.ClaimService]",

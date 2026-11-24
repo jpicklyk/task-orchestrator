@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.yaml
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
-import io.github.jpicklyk.mcptask.current.application.config.ParseMode
-import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.config.ParseMode
+import io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile
+import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals

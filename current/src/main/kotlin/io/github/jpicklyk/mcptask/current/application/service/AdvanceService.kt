@@ -2,8 +2,6 @@
 
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.config.statusLabelKey
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -11,6 +9,9 @@ import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.config.SchemaPinService
+import io.github.jpicklyk.mcptask.current.config.statusLabelKey
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.dependency.internal.domain.UnsatisfiedBlocker
@@ -326,7 +327,7 @@ data class AdvanceResult(
  * commits (D7).
  *
  * @property labelFor the status label for a (trigger, target role) pair; production binds
- *   [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.labelFor] to the
+ *   [io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver.labelFor] to the
  *   item's root. Defaults to the built-in labels ([NoOpStatusLabelService]).
  * @property resourceLeasesEnforced deployment kill switch (`AppConfig.resourceLeasesEnforced`, the
  *   `RESOURCE_LEASES_ENFORCED` env var read once at startup). When false the lease gate and acquisition are

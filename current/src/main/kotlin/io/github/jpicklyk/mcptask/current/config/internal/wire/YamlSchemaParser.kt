@@ -1,0 +1,1879 @@
+package io.github.jpicklyk.mcptask.current.config.internal.wire
+
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.config.DecisionClassConfig
+import io.github.jpicklyk.mcptask.current.config.ParseMode
+import io.github.jpicklyk.mcptask.current.config.RuleService
+import io.github.jpicklyk.mcptask.current.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.config.TraitDescriptor
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
+import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.model.schema.LaneOutput
+import io.github.jpicklyk.mcptask.current.model.schema.ReviewLane
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+
+/**
+ * Thrown for a STRUCTURAL config error that must fail the whole config load/push rather than being
+ * recorded as a load warning (A1a): currently only the seat-declaration checks F1-F4 in
+ * [YamlSchemaParser.parseRoot] (two `enters: true` seats in one phase, a duplicate seat name, a
+ * seat reserved-named `unowned`, or an `after` cycle — all within one seats list, or within a
+ * schema's own seats plus the seats of its SAME-DOCUMENT default traits).
+ *
+ * Deliberately NOT an [IllegalArgumentException]: [io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile]
+ * re-throws an [IllegalArgumentException] from [YamlSchemaParser.parseRoot] unchanged (so its
+ * message would lose the "Failed to parse note schemas in '<path>'" wrapper this type needs), but
+ * catches every other [Exception] — including this one — and wraps it, naming the config path, so
+ * a structural seat error fails global startup the same way any other malformed config file does.
+ * On the per-root push path, [io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser]
+ * catches every [Exception] generically and turns it into a parse-failure outcome (nothing stored),
+ * so this type needs no special handling there either.
+ *
+ * [path] is the JSON Pointer of the offending `seats` list, so a push rejected for it can name where the error is.
+ */
+class ConfigStructureException(
+    message: String,
+    val path: String = "",
+) : RuntimeException(message)
+
+/**
+ * The key sets the parser recognizes at each level of a config document. The JSON Schema
+ * (`config/config.schema.json`) lists the same keys as `properties`; a parity test reads these sets and the schema
+ * and fails when they differ, so the parser and the published schema cannot drift apart silently.
+ */
+internal object ConfigKeyCatalog {
+    /** Top-level keys the strict parser accepts. */
+    val TOP_LEVEL: Set<String> =
+        setOf(
+            "work_item_schemas",
+            "note_schemas",
+            "traits",
+            "resources",
+            "note_limits",
+            "status_labels",
+            "project",
+            "independence",
+            "extensions",
+            "runs",
+            "decision_classes",
+        )
+
+    /**
+     * Top-level keys that only migration-mode reading still accepts: 3.x config carried plugin settings at the top
+     * level, and the removed `schema_resolution` key gets its own finding instead of an unknown-key one.
+     */
+    val TOP_LEVEL_MIGRATION_ONLY: Set<String> =
+        setOf("schema_resolution", "retrospective", "actor_attribution", "orchestration")
+
+    val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
+    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
+    val NOTE_ENTRY: Set<String> =
+        setOf(
+            "key",
+            "role",
+            "required",
+            "description",
+            "guidance",
+            "skill",
+            "maxLength",
+            "seat",
+            "independent_of",
+            "shared",
+            "skill_mode",
+            "lane"
+        )
+    val NOTE_LANE: Set<String> = setOf("output", "after")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules", "skills")
+    val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
+    val NOTE_LIMITS: Set<String> = setOf("mode")
+    val RUNS: Set<String> = setOf("stall_after", "budgets")
+    val RUN_BUDGETS: Set<String> = setOf("tokens", "cost_usd", "attempts_per_seat", "max_active_seats")
+    val DECISION_CLASS: Set<String> = setOf("answerers", "severity", "expires_after", "on_expiry", "freeform")
+    val RESOURCE_DEFINITION: Set<String> = setOf("description", "maxHolders", "defaultTtlSeconds")
+    val RESOURCE_REQUIREMENT: Set<String> = setOf("key", "mode", "ttlSeconds")
+    val DISPATCH_PROFILE: Set<String> = setOf("agent", "model", "effort")
+    val DISPATCH_PHASE: Set<String> = DISPATCH_PROFILE + "seats"
+    val SEAT_DISPATCH_OVERRIDE: Set<String> = DISPATCH_PROFILE
+}
+
+/**
+ * Collects what the parser finds wrong in a document, each with a JSON Pointer path. A finding is one of:
+ * - [Kind.SOFT]: something the 3.x parser skipped with a warning (an error in [ParseMode.STRICT], a warning in
+ *   [ParseMode.MIGRATION]);
+ * - [Kind.ADVISORY]: worth saying but never an error (resource fan-out);
+ * - [Kind.DEFERRED]: a check the validator redoes against the server layer (an undeclared resource), so only the
+ *   migration parse reports it.
+ */
+internal class ParseFindings {
+    enum class Kind { SOFT, ADVISORY, DEFERRED }
+
+    data class Finding(
+        val path: String,
+        val reason: String,
+        val kind: Kind,
+    )
+
+    private val items = mutableListOf<Finding>()
+
+    fun soft(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.SOFT))
+    }
+
+    fun advisory(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.ADVISORY))
+    }
+
+    fun deferred(
+        path: String,
+        reason: String
+    ) {
+        items.add(Finding(path, reason, Kind.DEFERRED))
+    }
+
+    fun all(): List<Finding> = items
+}
+
+/** Builds an RFC 6901 JSON Pointer from path segments (each is escaped). */
+private fun ptr(vararg segments: Any): String = ConfigValidator.pointer(*segments.map { it.toString() }.toTypedArray())
+
+/**
+ * Parses a already-YAML-deserialized config root map (`work_item_schemas:` / `note_schemas:` /
+ * `traits:` / `note_limits:`) into the schema/trait structures the rest of the application
+ * consumes.
+ *
+ * Extracted from [YamlWorkItemSchemaService] so both the global config loader (file-backed,
+ * `.taskorchestrator/config.yaml`) and `PerRootConfigService` (DB-backed, one YAML document per
+ * project root) share exactly one parsing implementation — there is no behavioral difference
+ * between "global schema YAML" and "per-root schema YAML" beyond *where the bytes come from* and
+ * whether a missing schemas section is worth warning about (see [warnOnMissingSchemas]).
+ *
+ * [YamlWorkItemSchemaService.loadSchemas] retains its own responsibilities that this object does
+ * NOT take on: resolving the config file path, checking file existence, reading bytes, and
+ * catching/logging file-level exceptions (YAML syntax errors, IO errors). Only the "given a
+ * parsed `Map<String, Any>` root, produce schemas/traits/warnings" step lives here.
+ */
+internal object YamlSchemaParser {
+    private val VALID_SCHEMA_ROLES =
+        mapOf(
+            "queue" to Role.QUEUE,
+            "work" to Role.WORK,
+            "review" to Role.REVIEW,
+        )
+
+    /** Default `note_limits.mode` when unconfigured: accept notes over maxLength, just warn. */
+    const val DEFAULT_NOTE_LIMITS_MODE = "warn"
+
+    /** The one warning a document carrying the removed 3.x `schema_resolution` key gets; the key has no effect. */
+    const val SCHEMA_RESOLUTION_REMOVED_WARNING =
+        "schema_resolution was removed in 4.0 and has no effect; schemas resolve by one fixed precedence rule " +
+            "(per-root type, server type, per-root default, server default)"
+
+    /** The advisory a document carrying a removed 4.0.0 run budget key gets, formatted with the key; the key has no effect. */
+    fun runBudgetKeyRemovedWarning(key: String): String =
+        "runs.budgets.$key was removed in 4.0.1 and has no effect; run token and cost budgets are no longer enforced"
+
+    /** The `runs.budgets` keys 4.0.1 removed: still declared (the structural schema forbids extra keys), never applied. */
+    private val REMOVED_RUN_BUDGET_KEYS = listOf("tokens", "cost_usd")
+
+    /** Recognized `note_limits.mode` values. */
+    private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
+
+    /** Known keys on a top-level `independence:` map (A2). */
+    private val KNOWN_INDEPENDENCE_KEYS = ConfigKeyCatalog.INDEPENDENCE
+
+    /** Resource keys (`traits.<name>.resources[].key` / top-level `resources:` keys) must match this shape. */
+    private val RESOURCE_KEY_REGEX = Regex("^[a-z0-9][a-z0-9\\-_./]*$")
+
+    /** Max length for a resource key — see [RESOURCE_KEY_REGEX]. */
+    private const val RESOURCE_KEY_MAX_LENGTH = 128
+
+    /** Fallback TTL (seconds) for a resource with no registry entry and no per-requirement override. */
+    const val DEFAULT_RESOURCE_TTL_SECONDS = 3600
+
+    /** Valid inclusive bounds for [ResourceDefinition.defaultTtlSeconds]. */
+    private const val MIN_RESOURCE_TTL_SECONDS = 1
+    private const val MAX_RESOURCE_TTL_SECONDS = 86400
+
+    /** A resource key declared by at least this many traits triggers a fan-out warning. */
+    private const val RESOURCE_FANOUT_WARNING_THRESHOLD = 3
+
+    /** Recognized `traits.<name>.resources[].mode` values, matched case-insensitively. */
+    private val VALID_RESOURCE_MODES =
+        mapOf(
+            "exclusive" to ResourceMode.EXCLUSIVE,
+            "advisory" to ResourceMode.ADVISORY,
+        )
+
+    /**
+     * Recognized `traits.<name>.dispatch.<phase>.effort` values, matched case-SENSITIVELY —
+     * unlike [VALID_RESOURCE_MODES], `"HIGH"` is invalid (dropped with a warning), only exact
+     * lowercase matches.
+     */
+    private val VALID_DISPATCH_EFFORTS = setOf("low", "medium", "high", "xhigh", "max")
+
+    /** Recognized fields on a `traits.<name>.dispatch.<phase>:` profile map. */
+    private val VALID_DISPATCH_FIELDS = ConfigKeyCatalog.DISPATCH_PROFILE
+
+    /**
+     * Recognized keys on a `dispatch.<phase>:` map, INCLUDING `seats` (A1a) — used only for the
+     * unknown-field warning; [VALID_DISPATCH_FIELDS] (which does not include `seats`) still governs
+     * what [parseDispatchProfile] reads into a phase-level [DispatchProfile].
+     */
+    private val VALID_DISPATCH_PHASE_KEYS = ConfigKeyCatalog.DISPATCH_PHASE
+
+    /** Known top-level sections when reading existing config: the strict set plus what 3.x config still carries. */
+    private val KNOWN_TOP_LEVEL_SECTIONS_MIGRATION = ConfigKeyCatalog.TOP_LEVEL + ConfigKeyCatalog.TOP_LEVEL_MIGRATION_ONLY
+
+    /** Known keys on a `work_item_schemas.<name>:` map (A1a W3). */
+    private val KNOWN_SCHEMA_LEVEL_KEYS = ConfigKeyCatalog.SCHEMA_LEVEL
+
+    /** Known keys on a `traits.<name>:` map (A1a W3). */
+    private val KNOWN_TRAIT_LEVEL_KEYS = ConfigKeyCatalog.TRAIT_LEVEL
+
+    /** Known keys on a note-schema entry map (A1a W1; `seat`/`independent_of` are new). */
+    private val KNOWN_NOTE_ENTRY_KEYS = ConfigKeyCatalog.NOTE_ENTRY
+
+    /** Known keys on a `seats[]` entry map (A1a W4). */
+    private val VALID_SEAT_ENTRY_KEYS = ConfigKeyCatalog.SEAT_ENTRY
+
+    /** The triggers a seat's `transitions:` may list: every user trigger except `start` (governed by `enters`). */
+    private val SEAT_TRANSITION_TRIGGERS: List<String> =
+        Trigger.User.entries
+            .filter { it != Trigger.User.START }
+            .map { it.wire }
+
+    /** F5: the triggers a seat that `enters` its phase may never declare. */
+    private val ENTERING_SEAT_FORBIDDEN_TRANSITIONS: Set<String> = setOf(Trigger.User.COMPLETE.wire, Trigger.User.CANCEL.wire)
+
+    /** Reserved seat name: the `missingBySeat`/served-schema "unowned" bucket (DEC-11, A1a F3). Exact match only. */
+    private const val UNOWNED_RESERVED_SEAT_NAME = "unowned"
+
+    /**
+     * Budget-related keys reserved for future use. If present on a `resources:` entry (registry or
+     * per-trait), they are parsed-and-warned but never stored — see [warnReservedBudgetKeys].
+     */
+    private val RESERVED_BUDGET_KEYS = setOf("budgetLimit", "budgetWindowSeconds")
+
+    /**
+     * Backward-compatibility alias: everything that used to name `YamlSchemaParser.ParsedConfig`
+     * (the parse result of a config root map: schemas keyed by type/tag, traits, warnings, and
+     * every other document-level facet) now names [ConfigDocument] — the same shape, moved to
+     * `application.config` so both the global file loader and the per-root loader share one
+     * layer-agnostic type. Per-tag note lists are read via `workItemSchemas[tag]?.notes` — there
+     * is no separate tag→entries map, since it would be a redundant view of the same
+     * [NoteSchemaEntry] lists already held inside each [WorkItemSchema].
+     *
+     * Kept for this PR only (see the C1 task-scope note's "Blast radius" for the conditional
+     * fallback if the compiler rejects a nested typealias); a later item may delete it once every
+     * caller has migrated to naming [ConfigDocument] directly.
+     */
+    typealias ParsedConfig = ConfigDocument
+
+    /**
+     * Parses [root] into a [ConfigDocument].
+     *
+     * Precedence: `work_item_schemas:` wins entirely over `note_schemas:` when both are present;
+     * `note_schemas:` is the legacy format (wrapped into [WorkItemSchema] with AUTO lifecycle for
+     * backward compatibility). When neither key is present, [warnOnMissingSchemas] controls
+     * whether a "no schemas loaded" warning is recorded — the global file-backed loader wants
+     * this warning (a `.taskorchestrator/config.yaml` with no schema section is almost always a
+     * mistake), but a per-root config document legitimately may carry only other settings with no
+     * schema section at all, so callers with looser expectations pass `false`.
+     *
+     * [ConfigDocument.noteLimitsMode] is `null` only when the document has no top-level
+     * `note_limits` key at all; otherwise it holds the resolved mode (defaulting to `"warn"` even
+     * when the key's own `mode` sub-key was absent, empty, or invalid). Callers layering this
+     * document over another use that `null` to distinguish "this document doesn't opine, fall
+     * through" from "this document explicitly configures note limits".
+     *
+     * A top-level `schema_resolution` key (3.x) is removed: when present, whatever its value, it adds
+     * exactly one warning saying so and has no effect.
+     * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
+     * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
+     *
+     * [mode] only classifies findings; see [ParseMode]. In [ParseMode.STRICT] a former soft skip lands in
+     * [ConfigDocument.errors] and an unknown top-level key (including the 3.x plugin sections) is one of them; in
+     * [ParseMode.MIGRATION] every finding is a warning, exactly as before.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun parseRoot(
+        root: Map<String, Any>,
+        warnOnMissingSchemas: Boolean = true,
+        mode: ParseMode = ParseMode.MIGRATION,
+    ): ConfigDocument {
+        val warnings = ParseFindings()
+
+        val knownTopLevel = if (mode == ParseMode.STRICT) ConfigKeyCatalog.TOP_LEVEL else KNOWN_TOP_LEVEL_SECTIONS_MIGRATION
+        for (key in root.keys) {
+            if (key !in knownTopLevel && key != "schema_resolution") {
+                warnings.soft(ptr(key), "Unknown top-level section '$key'; ignoring")
+            }
+        }
+
+        val parsedTraits = parseTraits(root, warnings)
+        val traitSeatsMap = parseTraitSeatsMap(root, warnings)
+        val traitDescriptors = parseTraitDescriptors(root, warnings)
+        val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
+        val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
+        val independence = parseIndependencePolicy(root, warnings)
+        val runs = parseRunsConfig(root, warnings)
+        val decisionClasses = parseDecisionClasses(root, warnings)
+        val parsedStatusLabels = parseStatusLabels(root, warnings)
+        val resourceRegistry = parseResourceRegistry(root, warnings)
+        val traitResources = parseTraitResources(root, resourceRegistry, warnings)
+        val (traitDispatch, traitDispatchBySeat) = parseTraitDispatchAndBySeat(root, warnings)
+        if (root.containsKey("schema_resolution")) {
+            warnings.soft(ptr("schema_resolution"), SCHEMA_RESOLUTION_REMOVED_WARNING)
+        }
+        val presentSections: Set<String> = LinkedHashSet(root.keys)
+
+        val base =
+            when {
+                root.containsKey("work_item_schemas") -> parseWorkItemSchemas(root, traitSeatsMap, warnings)
+                root.containsKey("note_schemas") -> parseLegacyNoteSchemas(root, warnings)
+                else -> {
+                    if (warnOnMissingSchemas) {
+                        warnings.advisory("", "Config file is missing 'note_schemas' key; no schemas loaded")
+                    }
+                    ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
+                }
+            }
+
+        val findings = warnings.all()
+        val errors: List<ConfigViolation>
+        val warningViolations: List<ConfigViolation>
+        if (mode == ParseMode.STRICT) {
+            // A strict rejection must not say "ignoring": the lenient wording describes a skip that does not happen here.
+            errors =
+                findings
+                    .filter { it.kind == ParseFindings.Kind.SOFT }
+                    .map { ConfigViolation(it.path, it.reason.removeSuffix("; ignoring")) }
+            warningViolations = findings.filter { it.kind == ParseFindings.Kind.ADVISORY }.map { ConfigViolation(it.path, it.reason) }
+        } else {
+            errors = emptyList()
+            warningViolations = findings.map { ConfigViolation(it.path, it.reason) }
+        }
+
+        return base.copy(
+            traits = parsedTraits,
+            warnings = warningViolations.map { it.reason },
+            errors = errors,
+            warningViolations = warningViolations,
+            noteLimitsMode = noteLimitsMode,
+            independence = independence,
+            runs = runs,
+            decisionClasses = decisionClasses,
+            statusLabels = parsedStatusLabels,
+            traitResources = traitResources,
+            resourceRegistry = resourceRegistry,
+            traitDispatch = traitDispatch,
+            traitDispatchBySeat = traitDispatchBySeat,
+            traitSeats = traitSeatsMap,
+            traitDescriptors = traitDescriptors,
+            presentSections = presentSections,
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseWorkItemSchemas(
+        root: Map<String, Any>,
+        traitSeatsMap: Map<String, List<SeatDefinition>>,
+        warnings: ParseFindings
+    ): ConfigDocument {
+        val rawSchemas =
+            root["work_item_schemas"] as? Map<String, Any>
+                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
+
+        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
+
+        for ((schemaName, rawValue) in rawSchemas) {
+            val schemaMap = rawValue as? Map<String, Any> ?: continue
+            val schemaPath = ptr("work_item_schemas", schemaName)
+
+            for (key in schemaMap.keys) {
+                if (key !in KNOWN_SCHEMA_LEVEL_KEYS) {
+                    warnings.soft("$schemaPath/${ConfigValidator.escape(key)}", "Schema '$schemaName' has unknown key '$key'; ignoring")
+                }
+            }
+
+            val lifecycleRaw = schemaMap["lifecycle"] as? String
+            val lifecycleMode =
+                if (lifecycleRaw != null) {
+                    val normalized = lifecycleRaw.trim().uppercase().replace('-', '_')
+                    if (normalized == "AUTO_REOPEN") {
+                        warnings.soft(
+                            "$schemaPath/lifecycle",
+                            "Schema '$schemaName': lifecycle 'auto-reopen' was removed (it behaved exactly like " +
+                                "'auto'); treating as 'auto'"
+                        )
+                        LifecycleMode.AUTO
+                    } else {
+                        val parsed = LifecycleMode.fromString(lifecycleRaw)
+                        if (parsed == null) {
+                            warnings.soft(
+                                "$schemaPath/lifecycle",
+                                "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
+                            )
+                            LifecycleMode.AUTO
+                        } else {
+                            parsed
+                        }
+                    }
+                } else {
+                    LifecycleMode.AUTO
+                }
+
+            @Suppress("UNCHECKED_CAST")
+            val defaultTraits = (schemaMap["default_traits"] as? List<String>) ?: emptyList()
+
+            val rawNotes = schemaMap["notes"] as? List<Map<String, Any>> ?: emptyList()
+            val entries =
+                rawNotes.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, schemaName, index, "$schemaPath/notes/$index", warnings)
+                }
+
+            val seats = parseSeatEntries(schemaMap["seats"], "Schema '$schemaName'", "$schemaPath/seats", warnings)
+            validateSeatScope("Schema '$schemaName'", seats, "$schemaPath/seats")
+
+            val effectiveSeats = mutableListOf<SeatDefinition>()
+            effectiveSeats.addAll(seats)
+            // distinct(): a trait listed twice in default_traits contributes its seats once — resolve-time
+            // mergeTraits de-dups the same way, so a repeat must not trip a false F2 duplicate-name fatal.
+            for (trait in defaultTraits.distinct()) {
+                traitSeatsMap[trait]?.let { effectiveSeats.addAll(it) }
+            }
+            if (effectiveSeats.size != seats.size) {
+                validateSeatScope("Schema '$schemaName'", effectiveSeats, "$schemaPath/seats")
+            }
+
+            workItemSchemasMap[schemaName] =
+                WorkItemSchema(
+                    type = schemaName,
+                    lifecycleMode = lifecycleMode,
+                    notes = entries,
+                    defaultTraits = defaultTraits,
+                    seats = seats
+                )
+        }
+
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap())
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseLegacyNoteSchemas(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): ConfigDocument {
+        val noteSchemas =
+            root["note_schemas"] as? Map<String, Any>
+                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
+
+        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
+
+        for ((schemaName, rawEntries) in noteSchemas) {
+            val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
+            val entries =
+                entryList.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, schemaName, index, ptr("note_schemas", schemaName, index), warnings)
+                }
+            // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
+            workItemSchemasMap[schemaName] =
+                WorkItemSchema(
+                    type = schemaName,
+                    lifecycleMode = LifecycleMode.AUTO,
+                    notes = entries
+                )
+        }
+
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap())
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraits(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, List<NoteSchemaEntry>> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        return traitsRaw.entries.associate { (traitName, rawValue) ->
+            val rawMap = rawValue as? Map<String, Any> ?: emptyMap()
+            val traitPath = ptr("traits", traitName)
+            for (key in rawMap.keys) {
+                if (key !in KNOWN_TRAIT_LEVEL_KEYS) {
+                    warnings.soft("$traitPath/${ConfigValidator.escape(key)}", "Trait '$traitName' has unknown key '$key'; ignoring")
+                }
+            }
+            val notesList = rawMap["notes"] as? List<Map<String, Any>> ?: emptyList()
+            val entries =
+                notesList.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, "trait:$traitName", index, "$traitPath/notes/$index", warnings)
+                }
+            traitName to entries
+        }
+    }
+
+    /**
+     * Parses each trait's optional `description` and `applies_when` strings into a trait-name to
+     * [TraitDescriptor] map. Values are trimmed and a blank string is absent; a non-string value
+     * (including YAML null) is a soft finding and the field is dropped. A trait with neither field
+     * is absent from the result. Text only: nothing here evaluates `applies_when`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitDescriptors(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, TraitDescriptor> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        val result = mutableMapOf<String, TraitDescriptor>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any?> ?: continue
+
+            fun text(key: String): String? {
+                if (!rawMap.containsKey(key)) return null
+                val value = rawMap[key]
+                if (value is String) return value.trim().ifEmpty { null }
+                warnings.soft(ptr("traits", traitName, key), "Trait '$traitName' '$key' must be a string; ignoring")
+                return null
+            }
+            val description = text("description")
+            val appliesWhen = text("applies_when")
+            if (description != null || appliesWhen != null) {
+                result[traitName] = TraitDescriptor(description, appliesWhen)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Parses per-trait `seats:` lists into a trait-name→[SeatDefinition] map. A trait with no
+     * `seats:` key at all is absent from the result entirely (not mapped to an empty list),
+     * mirroring [parseTraitResources]/[parseTraitDispatchAndBySeat] — see [ConfigDocument.traitSeats].
+     * Each trait's own seats list is validated standalone (F1-F4); the cross-check against a
+     * schema's own seats (for schemas naming this trait in `default_traits`, in the SAME document)
+     * happens separately in [parseWorkItemSchemas].
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitSeatsMap(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, List<SeatDefinition>> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        val result = mutableMapOf<String, List<SeatDefinition>>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any> ?: continue
+            if (!rawMap.containsKey("seats")) continue
+            val seatsPath = ptr("traits", traitName, "seats")
+            val seats = parseSeatEntries(rawMap["seats"], "Trait '$traitName'", seatsPath, warnings)
+            validateSeatScope("Trait '$traitName'", seats, seatsPath)
+            result[traitName] = seats
+        }
+        return result
+    }
+
+    /**
+     * Parses a `seats:` list (schema-level or trait-level) into [SeatDefinition]s. Malformed
+     * entries warn-and-skip at their own granularity (A1a W4), never failing the whole section:
+     * missing/blank `name`, invalid/missing `phase`, non-boolean `enters` (defaults to false),
+     * non-list `after`/`reads_exclude` (default to empty), a non-list `transitions` (treated as absent) or an element
+     * of it that is not a user trigger other than `start` (dropped), and an unknown entry key.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSeatEntries(
+        rawSeats: Any?,
+        context: String,
+        seatsPath: String,
+        warnings: ParseFindings
+    ): List<SeatDefinition> {
+        if (rawSeats == null) return emptyList()
+        val list =
+            rawSeats as? List<Any?> ?: run {
+                warnings.soft(seatsPath, "$context has a malformed 'seats' section (expected a list); ignoring")
+                return emptyList()
+            }
+
+        val result = mutableListOf<SeatDefinition>()
+        for ((index, rawEntry) in list.withIndex()) {
+            val entryPath = "$seatsPath/$index"
+            val entryMap =
+                rawEntry as? Map<String, Any> ?: run {
+                    warnings.soft(entryPath, "$context seats[$index] is not a map; skipping")
+                    continue
+                }
+
+            val nameRaw = entryMap["name"] as? String
+            val name = nameRaw?.trim()
+            if (name.isNullOrBlank()) {
+                warnings.soft(entryPath, "$context seats[$index] is missing required field 'name'; skipping")
+                continue
+            }
+
+            val phaseRaw = entryMap["phase"] as? String
+            val phase = phaseRaw?.let { VALID_SCHEMA_ROLES[it] }
+            if (phase == null) {
+                warnings.soft(
+                    "$entryPath/phase",
+                    "$context seats[$index] (name='$name') has invalid or missing 'phase' value '$phaseRaw' " +
+                        "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
+                )
+                continue
+            }
+
+            val entersRaw = entryMap["enters"]
+            val enters =
+                when (entersRaw) {
+                    null -> false
+                    is Boolean -> entersRaw
+                    else -> {
+                        warnings.soft(
+                            "$entryPath/enters",
+                            "$context seats[$index] (name='$name') has non-boolean 'enters' value '$entersRaw'; " +
+                                "defaulting to false"
+                        )
+                        false
+                    }
+                }
+
+            val after = parseSeatStringListField(entryMap, "after", context, name, entryPath, warnings)
+            val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
+            val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
+            val rules = parseSeatRules(entryMap, context, name, entryPath, warnings)
+            val skills = parseSeatSkills(entryMap, context, name, entryPath, warnings)
+
+            for (key in entryMap.keys) {
+                if (key !in VALID_SEAT_ENTRY_KEYS) {
+                    warnings.soft(
+                        "$entryPath/${ConfigValidator.escape(key)}",
+                        "$context seats[$index] (name='$name') has unknown key '$key'; ignoring"
+                    )
+                }
+            }
+
+            result.add(
+                SeatDefinition(
+                    name = name,
+                    phase = phase,
+                    enters = enters,
+                    after = after,
+                    readsExclude = readsExclude,
+                    transitions = transitions,
+                    rules = rules,
+                    skills = skills
+                )
+            )
+        }
+        return result
+    }
+
+    /**
+     * A seat's `transitions:` list: null when absent (the default triggers apply) or when not a list (a soft warning at
+     * `<entry>/transitions`); otherwise the declared user triggers other than `start`, duplicates collapsed in first
+     * order. An element that is not one of them (`start` included, which `enters` governs) is a soft warning at
+     * `<entry>/transitions/<i>` and is dropped. `[]` declares no extra trigger at all.
+     */
+    private fun parseSeatTransitions(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("transitions")) return null
+        val raw = entryMap["transitions"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/transitions",
+                    "$context seats (name='$seatName') has non-list 'transitions' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val wire = element as? String
+            if (wire == null || wire !in SEAT_TRANSITION_TRIGGERS) {
+                warnings.soft(
+                    "$entryPath/transitions/$i",
+                    "$context seats (name='$seatName') has invalid transition '$element' " +
+                        "(valid: $SEAT_TRANSITION_TRIGGERS; 'start' is governed by 'enters'); ignoring"
+                )
+                continue
+            }
+            result.add(wire)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `rules:` list: null when absent (the plugin's default rules apply) or when not a list (a soft warning at
+     * `<entry>/rules`); otherwise the declared rule keys, duplicates collapsed in first order. An element that is not a
+     * string, or does not match [RuleService.KEY_PATTERN], is a soft warning at `<entry>/rules/<i>` and is dropped.
+     * `[]` declares no rule at all. Existence is not checked: the parser has no store and rules are pushed separately.
+     */
+    private fun parseSeatRules(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("rules")) return null
+        val raw = entryMap["rules"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/rules",
+                    "$context seats (name='$seatName') has non-list 'rules' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val key = element as? String
+            if (key == null || !RuleService.KEY_PATTERN.matches(key)) {
+                warnings.soft(
+                    "$entryPath/rules/$i",
+                    "$context seats (name='$seatName') has invalid rule key '$element' " +
+                        "(expected lowercase letters, digits, '.', '_' or '-', starting alphanumeric, at most 100 characters); ignoring"
+                )
+                continue
+            }
+            result.add(key)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `skills:` list: null when absent (the plugin's default skills apply) or when not a list (a soft warning at
+     * `<entry>/skills`); otherwise the declared skill names verbatim, duplicates collapsed in first order. An element that
+     * is not a string, or is blank, is a soft warning at `<entry>/skills/<i>` and is dropped. `[]` declares no skill at
+     * all. Existence is not checked: a skill is resolved by the plugin, not the server.
+     */
+    private fun parseSeatSkills(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("skills")) return null
+        val raw = entryMap["skills"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/skills",
+                    "$context seats (name='$seatName') has non-list 'skills' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val name = element as? String
+            if (name == null || name.isBlank()) {
+                warnings.soft(
+                    "$entryPath/skills/$i",
+                    "$context seats (name='$seatName') has invalid skill name '$element' (expected a non-blank string); ignoring"
+                )
+                continue
+            }
+            result.add(name)
+        }
+        return result.toList()
+    }
+
+    private fun parseSeatStringListField(
+        entryMap: Map<String, Any>,
+        field: String,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        if (!entryMap.containsKey(field)) return emptyList()
+        val raw = entryMap[field]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft("$entryPath/$field", "$context seats (name='$seatName') has non-list '$field' value '$raw'; ignoring")
+                return emptyList()
+            }
+        return list.filterIsInstance<String>()
+    }
+
+    /**
+     * Structural validation (F1-F4, ConfigStructureException — fails the whole load/push, see
+     * [ConfigStructureException]) over one seats scope: a single list (a schema's own, or a
+     * trait's own), or the union of a schema's own seats with its same-document default traits'
+     * seats (see [parseWorkItemSchemas]).
+     *
+     * F3 (reserved name) and F2 (duplicate name) are checked before F1 (duplicate `enters` per
+     * phase), F5 (an entering seat declaring `complete` or `cancel` in `transitions`) and F4 (an
+     * `after` cycle), in that order, so a config violating more than one rule fails with a
+     * deterministic message.
+     */
+    private fun validateSeatScope(
+        context: String,
+        seats: List<SeatDefinition>,
+        path: String
+    ) {
+        if (seats.isEmpty()) return
+
+        seats.firstOrNull { it.name == UNOWNED_RESERVED_SEAT_NAME }?.let {
+            throw ConfigStructureException(
+                "$context declares a seat named '$UNOWNED_RESERVED_SEAT_NAME', which is reserved for the " +
+                    "unowned-notes bucket",
+                path
+            )
+        }
+
+        val seenNames = mutableSetOf<String>()
+        for (seat in seats) {
+            if (!seenNames.add(seat.name)) {
+                throw ConfigStructureException("$context declares duplicate seat name '${seat.name}'", path)
+            }
+        }
+
+        val entersByPhase = mutableMapOf<Role, String>()
+        for (seat in seats) {
+            if (!seat.enters) continue
+            val existing = entersByPhase[seat.phase]
+            if (existing != null) {
+                throw ConfigStructureException(
+                    "$context has two seats entering phase '${seat.phase.name.lowercase()}' " +
+                        "('$existing' and '${seat.name}')",
+                    path
+                )
+            }
+            entersByPhase[seat.phase] = seat.name
+        }
+
+        // F5: the seat that enters a phase may never complete or cancel the item.
+        for (seat in seats) {
+            if (!seat.enters) continue
+            val forbidden = seat.transitions.orEmpty().firstOrNull { it in ENTERING_SEAT_FORBIDDEN_TRANSITIONS } ?: continue
+            throw ConfigStructureException(
+                "$context seat '${seat.name}' enters phase '${seat.phase.name.lowercase()}' and may not declare " +
+                    "transition '$forbidden'",
+                path
+            )
+        }
+
+        val byName = seats.associateBy { it.name }
+        val visiting = mutableSetOf<String>()
+        val visited = mutableSetOf<String>()
+
+        fun visit(name: String) {
+            if (name in visited) return
+            if (!visiting.add(name)) {
+                throw ConfigStructureException("$context has a seat 'after' cycle involving '$name'", path)
+            }
+            byName[name]?.after?.forEach { dep -> if (dep in byName) visit(dep) }
+            visiting.remove(name)
+            visited.add(name)
+        }
+        for (seat in seats) visit(seat.name)
+    }
+
+    /**
+     * Parses the top-level `resources:` registry into a key→[ResourceDefinition] map. A malformed
+     * section (present but not a map) is warned-and-ignored, matching every other top-level-section
+     * parse in this object — never fails the whole config load. Individual malformed/invalid
+     * entries are warned-and-skipped the same way: the rest of the registry still loads.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseResourceRegistry(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, ResourceDefinition> {
+        val raw = root["resources"] ?: return emptyMap()
+        val rawMap =
+            raw as? Map<String, Any> ?: run {
+                warnings.soft(ptr("resources"), "Top-level 'resources' section is not a map; ignoring")
+                return emptyMap()
+            }
+
+        val registry = mutableMapOf<String, ResourceDefinition>()
+        for ((key, rawValue) in rawMap) {
+            val entryPath = ptr("resources", key)
+            if (!isValidResourceKey(key)) {
+                warnings.soft(
+                    entryPath,
+                    "Resource registry key '$key' is invalid (must match '${RESOURCE_KEY_REGEX.pattern}', " +
+                        "max $RESOURCE_KEY_MAX_LENGTH chars); skipping"
+                )
+                continue
+            }
+
+            val entryMap = rawValue as? Map<String, Any>
+            if (entryMap == null) {
+                warnings.soft(entryPath, "Resource registry entry '$key' is not a map; skipping")
+                continue
+            }
+
+            warnReservedBudgetKeys(entryMap, "Resource registry entry '$key'", entryPath, warnings)
+
+            val description = entryMap["description"] as? String ?: ""
+
+            val maxHoldersRaw = entryMap["maxHolders"]
+            val maxHolders =
+                when (maxHoldersRaw) {
+                    null -> 1
+                    is Number -> maxHoldersRaw.toInt()
+                    else -> {
+                        warnings.soft(
+                            "$entryPath/maxHolders",
+                            "Resource registry entry '$key' has non-numeric 'maxHolders' value '$maxHoldersRaw'; defaulting to 1"
+                        )
+                        1
+                    }
+                }
+            if (maxHolders > 1) {
+                warnings.soft("$entryPath/maxHolders", "Resource registry entry '$key': maxHolders > 1 not yet supported; skipping entry")
+                continue
+            }
+            if (maxHolders < 1) {
+                warnings.soft(
+                    "$entryPath/maxHolders",
+                    "Resource registry entry '$key' has maxHolders '$maxHolders' below 1; defaulting to 1"
+                )
+            }
+
+            val ttlRaw = entryMap["defaultTtlSeconds"]
+            val defaultTtlSeconds =
+                when (ttlRaw) {
+                    null -> DEFAULT_RESOURCE_TTL_SECONDS
+                    is Number -> {
+                        val ttl = ttlRaw.toInt()
+                        if (ttl in MIN_RESOURCE_TTL_SECONDS..MAX_RESOURCE_TTL_SECONDS) {
+                            ttl
+                        } else {
+                            warnings.soft(
+                                "$entryPath/defaultTtlSeconds",
+                                "Resource registry entry '$key' has defaultTtlSeconds '$ttl' out of bounds " +
+                                    "($MIN_RESOURCE_TTL_SECONDS..$MAX_RESOURCE_TTL_SECONDS); defaulting to ${DEFAULT_RESOURCE_TTL_SECONDS}s"
+                            )
+                            DEFAULT_RESOURCE_TTL_SECONDS
+                        }
+                    }
+                    else -> {
+                        warnings.soft(
+                            "$entryPath/defaultTtlSeconds",
+                            "Resource registry entry '$key' has non-numeric 'defaultTtlSeconds' value '$ttlRaw'; " +
+                                "defaulting to ${DEFAULT_RESOURCE_TTL_SECONDS}s"
+                        )
+                        DEFAULT_RESOURCE_TTL_SECONDS
+                    }
+                }
+
+            registry[key] =
+                ResourceDefinition(
+                    key = key,
+                    description = description,
+                    defaultTtlSeconds = defaultTtlSeconds,
+                    maxHolders = maxHolders.coerceAtLeast(1)
+                )
+        }
+        return registry
+    }
+
+    /**
+     * Parses per-trait `resources:` lists into a trait-name→[ResourceRequirement] map (traits with
+     * no `resources:` key are absent from the result, not mapped to an empty list), then emits two
+     * cross-trait warnings against the already-parsed [registry]:
+     *  - a requirement referencing a key absent from [registry] ("undeclared resource") — warned but
+     *    still honored with built-in defaults, never dropped. This is a deferred finding reported only
+     *    by the MIGRATION parse; a strict push or boot import rejects the undeclared key via
+     *    `ConfigValidator` instead;
+     *  - a resource key declared by [RESOURCE_FANOUT_WARNING_THRESHOLD] or more traits ("fan-out").
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitResources(
+        root: Map<String, Any>,
+        registry: Map<String, ResourceDefinition>,
+        warnings: ParseFindings
+    ): Map<String, List<ResourceRequirement>> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+
+        val result = mutableMapOf<String, List<ResourceRequirement>>()
+        val keyCounts = mutableMapOf<String, Int>()
+
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any> ?: continue
+            val resourcesRaw = rawMap["resources"] ?: continue
+
+            val requirements = parseResourceRequirementList(resourcesRaw, traitName, warnings)
+            if (requirements.isEmpty()) continue
+
+            result[traitName] = requirements
+            for (req in requirements) {
+                keyCounts[req.key] = (keyCounts[req.key] ?: 0) + 1
+                if (req.key !in registry) {
+                    // Deferred: the strict validator checks the key against the SERVER registry, not this document's.
+                    warnings.deferred(
+                        ptr("traits", traitName, "resources"),
+                        "Trait '$traitName' references undeclared resource '${req.key}'; enforcing with defaults " +
+                            "(ttl ${DEFAULT_RESOURCE_TTL_SECONDS}s)"
+                    )
+                }
+            }
+        }
+
+        keyCounts
+            .filterValues { it >= RESOURCE_FANOUT_WARNING_THRESHOLD }
+            .forEach { (key, count) ->
+                warnings.advisory(ptr("traits"), "Resource '$key' is declared by $count traits (fan-out); contention is likely")
+            }
+
+        return result
+    }
+
+    /**
+     * Parses a single trait's `resources:` value, which must be a list. Supports both short form
+     * (bare key strings, coerced to [ResourceMode.EXCLUSIVE] with no ttl override) and long form
+     * (maps with `key`, optional `mode` — case-insensitive, unknown values warn and fall back to
+     * EXCLUSIVE — and optional `ttlSeconds`). A non-list value or an unrecognized list-element shape
+     * is warned-and-skipped at that granularity (element or whole section), never fatal.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseResourceRequirementList(
+        resourcesRaw: Any,
+        traitName: String,
+        warnings: ParseFindings
+    ): List<ResourceRequirement> {
+        val resourcesPath = ptr("traits", traitName, "resources")
+        val list =
+            resourcesRaw as? List<Any?> ?: run {
+                warnings.soft(resourcesPath, "Trait '$traitName' has a malformed 'resources' section (expected a list); skipping")
+                return emptyList()
+            }
+
+        val result = mutableListOf<ResourceRequirement>()
+        for ((index, rawEntry) in list.withIndex()) {
+            val entryPath = "$resourcesPath/$index"
+            when (rawEntry) {
+                is String -> {
+                    if (!isValidResourceKey(rawEntry)) {
+                        warnings.soft(entryPath, "Trait '$traitName' resources[$index] has invalid key '$rawEntry'; skipping")
+                        continue
+                    }
+                    result.add(ResourceRequirement(key = rawEntry))
+                }
+
+                is Map<*, *> -> {
+                    val entryMap = rawEntry as Map<String, Any>
+                    val key = entryMap["key"] as? String
+                    if (key == null) {
+                        warnings.soft(entryPath, "Trait '$traitName' resources[$index] is missing required field 'key'; skipping")
+                        continue
+                    }
+                    if (!isValidResourceKey(key)) {
+                        warnings.soft("$entryPath/key", "Trait '$traitName' resources[$index] has invalid key '$key'; skipping")
+                        continue
+                    }
+
+                    warnReservedBudgetKeys(entryMap, "Trait '$traitName' resources[$index] (key='$key')", entryPath, warnings)
+
+                    val modeRaw = entryMap["mode"] as? String
+                    val mode =
+                        if (modeRaw == null) {
+                            ResourceMode.EXCLUSIVE
+                        } else {
+                            VALID_RESOURCE_MODES[modeRaw.lowercase()] ?: run {
+                                warnings.soft(
+                                    "$entryPath/mode",
+                                    "Trait '$traitName' resources[$index] (key='$key') has unknown mode '$modeRaw'; " +
+                                        "defaulting to exclusive"
+                                )
+                                ResourceMode.EXCLUSIVE
+                            }
+                        }
+
+                    val ttlRaw = entryMap["ttlSeconds"]
+                    val ttlSeconds =
+                        when (ttlRaw) {
+                            null -> null
+                            is Number -> ttlRaw.toInt()
+                            else -> {
+                                warnings.soft(
+                                    "$entryPath/ttlSeconds",
+                                    "Trait '$traitName' resources[$index] (key='$key') has non-numeric 'ttlSeconds' " +
+                                        "value '$ttlRaw'; ignoring"
+                                )
+                                null
+                            }
+                        }
+
+                    result.add(ResourceRequirement(key = key, mode = mode, ttlSeconds = ttlSeconds))
+                }
+
+                else -> {
+                    warnings.soft(entryPath, "Trait '$traitName' resources[$index] is neither a string nor a map; skipping")
+                }
+            }
+        }
+        return result
+    }
+
+    private fun isValidResourceKey(key: String): Boolean = key.length in 1..RESOURCE_KEY_MAX_LENGTH && RESOURCE_KEY_REGEX.matches(key)
+
+    /**
+     * Parses per-trait `dispatch:` maps into BOTH the by-role profile map (unchanged behavior) and
+     * the new by-seat override map (A1a, `dispatch.<phase>.seats:`), sharing one pass over the
+     * phase entries so both shapes see identical phase/role validation. A trait with no `dispatch:`
+     * key is absent from BOTH result maps entirely, mirroring [parseTraitResources]. See
+     * [ConfigDocument.traitDispatch] / [ConfigDocument.traitDispatchBySeat] for the "absent, not
+     * empty" convention this preserves.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitDispatchAndBySeat(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Pair<Map<String, Map<Role, DispatchProfile>>, Map<String, Map<Role, Map<String, SeatDispatchOverride>>>> {
+        val traitsRaw =
+            root["traits"] as? Map<String, Any>
+                ?: return emptyMap<String, Map<Role, DispatchProfile>>() to emptyMap()
+
+        val byRoleResult = mutableMapOf<String, Map<Role, DispatchProfile>>()
+        val bySeatResult = mutableMapOf<String, Map<Role, Map<String, SeatDispatchOverride>>>()
+
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any> ?: continue
+            val dispatchRaw = rawMap["dispatch"] ?: continue
+
+            val dispatchPath = ptr("traits", traitName, "dispatch")
+            val dispatchMap =
+                dispatchRaw as? Map<String, Any> ?: run {
+                    warnings.soft(dispatchPath, "Trait '$traitName' has a malformed 'dispatch' section (expected a map); skipping")
+                    continue
+                }
+
+            // EnumMap: iteration (and so the wire order) follows the phase order, not the YAML key order, so a stored
+            // version rebuilt from its key-sorted canonical JSON serializes exactly like the YAML it came from.
+            val phases: MutableMap<Role, DispatchProfile> = java.util.EnumMap(Role::class.java)
+            val phasesBySeat: MutableMap<Role, Map<String, SeatDispatchOverride>> = java.util.EnumMap(Role::class.java)
+
+            for ((phaseKey, phaseRaw) in dispatchMap) {
+                val phasePath = "$dispatchPath/${ConfigValidator.escape(phaseKey)}"
+                val role = VALID_SCHEMA_ROLES[phaseKey]
+                if (role == null) {
+                    warnings.soft(
+                        phasePath,
+                        "Trait '$traitName' dispatch has invalid phase '$phaseKey' " +
+                            "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
+                    )
+                    continue
+                }
+
+                val phaseMap =
+                    phaseRaw as? Map<String, Any> ?: run {
+                        warnings.soft(phasePath, "Trait '$traitName' dispatch.$phaseKey is not a map; skipping")
+                        continue
+                    }
+
+                val profile = parseDispatchProfile(phaseMap, traitName, phaseKey, phasePath, warnings)
+                if (profile != null) {
+                    phases[role] = profile
+                }
+
+                if (phaseMap.containsKey("seats")) {
+                    val seatOverrides = parseSeatDispatchOverrides(phaseMap["seats"], traitName, phaseKey, "$phasePath/seats", warnings)
+                    if (seatOverrides.isNotEmpty()) {
+                        phasesBySeat[role] = seatOverrides
+                    }
+                }
+            }
+
+            if (phases.isNotEmpty()) {
+                byRoleResult[traitName] = phases
+            }
+            if (phasesBySeat.isNotEmpty()) {
+                bySeatResult[traitName] = phasesBySeat
+            }
+        }
+        return byRoleResult to bySeatResult
+    }
+
+    /**
+     * Parses a `dispatch.<phase>.seats:` map into a seat-name→[SeatDispatchOverride] map (A1a).
+     * Malformed shapes warn-and-skip at their own granularity: `seats:` not a map -> the whole
+     * sub-section is ignored; an individual seat's override not a map -> that seat is skipped; an
+     * override with no valid field -> that seat is skipped (see [parseSeatDispatchOverride]).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSeatDispatchOverrides(
+        rawSeats: Any?,
+        traitName: String,
+        phaseKey: String,
+        seatsPath: String,
+        warnings: ParseFindings
+    ): Map<String, SeatDispatchOverride> {
+        val seatsMap =
+            rawSeats as? Map<String, Any?> ?: run {
+                warnings.soft(seatsPath, "Trait '$traitName' dispatch.$phaseKey.seats is not a map; ignoring")
+                return emptyMap()
+            }
+        val result = mutableMapOf<String, SeatDispatchOverride>()
+        for ((seatName, overrideRaw) in seatsMap) {
+            val overridePath = "$seatsPath/${ConfigValidator.escape(seatName)}"
+            val overrideMap =
+                overrideRaw as? Map<String, Any?> ?: run {
+                    warnings.soft(overridePath, "Trait '$traitName' dispatch.$phaseKey.seats.$seatName is not a map; skipping")
+                    continue
+                }
+            parseSeatDispatchOverride(overrideMap, traitName, phaseKey, seatName, overridePath, warnings)?.let {
+                result[seatName] = it
+            }
+        }
+        return result
+    }
+
+    /**
+     * Parses one `dispatch.<phase>.seats.<seat>:` override map. A field present with an explicit
+     * YAML `null` value is recorded in [SeatDispatchOverride.cleared] (agent:null CLEARS the phase
+     * default for that seat, per DEC — task-scope §2); a field present with a non-string or blank
+     * value drops with a warning (same rule as [parseDispatchField]); `effort` is additionally
+     * validated against [VALID_DISPATCH_EFFORTS]. An override with no field set at all (nothing
+     * overridden, nothing cleared) is dropped with a warning, matching an empty phase-level profile.
+     */
+    private fun parseSeatDispatchOverride(
+        overrideMap: Map<String, Any?>,
+        traitName: String,
+        phaseKey: String,
+        seatName: String,
+        overridePath: String,
+        warnings: ParseFindings
+    ): SeatDispatchOverride? {
+        var agent: String? = null
+        var model: String? = null
+        var effort: String? = null
+        val cleared = mutableSetOf<String>()
+
+        for (field in VALID_DISPATCH_FIELDS) {
+            if (!overrideMap.containsKey(field)) continue
+            val raw = overrideMap[field]
+            if (raw == null) {
+                cleared.add(field)
+                continue
+            }
+            val value = raw as? String
+            if (value == null) {
+                warnings.soft(
+                    "$overridePath/$field",
+                    "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.$field has non-string value '$raw'; dropping"
+                )
+                continue
+            }
+            if (value.isBlank()) {
+                warnings.soft("$overridePath/$field", "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.$field is blank; dropping")
+                continue
+            }
+            if (field == "effort" && value !in VALID_DISPATCH_EFFORTS) {
+                warnings.soft(
+                    "$overridePath/effort",
+                    "Trait '$traitName' dispatch.$phaseKey.seats.$seatName.effort has invalid value '$value' " +
+                        "(valid: $VALID_DISPATCH_EFFORTS); dropping"
+                )
+                continue
+            }
+            when (field) {
+                "agent" -> agent = value
+                "model" -> model = value
+                "effort" -> effort = value
+            }
+        }
+
+        for (key in overrideMap.keys) {
+            if (key !in VALID_DISPATCH_FIELDS) {
+                warnings.soft(
+                    "$overridePath/${ConfigValidator.escape(key)}",
+                    "Trait '$traitName' dispatch.$phaseKey.seats.$seatName has unknown field '$key'; ignoring"
+                )
+            }
+        }
+
+        if (agent == null && model == null && effort == null && cleared.isEmpty()) {
+            warnings.soft(overridePath, "Trait '$traitName' dispatch.$phaseKey.seats.$seatName has no valid fields; skipping")
+            return null
+        }
+        return SeatDispatchOverride(agent = agent, model = model, effort = effort, cleared = cleared)
+    }
+
+    /**
+     * Parses a single `traits.<name>.dispatch.<phase>:` map into a [DispatchProfile]. Returns null
+     * (caller skips the phase, with a warning already recorded) when no field survives parsing —
+     * an empty profile is never stored, matching a `resources:` entry with no valid fields.
+     */
+    private fun parseDispatchProfile(
+        phaseMap: Map<String, Any>,
+        traitName: String,
+        phaseKey: String,
+        phasePath: String,
+        warnings: ParseFindings
+    ): DispatchProfile? {
+        val agent = parseDispatchField(phaseMap, "agent", traitName, phaseKey, phasePath, warnings)
+        val model = parseDispatchField(phaseMap, "model", traitName, phaseKey, phasePath, warnings)
+        var effort = parseDispatchField(phaseMap, "effort", traitName, phaseKey, phasePath, warnings)
+        if (effort != null && effort !in VALID_DISPATCH_EFFORTS) {
+            warnings.soft(
+                "$phasePath/effort",
+                "Trait '$traitName' dispatch.$phaseKey.effort has invalid value '$effort' " +
+                    "(valid: $VALID_DISPATCH_EFFORTS); dropping"
+            )
+            effort = null
+        }
+
+        for (key in phaseMap.keys) {
+            if (key !in VALID_DISPATCH_PHASE_KEYS) {
+                warnings.soft(
+                    "$phasePath/${ConfigValidator.escape(key)}",
+                    "Trait '$traitName' dispatch.$phaseKey has unknown field '$key'; ignoring"
+                )
+            }
+        }
+
+        if (agent == null && model == null && effort == null) {
+            // A phase map carrying ONLY `seats:` (A1a) is valid — no phase-level profile, but not
+            // a "no valid fields" warning either; parseSeatDispatchOverrides handles its content.
+            if (!phaseMap.containsKey("seats")) {
+                warnings.soft(phasePath, "Trait '$traitName' dispatch.$phaseKey has no valid fields; skipping")
+            }
+            return null
+        }
+        return DispatchProfile(agent = agent, model = model, effort = effort)
+    }
+
+    /**
+     * Reads a single string field off a `dispatch.<phase>:` profile map, warning-and-dropping
+     * (returning null) when the field is present but non-string or blank. An absent field is
+     * silently null (not a warning) — the field is simply unset for this profile.
+     */
+    private fun parseDispatchField(
+        phaseMap: Map<String, Any>,
+        field: String,
+        traitName: String,
+        phaseKey: String,
+        phasePath: String,
+        warnings: ParseFindings
+    ): String? {
+        if (!phaseMap.containsKey(field)) return null
+        val raw = phaseMap[field]
+        val value = raw as? String
+        if (value == null) {
+            warnings.soft("$phasePath/$field", "Trait '$traitName' dispatch.$phaseKey.$field has non-string value '$raw'; dropping")
+            return null
+        }
+        if (value.isBlank()) {
+            warnings.soft("$phasePath/$field", "Trait '$traitName' dispatch.$phaseKey.$field is blank; dropping")
+            return null
+        }
+        return value
+    }
+
+    /**
+     * Warns (without storing) when [entryMap] contains any of [RESERVED_BUDGET_KEYS] — these fields
+     * are reserved for a future budget-enforcement feature and are intentionally not modeled by
+     * [ResourceDefinition]/[ResourceRequirement] yet.
+     */
+    private fun warnReservedBudgetKeys(
+        entryMap: Map<String, Any>,
+        context: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ) {
+        for (budgetKey in RESERVED_BUDGET_KEYS) {
+            if (entryMap.containsKey(budgetKey)) {
+                warnings.soft("$entryPath/$budgetKey", "$context uses '$budgetKey', which is reserved for future use; ignoring")
+            }
+        }
+    }
+
+    private fun parseEntry(
+        raw: Map<String, Any>,
+        schemaName: String,
+        index: Int,
+        entryPath: String,
+        warnings: ParseFindings
+    ): NoteSchemaEntry? {
+        val key = raw["key"] as? String
+        if (key == null) {
+            warnings.soft(entryPath, "Schema '$schemaName' entry[$index] is missing required field 'key'; skipping")
+            return null
+        }
+
+        val roleRaw = raw["role"] as? String
+        if (roleRaw == null) {
+            warnings.soft(entryPath, "Schema '$schemaName' entry[$index] (key='$key') is missing required field 'role'; skipping")
+            return null
+        }
+
+        val parsedRole = VALID_SCHEMA_ROLES[roleRaw]
+        if (parsedRole == null) {
+            warnings.soft(
+                "$entryPath/role",
+                "Schema '$schemaName' entry[$index] (key='$key') has invalid role '$roleRaw' " +
+                    "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
+            )
+            return null
+        }
+
+        val requiredRaw = raw["required"]
+        val required =
+            if (requiredRaw != null && requiredRaw !is Boolean) {
+                warnings.soft(
+                    "$entryPath/required",
+                    "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
+                )
+                false
+            } else {
+                requiredRaw ?: false
+            }
+
+        val description = raw["description"] as? String ?: ""
+        val guidance = raw["guidance"] as? String
+        val skills = parseSkills(raw["skill"], entryPath, warnings)
+        val skill = skills.firstOrNull() ?: (raw["skill"] as? String)
+        val skillMode = parseSkillMode(raw["skill_mode"], skill != null || skills.isNotEmpty(), entryPath, warnings)
+
+        val lane = parseLane(raw["lane"], parsedRole, key, entryPath, warnings)
+
+        val maxLengthRaw = raw["maxLength"]
+        val maxLength =
+            if (maxLengthRaw != null && maxLengthRaw !is Number) {
+                warnings.soft(
+                    "$entryPath/maxLength",
+                    "Schema '$schemaName' entry (key='$key') has non-numeric 'maxLength' value '$maxLengthRaw'; ignoring"
+                )
+                null
+            } else {
+                maxLengthRaw?.toInt()
+            }
+
+        val seat = raw["seat"] as? String
+
+        val independentOfRaw = raw["independent_of"]
+        val independentOf =
+            when (independentOfRaw) {
+                null -> emptyList()
+                is List<*> -> independentOfRaw.filterIsInstance<String>()
+                else -> {
+                    warnings.soft(
+                        "$entryPath/independent_of",
+                        "Schema '$schemaName' entry (key='$key') has non-list 'independent_of' value " +
+                            "'$independentOfRaw'; ignoring"
+                    )
+                    emptyList()
+                }
+            }
+
+        val sharedRaw = raw["shared"]
+        val shared =
+            if (sharedRaw != null && sharedRaw !is Boolean) {
+                warnings.soft(
+                    "$entryPath/shared",
+                    "Schema '$schemaName' entry (key='$key') has non-boolean 'shared' value '$sharedRaw'; defaulting to false"
+                )
+                false
+            } else {
+                sharedRaw ?: false
+            }
+
+        for (rawKey in raw.keys) {
+            if (rawKey !in KNOWN_NOTE_ENTRY_KEYS) {
+                warnings.soft(
+                    "$entryPath/${ConfigValidator.escape(rawKey)}",
+                    "Schema '$schemaName' entry (key='$key') has unknown key '$rawKey'; ignoring"
+                )
+            }
+        }
+
+        return NoteSchemaEntry(
+            key = key,
+            role = parsedRole,
+            required = required,
+            description = description,
+            guidance = guidance,
+            skill = skill,
+            maxLength = maxLength,
+            seat = seat,
+            independentOf = independentOf,
+            shared = shared,
+            skills = if (skills.isNotEmpty()) skills else listOfNotNull(skill),
+            skillMode = skillMode,
+            lane = lane,
+        )
+    }
+
+    /**
+     * Reads a review entry's `lane`: `output` (`verdict` or `findings`) and `after` (a note key or a list of them).
+     * Absent or null is no lane. Anything unusable is a soft finding and falls back to the default for that part.
+     */
+    private fun parseLane(
+        raw: Any?,
+        role: Role,
+        key: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): ReviewLane? {
+        if (raw == null) return null
+        val lanePath = "$entryPath/lane"
+        if (role != Role.REVIEW) {
+            warnings.soft(lanePath, "Note entry (key='$key') has 'lane' on a non-review note; ignoring")
+            return null
+        }
+        if (raw !is Map<*, *>) {
+            warnings.soft(lanePath, "Note entry (key='$key') 'lane' must be a map; ignoring")
+            return null
+        }
+        for (rawKey in raw.keys) {
+            if (rawKey !in ConfigKeyCatalog.NOTE_LANE) {
+                warnings.soft(
+                    "$lanePath/${ConfigValidator.escape(rawKey.toString())}",
+                    "Note entry 'lane' has unknown key '$rawKey'; ignoring"
+                )
+            }
+        }
+        val outputRaw = raw["output"]
+        val output =
+            if (outputRaw == null) {
+                LaneOutput.VERDICT
+            } else {
+                (outputRaw as? String)?.let { LaneOutput.fromConfigString(it) }
+                    ?: run {
+                        warnings.soft(
+                            "$lanePath/output",
+                            "Note entry 'lane.output' '$outputRaw' is not one of ${LaneOutput.entries.map { it.wire }}; using verdict"
+                        )
+                        LaneOutput.VERDICT
+                    }
+            }
+        return ReviewLane(output = output, after = parseLaneAfter(raw["after"], key, lanePath, warnings))
+    }
+
+    private fun parseLaneAfter(
+        raw: Any?,
+        key: String,
+        lanePath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        val afterPath = "$lanePath/after"
+        val elements: List<*> =
+            when (raw) {
+                null -> return emptyList()
+                is String -> listOf(raw)
+                is List<*> -> raw
+                else -> {
+                    warnings.soft(afterPath, "Note entry 'lane.after' must be a note key or a list of note keys; ignoring")
+                    return emptyList()
+                }
+            }
+        val out = mutableListOf<String>()
+        for ((i, element) in elements.withIndex()) {
+            if (element !is String || element.isBlank()) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' element $i is not a non-blank string; ignoring the whole after")
+                return emptyList()
+            }
+            if (element == key) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names the entry's own key '$element'; ignoring that element")
+            } else if (element in out) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names '$element' twice; ignoring the later copy")
+            } else {
+                out += element
+            }
+        }
+        return out
+    }
+
+    /**
+     * Reads a note entry's `skill`: a string (kept as-is, blank included) or a non-empty list of distinct non-blank
+     * strings. Returns the skills in invocation order; empty when there is none or the value is unusable (a soft
+     * finding says why). A blank single string yields no list but the caller keeps it as the legacy `skill`.
+     */
+    private fun parseSkills(
+        raw: Any?,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        when (raw) {
+            null -> return emptyList()
+            is String -> return if (raw.isBlank()) emptyList() else listOf(raw)
+            is List<*> -> {
+                if (raw.isEmpty()) {
+                    warnings.soft("$entryPath/skill", "Note entry 'skill' is an empty list; ignoring")
+                    return emptyList()
+                }
+                val out = mutableListOf<String>()
+                for ((i, element) in raw.withIndex()) {
+                    if (element !is String || element.isBlank()) {
+                        warnings.soft(
+                            "$entryPath/skill/$i",
+                            "Note entry 'skill' element $i is not a non-blank string; ignoring the whole skill"
+                        )
+                        return emptyList()
+                    }
+                    if (element in out) {
+                        warnings.soft("$entryPath/skill/$i", "Note entry 'skill' names '$element' twice; ignoring the later copy")
+                    } else {
+                        out += element
+                    }
+                }
+                return out
+            }
+            else -> {
+                warnings.soft("$entryPath/skill", "Note entry 'skill' must be a string or a list of strings; ignoring")
+                return emptyList()
+            }
+        }
+    }
+
+    /** Reads `skill_mode`: `invoke` or `method-on-diff`; anything else, or a mode with no skill, is invoke. */
+    private fun parseSkillMode(
+        raw: Any?,
+        hasSkill: Boolean,
+        entryPath: String,
+        warnings: ParseFindings
+    ): SkillMode {
+        if (raw == null) return SkillMode.INVOKE
+        val mode = (raw as? String)?.let { SkillMode.fromConfigString(it) }
+        if (mode == null) {
+            warnings.soft(
+                "$entryPath/skill_mode",
+                "Note entry 'skill_mode' '$raw' is not one of ${SkillMode.entries.map { it.wire }}; using invoke"
+            )
+            return SkillMode.INVOKE
+        }
+        if (!hasSkill) {
+            warnings.soft("$entryPath/skill_mode", "Note entry 'skill_mode' has no 'skill' to apply to; using invoke")
+            return SkillMode.INVOKE
+        }
+        return mode
+    }
+
+    /**
+     * Parses the top-level `note_limits.mode` key, defaulting to [DEFAULT_NOTE_LIMITS_MODE]
+     * ("warn") when the block is absent or the value is not one of [VALID_NOTE_LIMITS_MODES].
+     * An invalid (non-empty, unrecognized) value is recorded as a load warning.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseNoteLimitsMode(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): String {
+        val noteLimits = root["note_limits"] as? Map<String, Any> ?: return DEFAULT_NOTE_LIMITS_MODE
+        val modeRaw = noteLimits["mode"] as? String ?: return DEFAULT_NOTE_LIMITS_MODE
+        if (modeRaw !in VALID_NOTE_LIMITS_MODES) {
+            warnings.soft(
+                ptr("note_limits", "mode"),
+                "Invalid note_limits.mode value '$modeRaw'; defaulting to '$DEFAULT_NOTE_LIMITS_MODE' " +
+                    "(valid: $VALID_NOTE_LIMITS_MODES)"
+            )
+            return DEFAULT_NOTE_LIMITS_MODE
+        }
+        return modeRaw
+    }
+
+    /**
+     * Parses the top-level `independence:` block (A2) into an [IndependencePolicy], or null when
+     * the key is absent entirely. A present-but-non-map value is treated as "block present with
+     * defaults" (with a warning), matching the addendum's frozen semantics. An unrecognized `mode`
+     * defaults to WARN (with a warning); a non-boolean `require_verified` defaults to false (with a
+     * warning); an unknown sub-key warns but is otherwise ignored.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseIndependencePolicy(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): IndependencePolicy? {
+        if (!root.containsKey("independence")) return null
+        val raw = root["independence"]
+        val independenceMap = raw as? Map<String, Any>
+        if (independenceMap == null) {
+            warnings.soft(ptr("independence"), "Top-level 'independence' section is not a map; treating as present with defaults")
+            return IndependencePolicy.DEFAULT
+        }
+
+        for (key in independenceMap.keys) {
+            if (key !in KNOWN_INDEPENDENCE_KEYS) {
+                warnings.soft(ptr("independence", key), "Unknown key 'independence.$key'; ignoring")
+            }
+        }
+
+        // A non-string mode (e.g. an unquoted `off`, which YAML 1.1 parses as Boolean false) is
+        // invalid and fails toward warn WITH a warning -- never silently, never toward off.
+        val modeValue = independenceMap["mode"]
+        val mode =
+            when (modeValue) {
+                null -> IndependenceMode.WARN
+                is String ->
+                    IndependenceMode.fromConfigString(modeValue) ?: run {
+                        warnings.soft(
+                            ptr("independence", "mode"),
+                            "Invalid independence.mode value '$modeValue'; defaulting to 'warn' " +
+                                "(valid: off, warn, reject)"
+                        )
+                        IndependenceMode.WARN
+                    }
+                else -> {
+                    warnings.soft(
+                        ptr("independence", "mode"),
+                        "Invalid independence.mode value '$modeValue' (not a string); defaulting to 'warn' " +
+                            "(valid: off, warn, reject -- quote \"off\": unquoted off is a YAML boolean)"
+                    )
+                    IndependenceMode.WARN
+                }
+            }
+
+        val requireVerifiedRaw = independenceMap["require_verified"]
+        val requireVerified =
+            when (requireVerifiedRaw) {
+                null -> false
+                is Boolean -> requireVerifiedRaw
+                else -> {
+                    warnings.soft(
+                        ptr("independence", "require_verified"),
+                        "Invalid independence.require_verified value '$requireVerifiedRaw'; defaulting to false"
+                    )
+                    false
+                }
+            }
+
+        return IndependencePolicy(mode = mode, requireVerified = requireVerified)
+    }
+
+    /**
+     * Parses the top-level `runs:` block into a [RunsConfig], or null when the key is absent. Every invalid value
+     * ([ConfigValidator.runsValueViolations], same paths and reasons) and every unknown key is a soft finding and is
+     * left out, so a field that does not parse falls through to the next layer like an absent one. The removed
+     * `runs.budgets.tokens` and `cost_usd` keys draw one advisory finding each and set nothing. A block whose fields all
+     * fail still yields a (field-less) [RunsConfig].
+     */
+    private fun parseRunsConfig(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): RunsConfig? {
+        if (!root.containsKey("runs")) return null
+        val violations = ConfigValidator.runsValueViolations(root["runs"])
+        violations.forEach { warnings.soft(it.path, it.reason) }
+        val bad = violations.mapTo(HashSet()) { it.path }
+        val runs = root["runs"] as? Map<*, *> ?: return RunsConfig()
+
+        for (key in runs.keys) {
+            if (key.toString() !in ConfigKeyCatalog.RUNS) {
+                warnings.soft(ptr("runs", key.toString()), "Unknown key 'runs.$key'; ignoring")
+            }
+        }
+        val stallAfter =
+            if (runs.containsKey("stall_after") && ptr("runs", "stall_after") !in bad) (runs["stall_after"] as Number).toInt() else null
+
+        val budgetsRaw = runs["budgets"] as? Map<*, *>
+        val budgets =
+            if (budgetsRaw == null) {
+                null
+            } else {
+                for (key in budgetsRaw.keys) {
+                    if (key.toString() !in ConfigKeyCatalog.RUN_BUDGETS) {
+                        warnings.soft(ptr("runs", "budgets", key.toString()), "Unknown key 'runs.budgets.$key'; ignoring")
+                    }
+                }
+                // Advisory, not soft: a soft finding is an error in STRICT mode, and a removed key must still push.
+                for (key in REMOVED_RUN_BUDGET_KEYS) {
+                    if (budgetsRaw.containsKey(key)) warnings.advisory(ptr("runs", "budgets", key), runBudgetKeyRemovedWarning(key))
+                }
+
+                fun valid(key: String): Any? =
+                    if (budgetsRaw.containsKey(key) &&
+                        ptr("runs", "budgets", key) !in bad
+                    ) {
+                        budgetsRaw[key]
+                    } else {
+                        null
+                    }
+                RunBudget(
+                    attemptsPerSeat = (valid("attempts_per_seat") as? Number)?.toInt(),
+                    maxActiveSeats = (valid("max_active_seats") as? Number)?.toInt(),
+                ).takeUnless { it.isUnlimited }
+            }
+        return RunsConfig(stallAfterSeconds = stallAfter, budgets = budgets)
+    }
+
+    /**
+     * Parses the top-level `decision_classes:` block into class configs by name, or null when the key is absent. Every
+     * invalid value ([ConfigValidator.decisionClassesValueViolations], same paths and reasons) and every unknown key is
+     * a soft finding and is left out: an invalid field falls back to the built-in or default value like an absent one,
+     * and an entry with an invalid name or that is not a mapping is left out whole. `expires_after` is in seconds.
+     */
+    private fun parseDecisionClasses(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, DecisionClassConfig>? {
+        if (!root.containsKey("decision_classes")) return null
+        val violations = ConfigValidator.decisionClassesValueViolations(root["decision_classes"])
+        violations.forEach { warnings.soft(it.path, it.reason) }
+        val bad = violations.mapTo(HashSet()) { it.path }
+        val classes = root["decision_classes"] as? Map<*, *> ?: return emptyMap()
+
+        val out = LinkedHashMap<String, DecisionClassConfig>()
+        for ((rawName, rawEntry) in classes) {
+            val name = rawName.toString()
+            if (ptr("decision_classes", name) in bad) continue
+            val entry = rawEntry as? Map<*, *> ?: continue
+            for (key in entry.keys) {
+                if (key.toString() !in ConfigKeyCatalog.DECISION_CLASS) {
+                    warnings.soft(ptr("decision_classes", name, key.toString()), "Unknown key 'decision_classes.$name.$key'; ignoring")
+                }
+            }
+
+            fun valid(key: String): Any? = if (entry.containsKey(key) && ptr("decision_classes", name, key) !in bad) entry[key] else null
+            out[name] =
+                DecisionClassConfig(
+                    answerers = (valid("answerers") as? String)?.let { DecisionRequestAnswerers.fromWire(it) },
+                    severity = (valid("severity") as? String)?.let { DecisionRequestSeverity.fromWire(it) },
+                    expiresAfterSeconds = (valid("expires_after") as? Number)?.toLong(),
+                    onExpiry = valid("on_expiry") as? String,
+                    freeform = valid("freeform") as? Boolean,
+                )
+        }
+        return out
+    }
+
+    /**
+     * Parses the top-level `status_labels` key into a trigger→label map, mirroring
+     * [io.github.jpicklyk.mcptask.current.config.internal.wire.YamlStatusLabelService]'s reading of
+     * the same key from the global file: each value is coerced to a string via `toString()` (YAML
+     * `null` survives as a Kotlin `null`, meaning "explicitly no label for this trigger").
+     *
+     * Returns null when the document has no `status_labels` key at all (see [ParsedConfig.statusLabels]
+     * for what callers do with that distinction), or when the key is present but not a map (a
+     * malformed section is treated the same as "absent", with a warning).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseStatusLabels(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, String?>? {
+        if (!root.containsKey("status_labels")) return null
+        val raw = root["status_labels"] as? Map<String, Any?>
+        if (raw == null) {
+            warnings.soft(ptr("status_labels"), "status_labels section is not a map; ignoring")
+            return null
+        }
+        return raw.entries.associate { (trigger, label) -> trigger to label?.toString() }
+    }
+}

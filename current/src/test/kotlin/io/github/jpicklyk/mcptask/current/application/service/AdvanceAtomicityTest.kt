@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.claim.ok
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.Role

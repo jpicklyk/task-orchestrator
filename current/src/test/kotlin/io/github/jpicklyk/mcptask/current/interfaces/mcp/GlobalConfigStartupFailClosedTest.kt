@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
  * Covers test-plan scenarios S1, S6 and the DEGRADED_MODE_POLICY variable case of S13 -- the
  * composition-root and startup-propagation half of the fix. Loader-level parsing coverage (S2, S5,
  * S7, S8, S10-S12, S15, and the config-parsing probes) is in
- * `io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFailClosedTest`.
+ * `io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFailClosedTest`.
  *
  * Oracle source: the item's frozen `diagnosis` note (decisions D1, D3, D5) and `test-plan` note
  * (queue phase) -- never this file's own reading of the fixed source. All scenarios here are

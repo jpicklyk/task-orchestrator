@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.knowledge.NoteItems
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
@@ -34,7 +35,7 @@ data class NoteSummary(
     val ownerSeat: String? = null
 )
 
-interface NoteStore {
+interface NoteStore : NoteItems {
     suspend fun getById(id: UUID): Note?
 
     /**
@@ -64,10 +65,14 @@ interface NoteStore {
     suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Note>>
 
     /**
-     * The owning work item of each note in [noteIds] that exists; absent ids are omitted. The default reads note by
-     * note; the SQLite store overrides it with one column-narrow read per chunk.
+     * The work item each note in [noteIds] sits on, for the notes that exist; absent ids are omitted. The default reads
+     * note by note; the SQLite store overrides it with one column-narrow read per chunk.
      */
-    suspend fun ownersOf(noteIds: Set<UUID>): Map<UUID, UUID> = noteIds.mapNotNull { id -> getById(id)?.let { id to it.itemId } }.toMap()
+    override suspend fun itemsOfNotes(noteIds: Set<UUID>): Map<UUID, UUID> =
+        noteIds.mapNotNull { id -> getById(id)?.let { id to it.itemId } }.toMap()
+
+    /** The ids of the notes on [itemId], in [findRefsByItemIds] order. */
+    override suspend fun noteIdsOn(itemId: UUID): List<UUID> = findRefsByItemIds(setOf(itemId))[itemId].orEmpty().map { it.id }
 
     /**
      * The identity of every note on [itemIds] (id, item, key, role), grouped by item, WITHOUT the bodies: what a

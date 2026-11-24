@@ -60,84 +60,6 @@ class WorkItemSchemaTest {
     }
 
     // ──────────────────────────────────────────────
-    // requiredNotesForRole
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `requiredNotesForRole returns empty list when schema has no notes`() {
-        val schema = WorkItemSchema(type = "simple-task")
-        val result = schema.requiredNotesForRole(Role.QUEUE)
-        assertTrue(result.isEmpty())
-    }
-
-    @Test
-    fun `requiredNotesForRole returns only required entries for the given role`() {
-        val schema =
-            WorkItemSchema(
-                type = "feature-task",
-                notes =
-                    listOf(
-                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true),
-                        NoteSchemaEntry(key = "optional-context", role = Role.QUEUE, required = false),
-                        NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true),
-                        NoteSchemaEntry(key = "review-checklist", role = Role.REVIEW, required = true)
-                    )
-            )
-
-        val queueRequired = schema.requiredNotesForRole(Role.QUEUE)
-        assertEquals(1, queueRequired.size)
-        assertEquals("spec", queueRequired[0].key)
-    }
-
-    @Test
-    fun `requiredNotesForRole returns empty list when no required notes exist for a role`() {
-        val schema =
-            WorkItemSchema(
-                type = "feature-task",
-                notes =
-                    listOf(
-                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true),
-                        NoteSchemaEntry(key = "optional-review", role = Role.REVIEW, required = false)
-                    )
-            )
-
-        val reviewRequired = schema.requiredNotesForRole(Role.REVIEW)
-        assertTrue(reviewRequired.isEmpty())
-    }
-
-    @Test
-    fun `requiredNotesForRole returns multiple required entries for the given role`() {
-        val schema =
-            WorkItemSchema(
-                type = "feature-task",
-                notes =
-                    listOf(
-                        NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true),
-                        NoteSchemaEntry(key = "risk-assessment", role = Role.QUEUE, required = true),
-                        NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true)
-                    )
-            )
-
-        val queueRequired = schema.requiredNotesForRole(Role.QUEUE)
-        assertEquals(2, queueRequired.size)
-        assertEquals(setOf("acceptance-criteria", "risk-assessment"), queueRequired.map { it.key }.toSet())
-    }
-
-    @Test
-    fun `requiredNotesForRole returns empty when role has no entries at all`() {
-        val schema =
-            WorkItemSchema(
-                type = "simple",
-                notes =
-                    listOf(
-                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true)
-                    )
-            )
-        val workRequired = schema.requiredNotesForRole(Role.WORK)
-        assertTrue(workRequired.isEmpty())
-    }
-
-    // ──────────────────────────────────────────────
     // Default values
     // ──────────────────────────────────────────────
 
@@ -191,20 +113,5 @@ class WorkItemSchemaTest {
                 defaultTraits = listOf("some-trait")
             )
         assertFalse(schema.hasReviewPhase())
-    }
-
-    @Test
-    fun `defaultTraits does not affect requiredNotesForRole`() {
-        val schema =
-            WorkItemSchema(
-                type = "feature-task",
-                notes =
-                    listOf(
-                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true)
-                    ),
-                defaultTraits = listOf("some-trait")
-            )
-        assertEquals(1, schema.requiredNotesForRole(Role.QUEUE).size)
-        assertEquals("spec", schema.requiredNotesForRole(Role.QUEUE)[0].key)
     }
 }

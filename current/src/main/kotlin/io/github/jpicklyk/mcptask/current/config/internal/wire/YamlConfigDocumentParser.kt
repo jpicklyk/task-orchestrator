@@ -1,0 +1,58 @@
+package io.github.jpicklyk.mcptask.current.config.internal.wire
+
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ConfigViolation
+import io.github.jpicklyk.mcptask.current.config.ParseMode
+import io.github.jpicklyk.mcptask.current.platform.yaml.YamlLoaders
+
+/**
+ * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config
+ * YAML - used by `PerRootConfigService` on the read path and by
+ * [io.github.jpicklyk.mcptask.current.config.ConfigService] on the
+ * validate-before-write path, so both converge on identical parse behavior for the same document.
+ *
+ * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor`: the input originates from
+ * a pushed document (via the `config` tool's `push` op), not a
+ * trusted local file. The default `Constructor` will instantiate an arbitrary Java type named by a
+ * `!!`-tag (CWE-502); `SafeConstructor` only ever builds plain maps/lists/scalars and rejects
+ * anything else as a parse failure.
+ *
+ * Any exception during load or parse becomes [ConfigDocumentParser.Outcome.Failed] with
+ * `e.message ?: e.javaClass.simpleName`.
+ */
+object YamlConfigDocumentParser : ConfigDocumentParser {
+    @Suppress("UNCHECKED_CAST", "TooGenericExceptionCaught")
+    override fun parse(
+        yaml: String,
+        warnOnMissingSchemas: Boolean,
+        mode: ParseMode,
+    ): ConfigDocumentParser.Outcome =
+        try {
+            val root = (if (mode == ParseMode.STRICT) YamlLoaders.strict() else YamlLoaders.tolerant()).load<Map<String, Any>>(yaml)
+            if (root == null) {
+                ConfigDocumentParser.Outcome.Parsed(document = ConfigDocument.EMPTY, rawRoot = null)
+            } else {
+                val document = YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas, mode = mode)
+                ConfigDocumentParser.Outcome.Parsed(document = document, rawRoot = root)
+            }
+        } catch (e: ConfigStructureException) {
+            ConfigDocumentParser.Outcome.Failed(
+                detail = e.message ?: e.javaClass.simpleName,
+                violations = listOf(ConfigViolation(e.path, e.message ?: e.javaClass.simpleName)),
+            )
+        } catch (e: Exception) {
+            ConfigDocumentParser.Outcome.Failed(e.message ?: e.javaClass.simpleName)
+        }
+
+    override fun fromRoot(
+        root: Map<String, Any>?,
+        warnOnMissingSchemas: Boolean,
+        mode: ParseMode,
+    ): ConfigDocument =
+        if (root == null) {
+            ConfigDocument.EMPTY
+        } else {
+            YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas, mode = mode)
+        }
+}

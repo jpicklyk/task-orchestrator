@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
+import io.github.jpicklyk.mcptask.current.config.ServerFeatures
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond

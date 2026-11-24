@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.idempotency
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
+import io.github.jpicklyk.mcptask.current.config.Fingerprint
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

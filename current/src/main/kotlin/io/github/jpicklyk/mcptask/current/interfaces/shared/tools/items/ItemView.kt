@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.service.PinView
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.PinView
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

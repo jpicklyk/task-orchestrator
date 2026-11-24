@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.config.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_DEFAULT_YAML
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_EXACT_YAML
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_SERVER_YAML

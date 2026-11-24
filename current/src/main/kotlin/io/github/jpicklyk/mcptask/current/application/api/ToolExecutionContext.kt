@@ -1,12 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
-import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
-import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
@@ -17,14 +10,21 @@ import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
-import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
-import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.config.ConfigService
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
+import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.LinkService
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.RelatedService
+import io.github.jpicklyk.mcptask.current.knowledge.SearchService
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource

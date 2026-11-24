@@ -6,14 +6,14 @@ package io.github.jpicklyk.mcptask.current.model.lease
  * Declared per-trait in `.taskorchestrator/config.yaml` under `traits.<name>.resources:`, in either
  * short form (a bare key string, `EXCLUSIVE` mode, no ttl override) or long form (a map with `key`,
  * optional `mode`, optional `ttlSeconds`) — see
- * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot].
+ * `YamlSchemaParser.parseRoot`.
  *
  * This type carries only the *declaration*; it enforces nothing itself. Enforcement of
  * [ResourceMode.EXCLUSIVE] requirements (a server-side TTL lease acquired at work-phase entry) is in the
  * transition policy's lease gate (`GateId.LEASE`, evaluated by `TransitionPolicy`, which decides `acquireLeases` for a transition into
  * `work`) and the lease writes of `ClaimService.acquireLeases`, driven by `AdvanceService`; the requirements it
  * enforces come from
- * [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.resolveResourceRequirements].
+ * [io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver.resolveResourceRequirements].
  *
  * @property key Resource identifier. Matched against the optional top-level `resources:` registry
  *   ([ResourceDefinition]) to resolve a default TTL and description; also the lease/lock namespace

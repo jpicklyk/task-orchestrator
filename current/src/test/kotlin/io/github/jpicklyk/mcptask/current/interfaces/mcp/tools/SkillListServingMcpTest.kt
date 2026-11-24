@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
+import io.github.jpicklyk.mcptask.current.config.internal.wire.CfgKit
+import io.github.jpicklyk.mcptask.current.config.internal.wire.effectiveOp
+import io.github.jpicklyk.mcptask.current.config.internal.wire.list
+import io.github.jpicklyk.mcptask.current.config.internal.wire.obj
+import io.github.jpicklyk.mcptask.current.config.internal.wire.pushOp
+import io.github.jpicklyk.mcptask.current.config.internal.wire.ref
+import io.github.jpicklyk.mcptask.current.config.internal.wire.rulesOp
+import io.github.jpicklyk.mcptask.current.config.internal.wire.violations
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.CfgKit
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.effectiveOp
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.list
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.obj
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.pushOp
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.ref
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.rulesOp
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.violations
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.short
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str

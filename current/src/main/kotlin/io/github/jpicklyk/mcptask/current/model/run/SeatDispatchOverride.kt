@@ -22,7 +22,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
  * falls through to the phase default via [applyTo]. An override map with no fields set at all (no
  * override value and nothing cleared) is dropped at parse time with a load warning, mirroring an
  * empty phase-level [DispatchProfile] — see
- * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser].
+ * `YamlSchemaParser`.
  *
  * @property agent Overrides the phase default's agent when set.
  * @property model Overrides the phase default's model when set.

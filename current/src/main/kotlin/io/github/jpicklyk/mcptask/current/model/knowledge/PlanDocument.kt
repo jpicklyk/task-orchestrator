@@ -8,7 +8,7 @@ import java.util.UUID
  *
  * A document starts [PENDING] on its first stash. Once adopted into a work item it becomes
  * [ADOPTED] permanently — the transition is one-way and enforced by the service layer
- * ([io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService]), not a DB
+ * ([io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService]), not a DB
  * constraint: a further stash to an adopted slug is rejected rather than silently overwriting it.
  *
  * Since 4.0 the status is DERIVED, not stored: a document is [ADOPTED] iff an `adopted_by` link

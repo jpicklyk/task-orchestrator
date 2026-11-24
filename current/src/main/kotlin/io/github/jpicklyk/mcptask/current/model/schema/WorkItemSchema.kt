@@ -17,7 +17,7 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  * @property notes The ordered list of note schema entries required across all phases
  * @property seats This schema's own `seats:` list (schema-level only — trait seats are merged in
  *   at resolve time by
- *   [io.github.jpicklyk.mcptask.current.application.config.LayeredConfig.mergeTraits]; a raw
+ *   `LayeredConfig.mergeTraits`; a raw
  *   [WorkItemSchema] straight from parsing carries only its own seats). Empty means this schema is
  *   not seat-aware (see [isSeatAware]) — every seat-related response field stays absent for such a
  *   schema (byte-identity with pre-A1 responses).
@@ -35,15 +35,6 @@ data class WorkItemSchema(
      * jump directly to TERMINAL.
      */
     fun hasReviewPhase(): Boolean = notes.any { it.role == Role.REVIEW }
-
-    /**
-     * Returns the list of required note entries for the given [role].
-     * Non-required entries are excluded.
-     *
-     * @param role The workflow phase to filter by
-     * @return Required [NoteSchemaEntry] items for that phase
-     */
-    fun requiredNotesForRole(role: Role): List<NoteSchemaEntry> = notes.filter { it.role == role && it.required }
 
     /** True when this (already trait-merged, if applicable) schema declares any seats at all. */
     fun isSeatAware(): Boolean = seats.isNotEmpty()

@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

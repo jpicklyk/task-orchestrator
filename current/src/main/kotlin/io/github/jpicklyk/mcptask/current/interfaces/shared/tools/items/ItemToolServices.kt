@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.ItemStoreProvider
+import io.github.jpicklyk.mcptask.current.application.port.PinViews
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
-import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
 /**
@@ -15,9 +15,9 @@ class ItemToolServices(
     private val items: () -> WorkItemRepository,
     val unitOfWork: UnitOfWork<ItemStoreProvider>,
     val workViewQueries: WorkViewQueries,
-    private val schemaPin: Lazy<SchemaPinService>
+    private val schemaPin: Lazy<PinViews>
 ) : ItemLookup {
-    val schemaPinService: SchemaPinService by schemaPin
+    val pinViews: PinViews by schemaPin
 
     override fun workItemRepository(): WorkItemRepository = items()
 }

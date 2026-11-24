@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.config.internal.wire.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.event.internal.wire.eventRoutes
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth

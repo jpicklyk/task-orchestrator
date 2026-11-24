@@ -1,13 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
-import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
+import io.github.jpicklyk.mcptask.current.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.config.SchemaPinService
+import io.github.jpicklyk.mcptask.current.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.PinView
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
