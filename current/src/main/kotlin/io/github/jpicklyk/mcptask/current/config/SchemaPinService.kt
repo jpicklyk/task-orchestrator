@@ -148,8 +148,18 @@ class SchemaPinService(
             pin: SchemaPin
         ): Boolean = (role == null) != (pin.lifecycle == LifecycleMode.NONE)
 
-        /** The event side of [pin]. */
-        fun refOf(pin: SchemaPin): PinRef = PinRef(pin.serverVersionId, pin.rootVersionId, pin.schemaKey, pin.schemaLayer)
+        /**
+         * The event side of [pin]. `builds` is read as [samePin] reads it (a NULL on a keyed pin is `true`), so two
+         * sides differ in `builds` exactly when [samePin]'s `builds` comparison sees a change; a schema-free pin has none.
+         */
+        fun refOf(pin: SchemaPin): PinRef =
+            PinRef(
+                pin.serverVersionId,
+                pin.rootVersionId,
+                pin.schemaKey,
+                pin.schemaLayer,
+                pin.schemaKey?.let { pin.builds ?: true }
+            )
 
         /** The `item.pinned` row for [itemId] (under [rootId]) moving from [from] to [to] for [reason]. */
         fun pinnedEvent(
