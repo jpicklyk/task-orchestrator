@@ -3,7 +3,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute, dirname } from 'node:path';
@@ -1750,4 +1750,91 @@ test('CM: SessionStart without a session_id or without a marker does not throw a
     rmSync(dir, { recursive: true, force: true });
     rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// a877f204 T4: knowledge session guidance. Oracles: specification D2 (exact bullets) and
+// hooks/lib/tool-catalog.json (a name the knowledge profile never serves must not appear backticked).
+// ─────────────────────────────────────────────────────────────────────────
+
+const KNOWLEDGE_REG = {
+  mcpServers: { 'mcp-task-orchestrator-knowledge': { type: 'http', url: 'http://localhost:3001/mcp/knowledge' } },
+};
+const ORCHESTRATION_REG = {
+  mcpServers: { 'mcp-task-orchestrator': { type: 'http', url: 'http://localhost:3001/mcp' } },
+};
+const KNOWLEDGE_BULLETS = [
+  '- Ids accept a full UUID or a hex prefix of 8 or more characters. `items_write` op `create` requires `type`; items nest to any depth under `parentId`.',
+  '- Write an item\'s notes with `notes_write` op `upsert`; relate two items with `deps_write` op `create` and `type: "relates_to"`; keep long text as a page with `docs_write` op `upsert`.',
+  '- Find with `items_read` select `search` (items, notes and documents) and `related`; `docs_read` select `links` with `direction: "incoming"` lists what links to a page.',
+];
+
+// Tool, select and op names the knowledge profile never serves (in no tool).
+function nonKnowledgeNames() {
+  const catalog = JSON.parse(readFileSync(fileURLToPath(new URL('../lib/tool-catalog.json', import.meta.url)), 'utf-8'));
+  const served = new Set();
+  const all = new Set();
+  for (const [tool, def] of Object.entries(catalog.tools)) {
+    all.add(tool);
+    for (const [name, entry] of Object.entries(def.entries || {})) {
+      all.add(name);
+      if ((entry.profiles || []).includes('knowledge')) {
+        served.add(tool);
+        served.add(name);
+      }
+    }
+  }
+  return [...all].filter((n) => !served.has(n));
+}
+
+function assertKnowledgeGuidance(ctx) {
+  const guidance = ctx.split('\n## ').slice(0, 1).join('');
+  assert.ok(ctx.startsWith('## Task Orchestrator — Session Context\n\n' + KNOWLEDGE_BULLETS.join('\n')), ctx);
+  const ticked = [...ctx.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  for (const name of nonKnowledgeNames()) assert.ok(!ticked.includes(name), `names ${name}`);
+  for (const word of ['advance', 'context', 'next', 'blocked']) assert.ok(!guidance.includes(`\`${word}\``), word);
+}
+
+test('a877f204 T4: knowledge registration, project state -> knowledge guidance; scope bullet names list and search only', () => {
+  const dir = trackedTmp('to-ss-knowledge-');
+  writeConfig(dir, 'project:\n  rootId: kb-root-1\n  name: "KB"\n');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.includes('- Pass `ancestorId: "kb-root-1"` on `items_read` selects `list` and `search` to scope results to this project.'));
+});
+
+test('a877f204 T4: knowledge registration, user state -> personal bullet lists list and search', () => {
+  const dir = trackedTmp('to-ss-knowledge-u-');
+  const toHome = trackedTmp('to-ss-knowledge-uh-');
+  writeConfig(toHome, 'project:\n  rootId: personal-kb\n');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir, { toHome })).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.includes('- Do NOT pass `ancestorId` on `items_read` selects (`list`, `search`) — the personal root'));
+});
+
+test('a877f204 T4: knowledge registration, no config -> knowledge guidance plus Setup Status', () => {
+  const dir = trackedTmp('to-ss-knowledge-n-');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.includes('## Setup Status'));
+});
+
+test('a877f204 T4: lifecycle-free config with an orchestration registration -> knowledge guidance', () => {
+  const dir = trackedTmp('to-ss-knowledge-lf-');
+  writeConfig(dir, 'project:\n  rootId: kb-root-2\nwork_item_schemas:\n  page:\n    lifecycle: none\n');
+  writeProjectMcpJson(dir, ORCHESTRATION_REG);
+  assertKnowledgeGuidance(parse(runHook(dir)).hookSpecificOutput.additionalContext);
+});
+
+test('a877f204 T4: orchestration-only registration, role-bearing config -> the orchestration guidance', () => {
+  const dir = trackedTmp('to-ss-orch-');
+  writeConfig(dir, 'project:\n  rootId: sw-root-1\nwork_item_schemas:\n  bug:\n    lifecycle: auto\n');
+  writeProjectMcpJson(dir, ORCHESTRATION_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes('`advance` op `transition`'));
+  assert.ok(ctx.includes('`list`, `search`, `context`, `next` and `blocked`'));
+  assert.ok(!ctx.includes(KNOWLEDGE_BULLETS[1]));
 });

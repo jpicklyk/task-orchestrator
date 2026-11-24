@@ -1,12 +1,13 @@
 ---
 name: director
-description: "Enters director mode: this session runs the board instead of the code. It shows open runs, their frontier, open decisions and rollups, answers decisions, and delegates every read or edit to background agents and orchestrators. A guard hook blocks file reads, edits, foreground dispatches and most shell commands until you leave with off. Use when the user says: director mode, become the director, be the director, run the board, show open decisions, answer decisions, what needs my decision, or director off."
+description: "Enters director mode: this session acts on your board at your instruction, not on the code. It shows open runs, their frontier, open decisions and rollups, answers decisions, and delegates every read or edit to background agents and orchestrators. A guard hook blocks file reads, edits, foreground dispatches and most shell commands until you leave with off. Use when the user says: director mode, become the director, be the director, run the board, show open decisions, answer decisions, what needs my decision, or director off."
 argument-hint: "[off]"
 ---
 
 # Director
 
-The director watches runs and answers decisions. It does not read code, open files or read note
+In director mode this session is the director: it watches runs and answers decisions on the
+user's board (their view in either mode), at their instruction. It does not read code, open files or read note
 bodies; orchestrators and background agents do that and report. Why the layer exists, and when
 not to use it: [references/purpose.md](references/purpose.md).
 
@@ -14,7 +15,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -64,7 +65,7 @@ The whole tool budget of a director session:
 | `Skill` | Re-invoke this skill, or `off`; may also load `task-orchestrator:model-effort` |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
-The five MCP tools come from the director connection. Anything else (notes, items writes,
+The five MCP tools come from the director profile. Anything else (notes, items writes,
 `advance`, config) is an orchestrator's job. `runs_write` `open` is in the director profile on purpose:
 a session that opens a run holds that run's token.
 
@@ -84,7 +85,7 @@ seat is still active, and a close leaves open decisions open (its snapshot's `op
 the orchestration one. Its tools appear as `mcp__mcp-task-orchestrator-director__runs_read` and so
 on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 
-The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
+That connection uses the server's director profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
 stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
@@ -94,7 +95,7 @@ skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestra
 guard-coverage.md. Use the hardened entry (below)
 when enforcement matters.
 
-If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
+If the director profile's tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
 `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
 tool. Decisions cannot be shown or answered until init runs. Still never call `notes_read`.
@@ -158,7 +159,7 @@ descendants per reason (for example `{dependency: 1}`), never a per-item reason 
 Render, most urgent first:
 
 ```
-## Director board
+## Board
 Decisions waiting: 2 (1 overdue)
   [d-3f2a] run 7c41 deviation high "Approve schema change?"   OVERDUE
   [d-91bc] no run   question low   "Pick retry strategy"
@@ -179,7 +180,7 @@ run token during a Workflow), `coord idle, seats live` when any `inFlight` seat 
 `stalled: false`, nothing on a paused run, else `COORD STALLED`: `SendMessage` the orchestrator, and
 if it is gone, close the run and re-plan.
 
-Then ask which decision to take, or stop if none is open.
+Then ask the user which decision to take, or stop if none is open.
 
 ## Answering a decision
 
@@ -210,7 +211,7 @@ Before answering, check the class: `answerers: human-only` cannot be answered fr
 `text` carries a free-form answer, when the decision asks for one.
 On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
 
-- `scope: "capability"`, `required: "decide"`: the director credential lacks the `decide`
+- `scope: "capability"`, `required: "decide"`: this connection's credential lacks the `decide`
   capability.
 - `scope: "principal_kind"`, `required: "human"`: a `human-only` decision; it needs a credential
   of kind `human`.
@@ -247,8 +248,8 @@ Poll pair.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
-| 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Orchestrators run as separate sessions; reach them with `SendMessage` |
-| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background orchestrator may lack `Workflow` |
+| 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list | Orchestrators run as separate sessions; reach them with `SendMessage` |
+| 2 | The `Workflow` tool | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background orchestrator may lack `Workflow` |
 | 2b | `REPL` and `Agent` (Code Mode) | A Code Mode orchestrator subagent runs the whole run, Method B; its `Agent` prompt is the line `Run /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.`; with 2 also present, 2 for Method A (coordinator-tiers.md) |
 | 3 | Neither, but `claude -p` is available on the host | Orchestrators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate orchestrator: every read and edit goes through background `Agent` dispatches from this session |
@@ -285,6 +286,6 @@ bodies. Each fires once per decision, scope or run per session.
 
 ## Hardened entry
 
-`claude --agent director` starts a session whose tool list is already limited to the director
-budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1, 2 and 2b need a director entered via the `/task-orchestrator:director` skill in a normal session. It still invokes this skill first, so the marker and
+`claude --agent director` starts a session whose tool list is already limited to the director-mode
+tool budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1, 2 and 2b need director mode in a normal session. It still invokes this skill first, so the marker and
 the guard apply too.

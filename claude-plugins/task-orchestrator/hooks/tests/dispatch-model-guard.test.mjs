@@ -233,3 +233,26 @@ test('hooks-config registers exactly one Agent matcher group for the guard', () 
   assert.equal(cmds.length, 1);
   assert.match(agentGroups[0].hooks[0].command, /dispatch-model-guard\.mjs/);
 });
+// a877f204 T7: a knowledge session (specification D1, D5) allows a dispatch missing model and effort; an
+// orchestration registration with a role-bearing config still denies it.
+const KNOWLEDGE_MCP = { mcpServers: { 'mcp-task-orchestrator-knowledge': { type: 'http', url: 'http://localhost:3001/mcp/knowledge' } } };
+const ORCHESTRATION_MCP = { mcpServers: { 'mcp-task-orchestrator': { type: 'http', url: 'http://localhost:3001/mcp' } } };
+const withMcp = (config, mcp) => {
+  const fx = fixture(config);
+  writeFileSync(join(fx.dir, '.mcp.json'), JSON.stringify(mcp), 'utf-8');
+  return fx;
+};
+const ROLE_BEARING = `${BASE}work_item_schemas:\n  bug:\n    lifecycle: auto\n`;
+
+test('a877f204 T7: knowledge registration -> a dispatch missing model and effort is allowed', () => {
+  assert.deepEqual(exec(withMcp(ROLE_BEARING, KNOWLEDGE_MCP), agentCall()), {});
+});
+
+test('a877f204 T7: lifecycle-free config with an orchestration registration -> allowed', () => {
+  assert.deepEqual(exec(withMcp(`${BASE}work_item_schemas:\n  page:\n    lifecycle: none\n`, ORCHESTRATION_MCP), agentCall()), {});
+});
+
+test('a877f204 T7: orchestration registration and a role-bearing config -> still denied', () => {
+  const reason = reasonOf(exec(withMcp(ROLE_BEARING, ORCHESTRATION_MCP), agentCall()));
+  assert.ok(reason.includes('`model` and `effort`'));
+});

@@ -28,7 +28,7 @@ rest), not the visible REPL and Poll pair.
 | 3 | The `claude` CLI on the host | A headless `claude -p` process, or `node scripts/ralph-loop.mjs` (a queue drain), started by a background agent | `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> --model <M> --effort <E>`, never `--bare` |
 | 4 | Nothing above | None: the run executes inline | `inline: true` with the altitude warning |
 
-Tiers 1, 2 and 2b need a director entered through the `/task-orchestrator:director` skill in a normal
+Tiers 1, 2 and 2b need director mode entered through the `/task-orchestrator:director` skill in a normal
 session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow`
 nor `start_session`, and its tool list has no `REPL`, so it probes tier 3 or 4, never 2b.
 
@@ -80,7 +80,7 @@ seats consume planner output in-process. Decisions land between runs.
 
 ## Tier 2b: Code Mode orchestrator subagent
 
-A Code Mode director has `Agent` but may have no `Workflow`, and its orchestrator subagent has none either, so
+A director-mode session in Code Mode has `Agent` but may have no `Workflow`, and its orchestrator subagent has none either, so
 the orchestrator runs the whole run itself with Method B (run-wave `references/code-mode.md`); seat
 results reach the orchestrator, not the director. When both 2 and 2b are available, pick 2 for a
 Method A run and 2b when Method B suits: the plan exits 3 on `--method A` because `maxActiveSeats` is
@@ -186,7 +186,7 @@ and never resumes the run; the relaying agent never closes ralph's run.
 
 One stall threshold covers seats and the orchestrator, and only a token-carrying call touches
 liveness, so during a Method A Workflow the orchestrator reads as stalled although nothing is wrong.
-The director board therefore shows `coord idle (Method A)` when the run hints say method A and phase
+The board therefore shows `coord idle (Method A)` when the run hints say method A and phase
 `launched`, `coord idle, seats live` when any in-flight seat is not stalled, nothing on a paused run,
 and otherwise `COORD STALLED`: SendMessage the orchestrator; if it is gone, close the run and
 re-plan.

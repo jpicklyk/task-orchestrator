@@ -12,7 +12,7 @@ Where the project sets its own rules for PR boundaries or item limits, they take
 
 ## 1. A step is not a PR
 
-- A **step** protects accuracy. It ends with the test suite green, the project's guards passing and a commit on the shared branch. Then check the base: integrate the moved main line before the next step starts. Prefer a merge over a rebase when anything records the branch's commit ids (review records, logs, references in documents), since a rebase rewrites them.
+- A **step** is one dependency layer (a wave, section 4) and protects accuracy. Every item in it ends green with its commit; the step ends with the test suite green, the project's guards passing and a commit on the shared branch. Then check the base: integrate the moved main line before the next step starts. Prefer a merge over a rebase when anything records the branch's commit ids (review records, logs, references in documents), since a rebase rewrites them.
 - A **PR** exists for the main line: it pays one CI run, one review and one merge.
 - Default: one planned scope is one PR. The steps inside it are commits, not PRs.
 
@@ -27,7 +27,7 @@ Divide a scope into several PRs only where the boundary cites one of these:
 5. Other work landing on the same files makes a long branch costly.
 6. The state must be released and observed before what depends on it (a data migration).
 
-Size, the number of waves and wanting a checkpoint are not reasons. Each boundary is written with its reason; a cut with no boundary is written as "One PR".
+The scope's overall size, the number of waves and wanting a checkpoint are not reasons. Each boundary is written with its reason; a cut with no boundary is written as "One PR".
 
 ## 3. An item is one implementer's unit that ends green
 
@@ -41,7 +41,7 @@ An item has one context an implementer can hold, one acceptance set, one review 
 **Merge items when**
 - the fixed cost of an item (its planning, its records, its review, its tests) exceeds the work;
 - one cannot be green without the other;
-- they share files and would run in the same wave (or order them with an edge instead).
+- they share files and would run in the same wave (or order them with an edge instead, or keep them in the wave when the project's tooling serializes edits to the shared file).
 
 Size by judgement, not volume. A scripted move across many files is one item; a semantic change across a few files may be two.
 
@@ -49,7 +49,7 @@ Size by judgement, not volume. A scripted move across many files is one item; a 
 
 - Add an edge only for a real dependency: B needs something A produces, or B cannot be reviewed until A exists. Ordering for taste is not a dependency.
 - A wave is a dependency layer: the items with no unmet edge. List the items, add the edges, then read the waves off.
-- Items that share files and sit in one wave are merged or ordered with an edge.
+- Items that share files in one wave are merged, ordered with an edge, or kept in the wave when the project's tooling serializes edits to the shared file.
 - More layers do not mean more PRs. Waves run inside one PR unless section 2 applies.
 
 ## 5. What a breakdown records
@@ -58,16 +58,16 @@ Size by judgement, not volume. A scripted move across many files is one item; a 
 - Items: type and a one-line scope each.
 - Edges, each with the reason it exists.
 - Waves, written as the derived layers.
-- Files shared by more than one item, and how each is resolved (merged or ordered).
+- Files shared by more than one item, and how each is resolved (merged, ordered, or serialized by tooling).
 
 ## Checklist
 
 - [ ] Default is one PR; every boundary names a reason from section 2.
-- [ ] No boundary rests on size, wave count or wanting a checkpoint.
+- [ ] No boundary rests on the scope's overall size, wave count or wanting a checkpoint.
 - [ ] Each item is one context, one acceptance set, one verdict, one green commit.
 - [ ] No item is too small to carry its own fixed cost.
 - [ ] Every edge is a real dependency; waves are derived from them.
-- [ ] No two items in one wave edit the same file.
+- [ ] No two items in one wave edit the same file, unless the project's tooling serializes edits to it.
 - [ ] The cut is recorded in the shape of section 5.
 
 ## Worked example

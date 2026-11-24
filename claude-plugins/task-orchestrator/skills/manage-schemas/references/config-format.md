@@ -193,7 +193,9 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   append-only list of known body hashes per key, and the push policy follows it: a key absent from the
   server is pushed; a server copy matching a known older hash is overwritten with the current body; a
   server copy matching no known hash is never touched. A same-named file in the workspace's
-  `.taskorchestrator/rules/` wins the key over the bundled copy. In user scope the pushed config is
+  `.taskorchestrator/rules/` wins the key over the bundled copy. A config whose every declared type
+  is `lifecycle: none` gets no bundled rules (they are build-process rules for seats such a root never
+  has); nothing already pushed is deleted. In user scope the pushed config is
   reported as "user config".
 - **Shared deadline.** Config and rule requests share one budget measured from hook start (about 8 s on
   SessionStart, about 3.5 s on FileChanged). Work not finished in time is reported as
