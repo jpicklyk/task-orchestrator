@@ -1,6 +1,22 @@
 # Task Orchestrator
 
-Work items move through gated phases; seats are the positions whose agents fill each phase's notes. Above the seats, two session layers act: the orchestrator drives the work, and the director decides on the user's behalf. In short: seats do the work, the orchestrator drives it, and the user decides, or the director decides for them. These terms name the concepts that code, schemas and reviews share.
+Work items carry notes; an item whose type has a lifecycle moves through gated phases, and a lifecycle-free item never transitions. Seats are the positions whose agents fill each phase's notes. Above the seats, two session layers act: the orchestrator drives the work, and the director decides on the user's behalf. In short: seats do the work, the orchestrator drives it, and the user decides, or the director decides for them. These terms name the concepts that code, schemas and reviews share.
+
+## Items and links
+
+### Lifecycle-free item
+
+An item whose type's schema sets `lifecycle: none`: it has no role and never transitions, so no phase, gate, seat or cascade applies to it. A knowledge-base entry is the usual case.
+
+Distinct from: an item that builds nothing, which still moves through its phases; and a `permanent` item, which has a role but is never cascaded to terminal.
+In code: `LifecycleMode.NONE` (a NULL `role`).
+
+### Link
+
+A recorded pointer from an item, note or document to another that orders nothing: a `[[...]]` reference parsed from a body, an attachment, an adoption, or a note's `derived_from` plan.
+
+Distinct from: a dependency edge (`blocks` or `relates_to`), which `deps_write` records between items. A `relates_to` edge is a dependency edge, not a link.
+In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derived_from`).
 
 ## Seats and notes
 
@@ -166,13 +182,13 @@ Example: after a user answers a decision on a red test, the orchestrator's re-di
 
 ## Readiness and acceptance
 
-These concepts come from the user-journey work (`plans/user-journey-map.html`) and are not yet in code. Each entry fixes the word before the code that introduces it. Method words such as epic, story, charter or increment are not Task Orchestrator concepts: a project's schema may name its item types and notes that way, and the tool reads them only as types and notes.
+These concepts come from the user-journey work ([design/](design/README.md)) and are not yet in code. Each entry fixes the word before the code that introduces it. Method words such as epic, story, charter or increment are not Task Orchestrator concepts: a project's schema may name its item types and notes that way, and the tool reads them only as types and notes.
 
 ### Building item
 
-An item a build seat produces work for, which is the default. An item marked to build nothing, such as a question to be ruled or a container, is never handed to a build seat by `next`; its `blocks` edges hold back the items that wait on it.
+An item whose work a build seat does, which is the default for a type with a lifecycle. An item marked to build nothing, such as a question to be ruled or a container, is never handed to a build seat by `next`; its `blocks` edges hold back the items that wait on it.
 
-Distinct from: a lifecycle-free item (`none`), which never transitions. An item that builds nothing still moves through its phases.
+Distinct from: a lifecycle-free item, which is off this axis because it never transitions. An item that builds nothing still moves through its phases.
 In code: none yet (proposed `builds`, set on a schema or trait and pinned on the item).
 
 ### Refined

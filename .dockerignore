@@ -38,6 +38,7 @@ CLAUDE.local.md
 
 # Plans and doc research
 plans/
+design/
 doc_research/
 
 # Scripts (not needed in container)
