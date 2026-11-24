@@ -189,7 +189,7 @@ These concepts come from the user-journey work ([design/](design/README.md)) and
 An item whose work a build seat does, which is the default for a type with a lifecycle. An item marked to build nothing, such as a question to be ruled or a container, is never handed to a build seat by `next`; its `blocks` edges hold back the items that wait on it.
 
 Distinct from: a lifecycle-free item, which is off this axis because it never transitions. An item that builds nothing still moves through its phases.
-In code: none yet (proposed `builds`, set on a schema or trait and pinned on the item).
+In code: `builds`, set on a schema or trait (`WorkItemSchema.builds`) and pinned on the item (`SchemaPin.builds`, column `work_items.builds`).
 
 ### Refined
 

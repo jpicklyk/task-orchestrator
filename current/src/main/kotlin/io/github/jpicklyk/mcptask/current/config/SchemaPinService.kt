@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.config
 
 import io.github.jpicklyk.mcptask.current.application.port.PinViews
+import io.github.jpicklyk.mcptask.current.config.internal.app.TraitResolver
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.event.PinReason
 import io.github.jpicklyk.mcptask.current.model.event.PinRef
@@ -16,7 +17,7 @@ import java.util.UUID
 /**
  * THE pin writer (plan section 3.8): the only application code that constructs a [SchemaPin]. A pin records the config
  * heads an item resolves against (the server and its root's current versions) and the base schema the Q9 rule gives
- * its type under them, plus that schema's lifecycle. The pin points (create, type change, trait change, cross-root
+ * its type under them, plus that schema's lifecycle and whether it builds once merged with the item's traits. The pin points (create, type change, trait change, cross-root
  * reparent, reopen, `repin`) call [pinFor]; [view] renders a pin for the read surfaces.
  *
  * Reads go through [configResolver] (session-memoised heads, cached versions); a config read fault propagates as
@@ -35,7 +36,7 @@ class SchemaPinService(
     /**
      * The pin [item] gets under [rootId] at [now]: the current server and root head version ids (null for a scope with
      * no config or a reset head), the base schema the precedence rule gives [item]'s type at those heads (key and
-     * layer; both null when schema-free) and that schema's lifecycle.
+     * layer; both null when schema-free), that schema's lifecycle, and its `builds` merged with [item]'s traits.
      */
     suspend fun pinFor(
         item: WorkItem,
@@ -45,7 +46,7 @@ class SchemaPinService(
 
     /**
      * The pins [items] get under [rootId] at [now], by item id: [pinFor] for each, over ONE read of the heads and one
-     * base-schema resolution per distinct type (a moved subtree re-pins without a per-item config read).
+     * base-schema resolution per distinct (type, traits) pair (a moved subtree re-pins without a per-item config read).
      */
     suspend fun pinsFor(
         items: Collection<WorkItem>,
@@ -56,10 +57,11 @@ class SchemaPinService(
         val layered = configResolver.layered(rootId)
         val serverVersionId = layered.global.versionId()
         val rootVersionId = layered.perRoot?.versionId
-        val byType = HashMap<String?, SchemaPin>()
+        val traitResolver = TraitResolver(layered)
+        val byTypeAndTraits = HashMap<Pair<String?, List<String>>, SchemaPin>()
         return items.associate { item ->
             item.id to
-                byType.getOrPut(item.type) {
+                byTypeAndTraits.getOrPut(item.type to item.traits) {
                     val base = layered.baseSchemaEntry(item.type)
                     SchemaPin(
                         serverVersionId = serverVersionId,
@@ -67,7 +69,8 @@ class SchemaPinService(
                         schemaKey = base?.key,
                         schemaLayer = base?.source?.let { layerOf(it) },
                         lifecycle = base?.schema?.lifecycleMode,
-                        pinnedAt = now
+                        pinnedAt = now,
+                        builds = base?.let { traitResolver.mergeSchema(it.schema, item.traits, item.id).builds }
                     )
                 }
         }
@@ -118,7 +121,7 @@ class SchemaPinService(
     }
 
     companion object {
-        /** True when [a] and [b] pin the same versions, base schema and lifecycle (the pin instant is ignored). */
+        /** True when [a] and [b] pin the same versions, base schema, lifecycle and builds (the pin instant is ignored). */
         fun samePin(
             a: SchemaPin?,
             b: SchemaPin?
@@ -128,6 +131,7 @@ class SchemaPinService(
                 a?.schemaKey == b?.schemaKey &&
                 a?.schemaLayer == b?.schemaLayer &&
                 a?.lifecycle == b?.lifecycle &&
+                a?.builds == b?.builds &&
                 (a == null) == (b == null)
 
         /**

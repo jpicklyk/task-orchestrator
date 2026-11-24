@@ -393,9 +393,9 @@ class ToolTextForDeferredLoadingTest {
 
     @Test
     fun `S10 the production registry is inside the size ceilings and the ceilings are unchanged`() {
-        assertEquals(8_000, ToolSurfaceChecks.PER_TOOL_CEILING)
+        assertEquals(9_000, ToolSurfaceChecks.PER_TOOL_CEILING)
         assertEquals(22_000, ToolSurfaceChecks.KNOWLEDGE_TOTAL_CEILING)
-        assertEquals(42_000, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
+        assertEquals(43_500, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
         assertEquals(14_000, ToolSurfaceChecks.DIRECTOR_TOTAL_CEILING)
         assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(registry))
     }

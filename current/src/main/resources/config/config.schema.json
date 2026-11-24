@@ -108,7 +108,8 @@
         "lifecycle": { "enum": ["auto", "manual", "permanent", "none"] },
         "default_traits": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
-        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }
+        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } },
+        "builds": { "type": "boolean" }
       }
     },
     "trait": {
@@ -120,7 +121,8 @@
         "dispatch": { "$ref": "#/$defs/dispatch" },
         "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } },
         "description": { "type": "string" },
-        "applies_when": { "type": "string" }
+        "applies_when": { "type": "string" },
+        "builds": { "type": "boolean" }
       }
     },
     "noteEntry": {

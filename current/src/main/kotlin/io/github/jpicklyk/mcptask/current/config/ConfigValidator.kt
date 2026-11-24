@@ -470,6 +470,7 @@ class ConfigValidator(
                 if (schema.lifecycleMode != server.lifecycleMode) differs.add("lifecycle")
                 if (schema.defaultTraits != server.defaultTraits) differs.add("default_traits")
                 if (schema.seats != server.seats) differs.add("seats")
+                if (schema.builds != server.builds) differs.add("builds")
                 noteDiff(schema.notes, server.notes)?.let { differs.add(it) }
                 out.add(
                     ConfigViolation(
@@ -499,6 +500,7 @@ class ConfigValidator(
                 val theirs = serverDocument.traitDescriptors[name]
                 if (mine?.description != theirs?.description) differs.add("description")
                 if (mine?.appliesWhen != theirs?.appliesWhen) differs.add("applies_when")
+                if (document.traitBuilds[name] != serverDocument.traitBuilds[name]) differs.add("builds")
                 out.add(
                     ConfigViolation(
                         pointer("traits", name),

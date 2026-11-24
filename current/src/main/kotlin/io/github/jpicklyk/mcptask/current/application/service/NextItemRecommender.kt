@@ -56,8 +56,17 @@ class NextItemRecommender(
          * `AccessScope.rootIds`.
          */
         val ancestorIds: Set<UUID>? = null,
+        /**
+         * In the QUEUE role, also list parent items (decision 0004). False (default): a queue item with a child that has
+         * a role is a container, not startable work, and is excluded. In the other roles it has no effect. A queue item
+         * whose pinned `builds` is false is excluded either way.
+         */
+        val includeParents: Boolean = false,
     ) {
-        /** These criteria as the store's [EligibilityQuery]; [includeClaimed] turns the claim predicates off. */
+        /**
+         * These criteria as the store's [EligibilityQuery]; [includeClaimed] turns the claim predicates off. The startable
+         * policy lives here: in [Role.QUEUE] only leaves (unless [includeParents]) that build are asked for.
+         */
         fun toEligibilityQuery(includeClaimed: Boolean = false): EligibilityQuery =
             EligibilityQuery(
                 role = role,
@@ -77,6 +86,8 @@ class NextItemRecommender(
                 requestingAssignmentId = requestingAssignmentId,
                 rootIds = ancestorIds,
                 includeClaimed = includeClaimed,
+                leavesOnly = role == Role.QUEUE && !includeParents,
+                buildingOnly = role == Role.QUEUE,
             )
     }
 

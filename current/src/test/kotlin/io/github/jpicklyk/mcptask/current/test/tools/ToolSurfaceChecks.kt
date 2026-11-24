@@ -10,15 +10,18 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Registry-level surface checks (task-scope D11 budgets and D12 documentation rule) written independently as pure
- * functions over a [ToolRegistry], so the boundary behaviour (8,000 ok, 8,001 flagged) is provable on fixtures and the same
+ * functions over a [ToolRegistry], so the boundary behaviour (9,000 ok, 9,001 flagged) is provable on fixtures and the same
  * functions run over the production `buildToolSpecs()` registry.
  *
  * Sizes are character counts of the compact `tools/list` entry ([ToolGoldens.compact] of [McpOperationAdapter.toolFor]).
  */
 object ToolSurfaceChecks {
-    const val PER_TOOL_CEILING = 8_000
+    // Sized for P1 and both P8 items, owner ruling 2026-11-24.
+    const val PER_TOOL_CEILING = 9_000
     const val KNOWLEDGE_TOTAL_CEILING = 22_000
-    const val ORCHESTRATION_TOTAL_CEILING = 42_000
+
+    // Sized for P1 and both P8 items, owner ruling 2026-11-24.
+    const val ORCHESTRATION_TOTAL_CEILING = 43_500
     const val DIRECTOR_TOTAL_CEILING = 14_000
 
     /** Compact char count per visible tool of [profile], in registry order. */
@@ -37,7 +40,7 @@ object ToolSurfaceChecks {
             ToolProfile.DIRECTOR -> DIRECTOR_TOTAL_CEILING
         }
 
-    /** One message per breached ceiling: a tool over 8,000 in a profile, or a profile total over its ceiling. */
+    /** One message per breached ceiling: a tool over 9,000 in a profile, or a profile total over its ceiling. */
     fun budgetViolations(registry: ToolRegistry): List<String> {
         val out = mutableListOf<String>()
         for (profile in ToolProfile.entries) {

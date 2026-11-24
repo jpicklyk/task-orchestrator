@@ -219,6 +219,10 @@
         "type": "boolean",
         "description": "Also list items under an active claim, each with isClaimed; default false. [select: next]"
       },
+      "includeParents": {
+        "type": "boolean",
+        "description": "Also list parent items; default false. [select: next]"
+      },
       "since": {
         "type": "string",
         "description": "Only transitions at or after this time (ISO 8601). [select: history]",

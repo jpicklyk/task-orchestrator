@@ -386,7 +386,7 @@ Solution: Check who is working what with `items_read(select="list", role="work")
 
 **Note: Ralph workers skip sub-items of in-progress features (ancestor-claim filtering)**
 
-`items_read next` leaves out a candidate under an ancestor claimed by another agent, so a Ralph drain never picks the child tasks of a feature an orchestrator holds - the correct and desired behavior. There is no depth-0 filter; to drain only top-level items, tag or type them distinctly (for example `tag=top-level`) and filter on that.
+`items_read next` leaves out a candidate under an ancestor claimed by another agent, so a Ralph drain never picks the child tasks of a feature an orchestrator holds - the correct and desired behavior. There is no depth-0 filter; to drain only top-level items, tag or type them distinctly (for example `tag=top-level`) and filter on that. In `queue`, `next` offers only leaves, so a top-level item with children is never offered.
 
 ---
 

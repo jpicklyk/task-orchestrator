@@ -47,6 +47,7 @@ Profiles: orchestration; capability `advance`.
 | `select.roleChangedAfter` | string (date-time) | no |
 | `select.roleChangedBefore` | string (date-time) | no |
 | `select.orderBy` | string: priority \| oldest \| newest | no |
+| `select.includeParents` | boolean | no |
 | `ttlSeconds` | integer | no |
 | `claimRef` | string | no |
 
@@ -592,6 +593,7 @@ Profiles: orchestration; capability `read`.
 | `roleChangedBefore` | string (date-time) | no |
 | `orderBy` | string: priority \| oldest \| newest | no |
 | `includeClaimed` | boolean | no |
+| `includeParents` | boolean | no |
 | `limit` | integer | no |
 | `cursor` | string | no |
 | `fields` | array of string | no |

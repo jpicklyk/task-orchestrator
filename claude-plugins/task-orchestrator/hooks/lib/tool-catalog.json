@@ -119,6 +119,10 @@
               "type": "string: priority | oldest | newest",
               "required": false
             },
+            "select.includeParents": {
+              "type": "boolean",
+              "required": false
+            },
             "ttlSeconds": {
               "type": "integer",
               "required": false
@@ -1640,6 +1644,10 @@
               "required": false
             },
             "includeClaimed": {
+              "type": "boolean",
+              "required": false
+            },
+            "includeParents": {
               "type": "boolean",
               "required": false
             },

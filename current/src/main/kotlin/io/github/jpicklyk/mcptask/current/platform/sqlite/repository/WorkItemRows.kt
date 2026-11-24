@@ -80,7 +80,7 @@ internal object WorkItemRows {
     }
 
     /**
-     * The row's config pin (the V26 `pinned_*` columns and `lifecycle`): present iff `pinned_at` is set. A `lifecycle`
+     * The row's config pin (the V26 `pinned_*` columns, `lifecycle` and the V38 `builds`): present iff `pinned_at` is set. A `lifecycle`
      * value that names no [LifecycleMode] (such as Q31b's `none`) reads as null.
      */
     private fun readPin(
@@ -94,7 +94,8 @@ internal object WorkItemRows {
             schemaKey = row[WorkItemsTable.pinnedSchemaKey],
             schemaLayer = PinLayer.fromWire(row[WorkItemsTable.pinnedSchemaLayer]),
             lifecycle = row[WorkItemsTable.lifecycle]?.let { LifecycleMode.fromString(it) },
-            pinnedAt = pinnedAt
+            pinnedAt = pinnedAt,
+            builds = row[WorkItemsTable.builds]
         )
     }
 

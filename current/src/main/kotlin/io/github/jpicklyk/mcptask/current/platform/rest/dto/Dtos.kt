@@ -65,7 +65,8 @@ data class ResourceRequirementDto(
  * `dispatch` (per-phase routing profiles, keyed by lowercase phase name) and `resources`
  * (declared shared-resource requirements) are omitted (null) when the trait declares neither —
  * never present as an empty map/list. `description` and `appliesWhen` (the trait's own text, never
- * evaluated by the server) are omitted (null) when the trait declares none.
+ * evaluated by the server) are omitted (null) when the trait declares none. `builds` is present (false) only when the
+ * trait sets `builds: false`.
  */
 @Serializable
 data class TraitDto(
@@ -75,6 +76,7 @@ data class TraitDto(
     val resources: List<ResourceRequirementDto>? = null,
     val description: String? = null,
     val appliesWhen: String? = null,
+    val builds: Boolean? = null,
 )
 
 /**
@@ -113,7 +115,8 @@ data class StatusGraphDto(
  * [type] is the queried type key; [matchedType] is the schema that actually answered it
  * (`"default"` when a default schema answered a miss). [configSource] is `"per-root"` or
  * `"global"` - the same literal `items_read` `select=schema` reports for `configSource`.
- * [configFingerprint] is the supplying layer's fingerprint, omitted when that layer has none.
+ * [configFingerprint] is the supplying layer's fingerprint, omitted when that layer has none. [builds] is present (false)
+ * only when the schema sets `builds: false`.
  */
 @Serializable
 data class EffectiveSchemaDto(
@@ -125,6 +128,7 @@ data class EffectiveSchemaDto(
     val hasReviewPhase: Boolean,
     val notes: List<NoteSchemaEntryDto>,
     val defaultTraits: List<String>,
+    val builds: Boolean? = null,
 )
 
 /**

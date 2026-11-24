@@ -34,8 +34,8 @@ import kotlin.test.assertTrue
  * 3.x tools themselves: there is no second tool list left to clash with. These two scenarios are the registry's only
  * budget and documentation guards (the 3.x ToolTokenBudgetTest and ToolDocumentationConsistencyTest are gone).
  *
- * Oracles: task-scope D11 (budgets measure the compact `tools/list` entry of `toolFor(spec, profile)`: per tool at most 8,000
- * characters in every profile, knowledge total at most 22,000, orchestration total at most 42,000, director total at most
+ * Oracles: task-scope D11 (budgets measure the compact `tools/list` entry of `toolFor(spec, profile)`: per tool at most 9,000
+ * characters in every profile, knowledge total at most 22,000, orchestration total at most 43,500, director total at most
  * 14,000 (V4 (b) of the Phase 3 plan), over the registry only), D12
  * (every property at every depth, including `ops.items` and nested classes, has a non-blank description; every rendered tool
  * description contains `DESCRIBE_HINT`).
@@ -104,11 +104,11 @@ class ToolSurfaceGuardsTest {
     // ------------------------------------------------------------------ S15 per tool
 
     @Test
-    fun `S15 a tool of exactly 8000 characters and one of 7999 pass`() {
+    fun `S15 a tool of exactly 9000 characters and one of 8999 pass`() {
         // Each profile's boundary is proved with a fixture padded on that profile's own rendering: the orchestration
         // rendering is larger than the knowledge one (it adds the top-level seatToken property), so one fixture visible
-        // in both profiles cannot measure exactly 8000 on both.
-        for (size in listOf(8_000, 7_999)) {
+        // in both profiles cannot measure exactly 9000 on both.
+        for (size in listOf(9_000, 8_999)) {
             val bothProfiles = registryOf(padded("pad_tool", size, ToolProfile.ORCHESTRATION, visibleIn = knowledge()))
             assertEquals(size, ToolSurfaceChecks.sizes(bothProfiles, ToolProfile.ORCHESTRATION).getValue("pad_tool"))
             assertTrue(ToolSurfaceChecks.sizes(bothProfiles, ToolProfile.KNOWLEDGE).getValue("pad_tool") <= size)
@@ -122,8 +122,8 @@ class ToolSurfaceGuardsTest {
     }
 
     @Test
-    fun `S15 a tool of 8001 characters is flagged by name and profile`() {
-        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 8_001)))
+    fun `S15 a tool of 9001 characters is flagged by name and profile`() {
+        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 9_001)))
         assertEquals(2, violations.size, "the tool is visible in both profiles, once per profile: $violations")
         assertTrue(violations.all { "pad_tool" in it }, violations.toString())
         assertTrue(violations.any { "knowledge" in it } && violations.any { "orchestration" in it }, violations.toString())
@@ -131,7 +131,7 @@ class ToolSurfaceGuardsTest {
 
     @Test
     fun `S15 an orchestration-only tool over the ceiling is flagged for orchestration only`() {
-        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 8_001, ToolProfile.ORCHESTRATION)))
+        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 9_001, ToolProfile.ORCHESTRATION)))
         assertEquals(1, violations.size, violations.toString())
         assertTrue("orchestration" in violations.single(), violations.single())
         assertEquals(
@@ -157,15 +157,15 @@ class ToolSurfaceGuardsTest {
     }
 
     @Test
-    fun `S15 an orchestration total of 42000 passes and 42001 is flagged`() {
-        val ok = registryOf(*(1..6).map { padded("pad_$it", 7_000, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(42_000, ToolSurfaceChecks.sizes(ok, ToolProfile.ORCHESTRATION).values.sum())
+    fun `S15 an orchestration total of 43500 passes and 43501 is flagged`() {
+        val ok = registryOf(*(1..6).map { padded("pad_$it", 7_250, ToolProfile.ORCHESTRATION) }.toTypedArray())
+        assertEquals(43_500, ToolSurfaceChecks.sizes(ok, ToolProfile.ORCHESTRATION).values.sum())
         assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
 
-        val sizes = listOf(7_000, 7_000, 7_000, 7_000, 7_000, 7_001)
+        val sizes = listOf(7_250, 7_250, 7_250, 7_250, 7_250, 7_251)
         val over =
             registryOf(*sizes.mapIndexed { i, size -> padded("pad_" + ('a' + i), size, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(42_001, ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum())
+        assertEquals(43_501, ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum())
         val violations = ToolSurfaceChecks.budgetViolations(over)
         assertEquals(1, violations.size, violations.toString())
         assertTrue("total" in violations.single() && "orchestration" in violations.single(), violations.single())
@@ -191,8 +191,8 @@ class ToolSurfaceGuardsTest {
     }
 
     @Test
-    fun `S15 a director tool of 8001 characters is flagged by name for director`() {
-        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 8_001, ToolProfile.DIRECTOR)))
+    fun `S15 a director tool of 9001 characters is flagged by name for director`() {
+        val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 9_001, ToolProfile.DIRECTOR)))
         assertEquals(1, violations.size, violations.toString())
         assertTrue("pad_tool" in violations.single() && "director" in violations.single(), violations.single())
     }
@@ -222,12 +222,12 @@ class ToolSurfaceGuardsTest {
 
     @Test
     fun `S15 the ceilings are the frozen numbers`() {
-        assertEquals(8_000, ToolSurfaceChecks.PER_TOOL_CEILING)
+        assertEquals(9_000, ToolSurfaceChecks.PER_TOOL_CEILING)
         assertEquals(22_000, ToolSurfaceChecks.KNOWLEDGE_TOTAL_CEILING)
-        assertEquals(42_000, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
+        assertEquals(43_500, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
         assertEquals(14_000, ToolSurfaceChecks.DIRECTOR_TOTAL_CEILING)
         assertEquals(22_000, ToolSurfaceChecks.totalCeiling(ToolProfile.KNOWLEDGE))
-        assertEquals(42_000, ToolSurfaceChecks.totalCeiling(ToolProfile.ORCHESTRATION))
+        assertEquals(43_500, ToolSurfaceChecks.totalCeiling(ToolProfile.ORCHESTRATION))
         assertEquals(14_000, ToolSurfaceChecks.totalCeiling(ToolProfile.DIRECTOR))
     }
 

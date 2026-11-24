@@ -39,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap
  * | Facet | Rule |
  * |---|---|
  * | Schema for a type | per-root exact type -> server exact type -> per-root `"default"` -> server `"default"` -> none. A null type uses only the two `"default"` steps. Tags are never consulted. |
- * | Trait (every dimension) | when the per-root `traits:` map contains the name, notes, seats, resources, dispatch (by role and by seat), description and applies_when ALL come from the per-root entry, and a dimension it does not declare is empty; otherwise all come from the server entry |
+ * | Trait (every dimension) | when the per-root `traits:` map contains the name, notes, seats, resources, dispatch (by role and by seat), description, applies_when and builds ALL come from the per-root entry, and a dimension it does not declare is empty; otherwise all come from the server entry |
  * | Resource registry | server only (a per-root `resources:` section is ignored) |
  * | note_limits.mode | per-root explicit value, else server |
  * | independence (A2) | per-root block wins WHOLESALE (both `mode` and `require_verified` together), else server |
@@ -111,6 +111,10 @@ class LayeredConfig(
     /** Trait description and applies_when for [name] from the declaring layer; null when that layer declares neither. */
     fun traitDescriptor(name: String): TraitDescriptor? =
         if (perRootDeclaresTrait(name)) perRootDocument?.traitDescriptors?.get(name) else global.traitDescriptor(name)
+
+    /** Trait `builds` value for [name] from the declaring layer; null when that layer does not set it. */
+    fun traitBuilds(name: String): Boolean? =
+        if (perRootDeclaresTrait(name)) perRootDocument?.traitBuilds?.get(name) else global.traitBuilds(name)
 
     /** Trait seats for [name] from the declaring layer; empty when that layer declares none. */
     fun traitSeats(name: String): List<SeatDefinition> =

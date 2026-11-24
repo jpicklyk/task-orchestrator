@@ -93,6 +93,7 @@ The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`
 | `default_traits` | no | list | Trait names applied to every item matching this schema |
 | `seats` | no | list | Named roles within a phase; see "Seats" below. A `lifecycle: none` schema may not declare any |
 | `notes` | no | list | Note entries (below) |
+| `builds` | no | boolean | `false`: items of this type are not work that builds, so `next` and claim select skip them in `queue`. Defaults to `true` |
 
 ### Note-level fields
 
@@ -519,10 +520,11 @@ traits:
 | `resources` | no | list | Resource requirements; see "Resources" |
 | `dispatch` | no | map | Dispatch profile; see "Dispatch" |
 | `seats` | no | list | Seat entries; see "Seats" |
+| `builds` | no | boolean | `false` makes an item carrying the trait not build, as the schema field does; false wins over `true` anywhere. Applies even when the trait has no notes or seats |
 | `description` | no | string | What the trait is for. Trimmed; blank is absent; a non-string is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Served to clients, never evaluated |
 | `applies_when` | no | string | When the trait applies, in prose. Same handling as `description`. The plugin's create-item skill infers a trait only from this text; a trait without it is never inferred. Never evaluated by the server |
 
-A per-root trait entry replaces the server's entry of the same name as a whole, `description` and `applies_when` included (see "Trait Merge Semantics").
+A per-root trait entry replaces the server's entry of the same name as a whole, `description`, `applies_when` and `builds` included (see "Trait Merge Semantics").
 
 ### Seat-entry fields (`seats[]`, schema-level or trait-level)
 
@@ -908,7 +910,7 @@ same level.
 | Facet | Rule |
 |-------|------|
 | Schema for a type | root exact type, server exact type, root `default`, server `default`, none (see "Matching Rules") |
-| Trait | when the root's `traits:` map contains the name, notes, seats, resources and dispatch all come from the root's entry (a dimension it omits is empty); otherwise all from the server's |
+| Trait | when the root's `traits:` map contains the name, notes, seats, resources, dispatch and `builds` all come from the root's entry (a dimension it omits is empty); otherwise all from the server's |
 | `resources:` registry | server only; a root document that carries it is rejected |
 | `note_limits.mode` | the root's explicit value, else the server's |
 | `independence` | the root's block wins whole (`mode` and `require_verified` together), else the server's |

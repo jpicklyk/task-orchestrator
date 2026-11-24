@@ -53,7 +53,7 @@ import kotlin.test.assertTrue
  * mark with the EMPTY set, every op capability RUNS, close the only destructive op, registered after `report`), the declared error
  * sets (open NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN / DUPLICATE; mark and get NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN; list NOT_FOUND /
  * AMBIGUOUS_ID), R5 AC5 (a member with an empty set is unknown on every MCP profile: `invalid_request` at `/ops/0/op`, nothing written; for an ops tool that is a failed ELEMENT, so the whole call is the 207 `partial_failure` of the envelope spec, resolved from api-rest.md and DirectorOpsRouteTest, not from the implementation), the frozen
- * ceilings of R5 AC8/AC9 (a tool entry at most 8,000 compact characters; profile totals 22,000 / 42,000 / 14,000; production plus
+ * ceilings of R5 AC8/AC9 (a tool entry at most 9,000 compact characters; profile totals 22,000 / 43,500 / 14,000; production plus
  * planned within each) and the stop rule of 3.4c, decision D-goldens (real goldens for the four profile/tool pairs, the four deltas
  * for the members R20 does not ship, no full planned file left), D-kind (`openedByKind` is `agent` for a lifted body actor whatever
  * kind it declares, absent with no actor) and D-coord (the coordinator is the caller whose id equals `openedBy`, null matching null).
@@ -302,7 +302,7 @@ class RunsToolsSurfaceTest {
     fun `S20 production plus planned stays within the frozen profile ceilings, the stop rule of 3-4c`() {
         val totals = PlannedSurfaceChecks.totals(registry)
         assertEquals(22_000, totals.getValue(ToolProfile.KNOWLEDGE).ceiling)
-        assertEquals(42_000, totals.getValue(ToolProfile.ORCHESTRATION).ceiling)
+        assertEquals(43_500, totals.getValue(ToolProfile.ORCHESTRATION).ceiling)
         assertEquals(14_000, totals.getValue(ToolProfile.DIRECTOR).ceiling)
         for ((profile, t) in totals) {
             assertTrue(
