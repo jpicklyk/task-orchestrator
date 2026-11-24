@@ -323,7 +323,7 @@ config(op="rules", rootId)</pre>
 
 <section>
   <h2>What else ships in the plugin</h2>
-  <p class="sub small">The mode lives under <code>extensions.claude-code.orchestration</code>. A top-level <code>orchestration</code> block is rejected by a push. The orchestration context stays silent in subagents, director sessions, headless ralph iterations, when no config is located, and in mode <code>off</code>. The director's own hooks are on plate 8.</p>
+  <p class="sub small">The setting lives at <code>extensions.claude-code.steering</code>; the old <code>extensions.claude-code.orchestration.mode</code> is still read as a deprecated alias. A top-level <code>orchestration</code> block is rejected by a push. The orchestration context stays silent in subagents, director sessions, headless ralph iterations, when no config is located, and with steering <code>off</code>. The director's own hooks are on plate 8.</p>
   <div class="grid2">
     <div class="tscroll"><table>
       <thead><tr><th>Channel</th><th>Behaviour</th></tr></thead>
