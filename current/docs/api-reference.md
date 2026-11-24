@@ -2124,7 +2124,7 @@ pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, cl
 orchestratorStalled, stallAfterSeconds, budget?: {attemptsPerSeat?, maxActiveSeats?}, usage: {observedTokens},
 hints, marks, members, activeSeats, stalledSeats, version}`. Absent members are omitted, never `null`. Deprecated aliases (4.x,
 removed in 5.0): `coordinatorSeenAt` and `coordinatorStalled` follow `orchestratorSeenAt` and `orchestratorStalled` with the
-same values, present or absent together; the seat value `coordinator` and the `forbidden` `required` values keep their names;
+same values, present or absent together; the seat value `coordinator` and the `forbidden` `required` values keep their names.
 `usage.observedTokens` is the server's own estimate of the run's call-log response tokens and enforces nothing (the
 4.0.0 token and cost budgets and the agent-reported usage were removed in 4.0.1). `activeSeats` counts the active
 member seats (never the `coordinator` pseudo-seat) and `stalledSeats` those of them that are stalled. Under a restricted scope,
