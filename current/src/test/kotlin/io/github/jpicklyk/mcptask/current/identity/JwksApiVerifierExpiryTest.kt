@@ -109,7 +109,7 @@ class JwksApiVerifierExpiryTest {
 
     /**
      * LOCAL claims builder: `expiry` is nullable, unlike the sibling `JwksApiVerifierTest.buildClaims`
-     * (infrastructure/identity/jwt/JwksApiVerifierTest.kt:79-96) which always sets `expirationTime` — needed
+     * (identity/JwksApiVerifierTest.kt) which always sets `expirationTime` — needed
      * here to mint exp-less JWTs (S1/S6/S10/S11).
      */
     private fun buildClaims(

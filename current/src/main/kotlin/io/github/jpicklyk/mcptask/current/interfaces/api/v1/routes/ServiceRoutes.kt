@@ -28,7 +28,7 @@ import kotlinx.serialization.json.Json
  *   200 OK when the database is reachable or 503 when it is not.
  *
  * Auth note: `/health` intentionally bypasses the auth plugin — the route is registered
- * OUTSIDE the [io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth]
+ * OUTSIDE the `ApiBearerAuth`
  * plugin scope (see `CurrentMcpServer.runHttpTransport` for the routing topology).
  *
  * @param repositoryProvider Used by `/health` to probe the database. Optional to allow
