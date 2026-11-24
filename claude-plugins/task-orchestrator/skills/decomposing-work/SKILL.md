@@ -23,7 +23,7 @@ Divide a scope into several PRs only where the boundary cites one of these:
 1. Later work outside the scope, or a release, needs this state on the main line.
 2. CI checks something the local suite does not, and later steps build on it.
 3. The plan depends on what this step shows (a measurement, a spike). A boundary whose outcome decides the rest of the plan is this reason: finding out late that it failed costs more than an early PR.
-4. One review would mix a mechanical diff with a behaviour change.
+4. A mechanical diff is large enough to bury a behaviour change for the reader of the PR. This is the PR's own human review, not an item's review verdict. Moves and behaviour changes kept in separate items are enough when the move's diff stays small enough for that reader to review; the move gets its own PR only when it does not.
 5. Other work landing on the same files makes a long branch costly.
 6. The state must be released and observed before what depends on it (a data migration).
 
@@ -72,9 +72,9 @@ Size by judgement, not volume. A scripted move across many files is one item; a 
 
 ## Worked example
 
-A refactor moves a large body of code into a new package layout and then tightens the rules around it.
+A refactor moves a body of code into a new package layout and then tightens the rules around it. The move is a scripted rename of files and imports, a diff the reader of the PR can follow in one sitting.
 
-- **Items:** (A) one mechanical-move item, scripted across every file and judged by "the tree still builds and behaviour is unchanged"; (B1..Bn) one semantic item per package, each making that package's own changes; (C) one rules-and-guards item that adds the checks which keep the new layout in place.
+- **Items:** (A) one mechanical-move item, scripted across the files and judged by "the tree still builds and behaviour is unchanged"; (B1..Bn) one semantic item per package, each making that package's own changes; (C) one rules-and-guards item that adds the checks which keep the new layout in place.
 - **Edges:** A before every B, because the semantic work edits the moved files; every B before C, because the guards would fail until each package is done. The B items touch different packages, so no edge among them.
 - **Waves (derived):** {A}, then {B1..Bn}, then {C}.
-- **PR boundaries:** One PR. Reason 4 was considered and rejected: the moves and the semantics are separate items, so each commit is reviewable on its own inside one PR, and nothing else on the list applies.
+- **PR boundaries:** One PR. Reason 4 was considered and rejected: the moves and the semantics are separate items, and the move's diff is small enough that it does not bury the semantic changes for the reader of the PR. Nothing else on the list applies. Had the move's diff been too large to review beside the behaviour change, reason 4 would have made it its own PR.
