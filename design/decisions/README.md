@@ -31,3 +31,6 @@ File `NNNN-short-title.md`, numbered in order. Fields: **Status** (Accepted, Sup
 | [0011](0011-no-sync-with-outside-tools.md) | No synchronisation with outside tools | Accepted | 2026-11-24 |
 | [0012](0012-acceptance-gate-note-form.md) | The acceptance gate is a note satisfied by an answered decision | Accepted | 2026-11-24 |
 | [0013](0013-no-sibling-rank-yet.md) | No sibling rank until a need appears | Accepted | 2026-11-24 |
+| [0014](0014-acceptance-note-checked-on-entry-to-terminal.md) | The acceptance note is checked only on entry to terminal; its body is a pointer, never the proof (refines 0012) | Accepted | 2026-11-24 |
+| [0015](0015-acceptance-decisions-follow-the-item-lifecycle.md) | Acceptance decisions follow the item's lifecycle: stale after leaving terminal, withdrawn on cancel (refines 0012) | Accepted | 2026-11-24 |
+| [0016](0016-acceptance-cancel-subtree-and-grant-checks.md) | Acceptance covers the subtree; cancel skips it only by the item's own hand; build state is a named claim (refines 0008, 0012) | Accepted | 2026-11-24 |

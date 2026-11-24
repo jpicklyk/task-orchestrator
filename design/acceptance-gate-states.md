@@ -1,6 +1,6 @@
 # Acceptance gate states
 
-**Status:** Proposal for the owner to decide. Nothing here is settled. | **Date:** 2026-11-24 | **Base:** main at `256b2bd34`
+**Status:** Ruled 2026-11-24. The owner accepted the proposals below with the refinements recorded in [0014](decisions/0014-acceptance-note-checked-on-entry-to-terminal.md), [0015](decisions/0015-acceptance-decisions-follow-the-item-lifecycle.md) and [0016](decisions/0016-acceptance-cancel-subtree-and-grant-checks.md); where this document and a record differ, the record wins. | **Date:** 2026-11-24 | **Base:** main at `256b2bd34`
 
 ## Purpose
 
