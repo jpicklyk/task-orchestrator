@@ -56,7 +56,9 @@ The REST base URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, a project
 ## Mode gating
 
 Plugin keys live under `extensions.claude-code` in `.taskorchestrator/config.yaml` (for example
-`extensions.claude-code.orchestration.mode`). Top-level 3.x keys such as `orchestration:` are ignored; a 4.0 server
+`extensions.claude-code.steering`; the old `extensions.claude-code.orchestration.mode` is still read as a deprecated alias
+when `steering` is absent or invalid, and `orchestration-context.mjs` prints one deprecation line per session while it is present).
+Top-level 3.x keys such as `orchestration:` are ignored; a 4.0 server
 rejects them on push, and `session-start` prints a `## Config Shape` line when it finds one.
 
 `execution-mode.suppressionReason(hookInput, env)` is the shared gate for the four injecting context hooks. It returns
@@ -66,7 +68,7 @@ file exists at `directorMarkerPath(session_id)`, written by `director-guard.mjs`
 The table lists one row per script registered in `hooks-config.json` and what it does at this version. "Not gated" means
 the hook has no check for that column; "non-injecting" means it adds no context. `plan-capture.mjs` is not gated and injects only in a project session: there (a located project config with a `rootId`) it adds one line, `plan stashed as plan document ...` or `plan not stashed (<why>)`, and in any other session nothing; it never blocks plan approval.
 
-| Script | Headless iteration | Subagent (`agent_id`) | `orchestration.mode` | Director session |
+| Script | Headless iteration | Subagent (`agent_id`) | `steering` | Director session |
 |--------|--------------------|-----------------------|----------------------|------------------|
 | `session-start.mjs` | Guidance omitted; diagnostics kept | Guidance omitted; diagnostics kept | Not read | Guidance omitted; diagnostics kept |
 | `orchestration-context.mjs` | `{}` | `{}` | `off` gives `{}`; `workflow` and `schema` pick the variant | `{}` |

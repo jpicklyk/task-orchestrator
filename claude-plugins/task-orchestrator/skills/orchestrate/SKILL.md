@@ -8,7 +8,7 @@ user-invocable: false
 
 On-demand depth for sizing work and dispatching agents. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts (a full UUID is also accepted).
 
-`orchestration.mode` lives under `extensions.claude-code` in the project config (see [`extensions`](../../../../current/docs/config-reference.md#extensions)). The tier table and the delegation model table apply when it is `workflow`. In `schema` mode the schema alone governs process, so skip the tier and model-table content; the phase-owner dispatch rules and the explicit-`model` rule below still apply, with the model chosen by judgment.
+`steering` lives under `extensions.claude-code` in the project config (see [`extensions`](../../../../current/docs/config-reference.md#extensions)). The tier table and the delegation model table apply when it is `workflow`. In `schema` mode the schema alone governs process, so skip the tier and model-table content; the phase-owner dispatch rules and the explicit-`model` rule below still apply, with the model chosen by judgment.
 
 ## Tier Classification
 

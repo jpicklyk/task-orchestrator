@@ -7,7 +7,7 @@
 // validated: the Agent tool owns that.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not Agent -> headless
-// iteration -> no located config -> orchestration mode off -> model and effort present -> knowledge
+// iteration -> no located config -> steering off -> model and effort present -> knowledge
 // session (lib/session-profile.mjs; read last, so a compliant dispatch pays nothing).
 // A director session is still guarded (its dispatches must pass `model` and `effort` too).
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
@@ -20,7 +20,7 @@ import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
 import { isKnowledgeSession } from './lib/session-profile.mjs';
 
-const OFF_POINTER = 'Set `mode: off` under `extensions.claude-code.orchestration` in .taskorchestrator/config.yaml to disable this guard.';
+const OFF_POINTER = 'Set `steering: off` under `extensions.claude-code` in .taskorchestrator/config.yaml to disable this guard.';
 
 function rule(missing) {
   const names = missing.map((f) => `\`${f}\``).join(' and ');

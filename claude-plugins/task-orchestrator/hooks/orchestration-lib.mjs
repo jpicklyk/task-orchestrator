@@ -1,15 +1,16 @@
-// Shared parser for the client-side orchestration config, read by the orchestration hooks so they
+// Shared parser for the client-side steering config, read by the orchestration hooks so they
 // all interpret the mode identically. Pure module: no I/O, no import-time side effects.
 //
 //   extensions:
 //     claude-code:
-//       orchestration:
-//         mode: workflow   # workflow (default) | schema | off
+//       steering: workflow   # workflow (default) | schema | off
 //
-// Also accepts the inline form `orchestration: { mode: schema }` under `claude-code`. A top-level
-// `orchestration:` block is NOT read: a 4.0 server rejects it on push, so honouring it here would
-// diverge from what the server accepts. Fail-open: any absent block, absent key, invalid value,
-// non-string input, or parse error yields the default. Never throws.
+// Deprecated alias: `orchestration: { mode: ... }` under `claude-code` (block or inline form) is read
+// only when `steering` is absent or invalid; `steering` wins when both are set. The result reports
+// `deprecatedKeyPresent` whenever the old key carries a value, so a caller can emit one notice.
+// A top-level `orchestration:` block is NOT read: a 4.0 server rejects it on push, so honouring it
+// here would diverge from what the server accepts. Fail-open: any absent block, absent key, invalid
+// value, non-string input, or parse error yields the default. Never throws.
 
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 
@@ -50,33 +51,61 @@ function childSection(lines, keyPattern) {
  */
 export function readClaudeCodeSection(configText, name) {
   try {
-    if (typeof configText !== 'string' || configText === '' || typeof name !== 'string' || name === '') return null;
-    const ext = readSection(configText, 'extensions', { blockOnly: true });
-    if (!ext) return null;
-    const cc = childSection(ext.lines, `["']?claude-code["']?`);
-    if (!cc || cc.inline !== null) return null;
-    return childSection(cc.lines, `["']?${name.replace(/[^A-Za-z0-9_-]/g, '')}["']?`);
+    if (typeof name !== 'string' || name === '') return null;
+    const cc = claudeCodeLines(configText);
+    if (!cc) return null;
+    return childSection(cc, `["']?${name.replace(/[^A-Za-z0-9_-]/g, '')}["']?`);
   } catch {
     return null;
   }
 }
 
-// Returns a fresh `{ mode }` object on every call.
+// The block lines of `extensions` -> `claude-code`, or null (absent, inline form or bad input).
+function claudeCodeLines(configText) {
+  if (typeof configText !== 'string' || configText === '') return null;
+  const ext = readSection(configText, 'extensions', { blockOnly: true });
+  if (!ext) return null;
+  const cc = childSection(ext.lines, `["']?claude-code["']?`);
+  if (!cc || cc.inline !== null) return null;
+  return cc.lines;
+}
+
+const asMode = (raw) => {
+  if (raw === null || raw === undefined) return null;
+  const val = String(raw).trim().toLowerCase();
+  return ORCHESTRATION_MODES.includes(val) ? val : null;
+};
+
+// Returns a fresh `{ mode, source, deprecatedKeyPresent }` object on every call. `source` is
+// 'steering', 'orchestration.mode' (the deprecated alias) or 'default'.
 export function parseOrchestrationConfig(configText) {
-  const result = { mode: DEFAULT_ORCHESTRATION_MODE };
+  const result = { mode: DEFAULT_ORCHESTRATION_MODE, source: 'default', deprecatedKeyPresent: false };
   try {
-    if (typeof configText !== 'string' || configText === '') return result;
-    const section = readClaudeCodeSection(configText, 'orchestration');
-    if (!section) return result;
-    const raw = section.inline !== null ? inlineScalar(section.inline, 'mode') : scalar(section.lines, 'mode');
-    if (raw === null || raw === undefined) return result;
-    const val = String(raw).trim().toLowerCase();
-    if (ORCHESTRATION_MODES.includes(val)) result.mode = val;
+    const cc = claudeCodeLines(configText);
+    if (!cc) return result;
+    const steering = asMode(scalar(cc, 'steering'));
+    const section = childSection(cc, `["']?orchestration["']?`);
+    let oldRaw = null;
+    if (section) oldRaw = section.inline !== null ? inlineScalar(section.inline, 'mode') : scalar(section.lines, 'mode');
+    result.deprecatedKeyPresent = oldRaw !== null && oldRaw !== undefined;
+    if (steering !== null) {
+      result.mode = steering;
+      result.source = 'steering';
+    } else {
+      const old = asMode(oldRaw);
+      if (old !== null) {
+        result.mode = old;
+        result.source = 'orchestration.mode';
+      }
+    }
   } catch {
     // fail open to the default
   }
   return result;
 }
+
+export const STEERING_DEPRECATION_NOTICE =
+  'Task Orchestrator: `extensions.claude-code.orchestration.mode` is deprecated; rename it to `extensions.claude-code.steering` (same values) in .taskorchestrator/config.yaml.';
 
 // Thin wrapper for callers that only want the mode string.
 export function parseOrchestrationMode(configText) {

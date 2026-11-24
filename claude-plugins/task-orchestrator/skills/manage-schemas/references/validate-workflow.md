@@ -36,7 +36,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - Flag these as problems, each with the fix:
   - `actor_authentication` (error — a leftover key fails server startup): delete it. Caller identity comes from the server's `API_AUTH_MODE`
   - `auditing`, `schema_resolution` (remove): both are gone in 4.0
-  - a top-level `orchestration` or `retrospective` (error on push): move it under `extensions.claude-code`
+  - a top-level `orchestration` or `retrospective` (error on push): move `retrospective` under `extensions.claude-code`, and the `orchestration.mode` value to `extensions.claude-code.steering`
   - `actor_attribution` (remove): its hook is gone
 - Any other top-level key is an error on a push (warn when checking locally without a root)
 
