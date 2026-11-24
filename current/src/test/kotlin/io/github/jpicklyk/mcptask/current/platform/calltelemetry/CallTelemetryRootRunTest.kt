@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.calltelemetry
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail

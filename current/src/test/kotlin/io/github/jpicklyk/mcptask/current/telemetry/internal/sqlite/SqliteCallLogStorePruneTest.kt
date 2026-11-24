@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite
 
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.test.RetentionRows

@@ -8,13 +8,16 @@ import kotlin.test.assertTrue
 
 /**
  * Context-safety guard for the application layer (item 9343ad8d, S10; the layer is `application/` plus the `platform/`
- * folders that count as application in [LayeringRules]): code in it must not block a thread or escape structured
+ * folders that count as application in [LayeringRules], plus each slice's top package and its `internal/app/`): code in it must not block a thread or escape structured
  * concurrency. A code line matching [PATTERN] is a violation. Oracle: task-scope
  * section 7 (ContextSafetyTest) and carry-in 3: two-way ratcheted baseline
  * `context-safety-baseline.txt` (`<path> <count>`), seeded from the 7 `runBlocking` bridge files that P9 deletes.
  */
 class ContextSafetyTest {
     companion object {
+        /** The layers the guard scans: the application layer, and a slice's top package, which holds what other slices and the platform name. */
+        val SCANNED_LAYERS = setOf("application", LayeringRules.SLICE_TOP)
+
         val PATTERN =
             Regex(
                 """\brunBlocking\s*[({]|withContext\s*\(\s*Dispatchers\.|Dispatchers\.(IO|Default|Unconfined|Main)|GlobalScope\.|CoroutineScope\("""
@@ -28,11 +31,23 @@ class ContextSafetyTest {
 
     @Test
     fun `application code matches the ratcheted context-safety baseline`() {
-        val sources = GuardSupport.productionSources().filter { LayeringRules.layerOf(it.path) == "application" }
+        val sources = GuardSupport.productionSources().filter { LayeringRules.layerOf(it.path) in SCANNED_LAYERS }
         assertTrue(sources.isNotEmpty(), "no application sources in scope: misrooted Konsist scope")
         val actual = GuardSupport.countByFile(sources) { violations(it.text) }
         val message = GuardSupport.ratchet(actual, GuardSupport.readBaseline("context-safety-baseline.txt"), "context-safety-baseline.txt")
         assertNull(message, "$message\n\nActual set (for re-seeding):\n${GuardSupport.asBaselineText(actual)}")
+    }
+
+    @Test
+    fun `a slice top package and its internal app folder are scanned but its wire and sqlite folders are not`() {
+        assertTrue(LayeringRules.layerOf("telemetry/A.kt") in SCANNED_LAYERS)
+        assertTrue(LayeringRules.layerOf("telemetry/internal/app/A.kt") in SCANNED_LAYERS)
+        assertTrue(LayeringRules.layerOf("telemetry/internal/wire/A.kt") !in SCANNED_LAYERS)
+        assertTrue(LayeringRules.layerOf("telemetry/internal/sqlite/A.kt") !in SCANNED_LAYERS)
+        assertTrue(
+            LayeringRules.layerOf("telemetry/internal/A.kt") !in SCANNED_LAYERS,
+            "a misshaped slice path is a layering violation, not a scanned file"
+        )
     }
 
     @Test

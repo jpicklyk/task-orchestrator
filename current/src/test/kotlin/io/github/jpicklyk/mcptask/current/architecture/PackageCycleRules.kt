@@ -10,6 +10,10 @@ package io.github.jpicklyk.mcptask.current.architecture
  * and string literals are stripped before scanning. Files outside `application/` and application-root files are out of
  * scope, and `q` must be a lowercase-initial segment followed by a further segment.
  *
+ * A slice (a first folder that is not a legacy layer or shared area, see [GuardSupport.sliceOf]) is out of scope: [nodeOfPath]
+ * returns null for its files and `<root>.<s>.` is no target. The report's cycles section only reports the slice graph's cycles
+ * (`SliceGraphReportTest` is report-only); the reorganisation's step-9 rule S2 enforces them. Rejected: a node per slice, which closes false cycles through `application/port`'s aggregate.
+ *
  * Interim, until the package reorganisation retires the legacy packages: a folder under `platform/` that holds files
  * from an `application/<sub>` package counts as that legacy node ([PLATFORM_NODE]), as a path and as a
  * `<root>.platform.<folder>.` reference, so the checked graph is the one the files had before they moved. Folders

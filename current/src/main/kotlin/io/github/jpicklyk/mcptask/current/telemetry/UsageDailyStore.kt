@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.telemetry
 
 import java.time.Instant
 import java.time.LocalDate

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.service.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer

@@ -1,11 +1,6 @@
 package io.github.jpicklyk.mcptask.current.perf
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
-import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
@@ -13,7 +8,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore
+import io.github.jpicklyk.mcptask.current.telemetry.internal.wire.CallLogWriter
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sampleCallLogRecord
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

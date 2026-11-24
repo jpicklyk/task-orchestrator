@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api.docs
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource

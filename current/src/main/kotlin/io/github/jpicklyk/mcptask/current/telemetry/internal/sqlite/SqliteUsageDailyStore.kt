@@ -1,12 +1,12 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.UsageDailyStore
-import io.github.jpicklyk.mcptask.current.application.port.UsageFoldWatermark
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.selectSql
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.telemetry.UsageDailyStore
+import io.github.jpicklyk.mcptask.current.telemetry.UsageFoldWatermark
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
 import java.time.Instant

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.telemetry.ObservedRunTokens
 import java.time.Instant
 import java.util.UUID
 
@@ -11,7 +12,8 @@ import java.util.UUID
  */
 interface RunStore :
     RunReads,
-    OpenRunCount {
+    OpenRunCount,
+    ObservedRunTokens {
     /** Inserts [run] (no members) and returns it as stored. */
     suspend fun create(run: Run): Run
 
@@ -37,7 +39,7 @@ interface RunStore :
      * Adds [tokens] to `observed_tokens` of [runId] WITHOUT bumping the version (as [touchCoordinator]: telemetry is not a
      * change a coordinator's `expectedVersion` should conflict with). A missing run is a no-op; a closed run still adds.
      */
-    suspend fun addObservedTokens(
+    override suspend fun addObservedTokens(
         runId: UUID,
         tokens: Long
     )

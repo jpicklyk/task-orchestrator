@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
@@ -19,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
 import io.github.jpicklyk.mcptask.current.platform.call.of
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource

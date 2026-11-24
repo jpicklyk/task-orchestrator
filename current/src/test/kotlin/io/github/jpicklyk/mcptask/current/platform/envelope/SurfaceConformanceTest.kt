@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.envelope
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.routeTemplate
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
