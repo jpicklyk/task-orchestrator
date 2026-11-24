@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
@@ -13,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Shared helpers for the P5a unit-of-work tests. Everything runs against a file-backed [SqliteTestDatabase]. */
-internal fun SqliteTestDatabase.uow(clock: Clock = Clock { Instant.now() }): SqliteUnitOfWork =
+internal fun SqliteTestDatabase.uow(clock: Clock = Clock { Instant.now() }): SqliteUnitOfWork<RepositoryProvider> =
     SqliteUnitOfWork(databaseManager, repositoryProvider(), clock)
 
 /** Creates the probe tables used by the unit tests (outside any unit; an implicit write). */

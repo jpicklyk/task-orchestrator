@@ -198,7 +198,7 @@ internal data class TreeAdoption(
  */
 class WorkTreeService(
     private val repositoryProvider: WorkflowStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<WorkflowStoreProvider>,
     private val configResolver: EffectiveConfigResolver,
     private val itemCommandService: ItemCommandService,
     private val dependencyCommandService: DependencyCommandService,

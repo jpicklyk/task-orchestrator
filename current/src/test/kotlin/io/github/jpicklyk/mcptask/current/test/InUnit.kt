@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  * commits when [block] returns; a throw rolls it back and propagates unchanged; a persistence fault the unit
  * translated into an error is rethrown as an [IllegalStateException] carrying the translated message.
  */
-suspend fun UnitOfWork.inUnit(
+suspend fun UnitOfWork<*>.inUnit(
     op: String = "Test.inUnit",
     block: suspend () -> Unit
 ) {

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -141,7 +142,7 @@ class ParityFixtureTools {
         )
 
     val renameOp =
-        OpSpec<ToolExecutionContext, RenameReq, String>(
+        OpSpec<ToolExecutionContext, RenameReq, String, RepositoryProvider>(
             name = "rename",
             doc = "Rename an item.",
             capability = ApiCapability.WRITE_ITEMS,
@@ -172,7 +173,7 @@ class ParityFixtureTools {
         )
 
     val retagOp =
-        OpSpec<ToolExecutionContext, RetagReq, String>(
+        OpSpec<ToolExecutionContext, RetagReq, String, RepositoryProvider>(
             name = "retag",
             doc = "Replace an item's tags.",
             capability = ApiCapability.WRITE_NOTES,
@@ -228,7 +229,7 @@ class ParityFixtureTools {
         )
 
     private val stampOp =
-        OpSpec<ToolExecutionContext, StampReq, String>(
+        OpSpec<ToolExecutionContext, StampReq, String, RepositoryProvider>(
             name = "stamp",
             doc = "Write the calling surface into an item's title.",
             capability = ApiCapability.WRITE_ITEMS,

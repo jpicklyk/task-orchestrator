@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsRaiseRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionRaiseCommand
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.BlockInput
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
@@ -37,7 +38,7 @@ import java.util.UUID
 
 /** runs_write raise: raise a decision request for an answer. */
 internal val runsRaiseOp =
-    OpSpec<RunToolServices, RunsRaiseRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsRaiseRequest, JsonObject, RunStoreProvider>(
         name = "raise",
         doc =
             "Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets " +
@@ -72,7 +73,7 @@ private val OPTION_MEMBERS = setOf(OPTION_KEY, OPTION_LABEL, OPTION_CONSEQUENCE)
  * run's, else rootId; they must agree), checks the scope of the root, then hands the raise to the decision service
  * (lifecycle, class, payload and dedupe rules).
  */
-private suspend fun WriteScope.raiseDecision(
+private suspend fun WriteScope<RunStoreProvider>.raiseDecision(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsRaiseRequest

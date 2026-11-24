@@ -17,5 +17,5 @@ class ConfigCanonicalizeStep(
     override val phase: DataStepPhase = DataStepPhase.CONFIG_CANONICALIZE
     override val kind: DataStepKind = DataStepKind.ONCE
 
-    override suspend fun run(scope: WriteScope): Int = configService.canonicalizeMissing()
+    override suspend fun run(scope: WriteScope<*>): Int = configService.canonicalizeMissing()
 }

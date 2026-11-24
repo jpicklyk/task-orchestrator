@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -51,7 +52,7 @@ internal class ClaimRig(
     val clock: SettableClock
 ) {
     val provider get() = db.repositoryProvider()
-    val uow: UnitOfWork = db.unitOfWork(clock)
+    val uow: UnitOfWork<RepositoryProvider> = db.unitOfWork(clock)
     val service = ClaimService(provider, uow)
 
     suspend fun seed(

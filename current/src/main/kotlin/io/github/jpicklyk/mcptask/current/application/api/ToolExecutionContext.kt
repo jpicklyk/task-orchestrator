@@ -60,7 +60,7 @@ class ToolExecutionContext(
      * The transaction boundary. Production wires the SQLite implementation; the default runs blocks
      * without a transaction so tests with mocked stores keep constructing the context unchanged.
      */
-    val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
+    val unitOfWork: UnitOfWork<RepositoryProvider> = UnscopedUnitOfWork(repositoryProvider, clock),
     /**
      * The read model (the `next`, `blocked`, `overview` and `context` views), one read unit per view. Production
      * builds ONE instance in `ServerComposition`; the default builds one over [unitOfWork].
@@ -96,7 +96,7 @@ class ToolExecutionContext(
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
      * (most tests) do not build it.
      */
-    val idempotency: IdempotencyService by lazy { IdempotencyService(unitOfWork) }
+    val idempotency: IdempotencyService<RepositoryProvider> by lazy { IdempotencyService(unitOfWork) }
 
     /**
      * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager

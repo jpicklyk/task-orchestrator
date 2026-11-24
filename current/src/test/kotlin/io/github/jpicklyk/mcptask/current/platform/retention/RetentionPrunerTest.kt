@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.platform.retention
 
 import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
@@ -63,7 +64,7 @@ class RetentionPrunerTest {
     private val transitioned = DomainEvent.ITEM_TRANSITIONED
     private val claimExpired = DomainEvent.CLAIM_EXPIRED
 
-    private fun uow(): UnitOfWork = sqlite.unitOfWork(Clock { now })
+    private fun uow(): UnitOfWork<RepositoryProvider> = sqlite.unitOfWork(Clock { now })
 
     private fun days(n: Long): Duration = Duration.ofDays(n)
 
@@ -85,7 +86,7 @@ class RetentionPrunerTest {
         batch: Int = 5_000,
         cap: Int = 200_000,
         watermark: CallLogFoldWatermark = CallLogFoldWatermark.NONE,
-        unit: UnitOfWork = uow()
+        unit: UnitOfWork<RepositoryProvider> = uow()
     ) = RetentionPruner(
         unitOfWork = unit,
         settings = settings,
@@ -730,12 +731,12 @@ class RetentionPrunerTest {
 
     /** Delegates to the real unit of work but fails every write, counting the attempts. */
     private class FailingWrites(
-        private val real: UnitOfWork,
+        private val real: UnitOfWork<RepositoryProvider>,
         val attempts: AtomicInteger
-    ) : UnitOfWork by real {
+    ) : UnitOfWork<RepositoryProvider> by real {
         override suspend fun <T> write(
             op: String,
-            block: suspend WriteScope.() -> Outcome<T>
+            block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
         ): Outcome<T> {
             attempts.incrementAndGet()
             error("simulated store fault")

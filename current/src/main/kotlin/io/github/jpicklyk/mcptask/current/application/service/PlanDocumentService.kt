@@ -33,7 +33,7 @@ import java.util.UUID
 class PlanDocumentService(
     private val repositoryProvider: KnowledgeStoreProvider,
     /** The transaction boundary: the root check and the stash run in ONE write unit. */
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<KnowledgeStoreProvider>,
 ) {
     private val documents = DocumentService(repositoryProvider, unitOfWork)
 

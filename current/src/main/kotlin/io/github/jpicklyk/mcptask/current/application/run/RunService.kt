@@ -67,7 +67,7 @@ import java.util.UUID
  */
 class RunService(
     private val repositoryProvider: RunStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RunStoreProvider>,
     private val claimService: ClaimService,
     private val runsConfig: suspend (UUID) -> RunsConfig,
     private val seats: RunSeatPort = RunSeatPort.NONE,

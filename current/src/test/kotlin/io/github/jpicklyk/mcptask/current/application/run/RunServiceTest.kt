@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -122,7 +123,7 @@ private class RunRig(
     runs: RunsConfig? = null
 ) {
     val provider get() = db.repositoryProvider()
-    val uow: UnitOfWork = db.unitOfWork(clock)
+    val uow: UnitOfWork<RepositoryProvider> = db.unitOfWork(clock)
     val claims = ClaimService(provider, uow)
     val seats = StubSeats()
     var peekMark: Long = 0

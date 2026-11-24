@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
 import io.github.jpicklyk.mcptask.current.model.error.BatchResult
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -49,8 +50,8 @@ data class BatchExecution<T>(
  * other exception propagates.
  */
 class BatchRunner(
-    private val unitOfWork: UnitOfWork,
-    private val idempotency: IdempotencyService
+    private val unitOfWork: UnitOfWork<RepositoryProvider>,
+    private val idempotency: IdempotencyService<RepositoryProvider>
 ) {
     suspend fun <E, R> run(
         tool: String,
@@ -58,7 +59,7 @@ class BatchRunner(
         elements: List<BatchElement<E>>,
         atomic: Boolean,
         codec: IdempotencyCodec<R>,
-        execute: suspend WriteScope.(index: Int, element: E) -> Outcome<R>
+        execute: suspend WriteScope<RepositoryProvider>.(index: Int, element: E) -> Outcome<R>
     ): BatchExecution<R> {
         require(elements.isNotEmpty()) { "elements must not be empty" }
         return if (atomic) {
@@ -73,7 +74,7 @@ class BatchRunner(
         principalId: String,
         elements: List<BatchElement<E>>,
         codec: IdempotencyCodec<R>,
-        execute: suspend WriteScope.(index: Int, element: E) -> Outcome<R>
+        execute: suspend WriteScope<RepositoryProvider>.(index: Int, element: E) -> Outcome<R>
     ): BatchExecution<R> {
         val results = ArrayList<Outcome<R>>(elements.size)
         val replayed = LinkedHashSet<Int>()
@@ -104,7 +105,7 @@ class BatchRunner(
         principalId: String,
         elements: List<BatchElement<E>>,
         codec: IdempotencyCodec<R>,
-        execute: suspend WriteScope.(index: Int, element: E) -> Outcome<R>
+        execute: suspend WriteScope<RepositoryProvider>.(index: Int, element: E) -> Outcome<R>
     ): BatchExecution<R> {
         val done = ArrayList<Outcome<R>>(elements.size)
         val replayed = LinkedHashSet<Int>()

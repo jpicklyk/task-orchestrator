@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyRecord
@@ -40,7 +41,7 @@ class SqliteIdempotencyStoreTest {
     @JvmField
     val sqlite = SqliteTestDatabase.perMethod()
 
-    private val uow: UnitOfWork get() = sqlite.unitOfWork()
+    private val uow: UnitOfWork<RepositoryProvider> get() = sqlite.unitOfWork()
     private val t0: Instant = Instant.parse("2026-03-01T10:15:30.123Z")
 
     private fun fp(text: String): String = Fingerprint.of(JsonPrimitive(text))

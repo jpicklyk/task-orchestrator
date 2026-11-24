@@ -25,7 +25,7 @@ data class DataStepReport(
  */
 class DataStepRunner(
     private val steps: List<DataStep>,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<*>,
     private val store: DataStepStore,
     @Suppress("unused") private val clock: Clock,
     private val binaryVersion: String

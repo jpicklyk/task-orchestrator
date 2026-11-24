@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
@@ -41,7 +42,7 @@ internal object CreateTreeOp {
  * (`invalid_request`), then scope on the one anchor (`parentId`, `root.id`, or a new top-level root), then the plan,
  * then the writes. Every rejection precedes any write; a failed write rolls the whole tree back.
  */
-internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, ItemWriteResult> =
+internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = CreateTreeOp.NAME,
         doc = "Create a root (or attach to root.id) with children, dependencies and notes, all or nothing.",
@@ -68,7 +69,7 @@ internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, Ite
         execute = { env, ctx, req -> itemWriteBody(ctx) { createTree(env, ctx, req) } }
     )
 
-private suspend fun WriteScope.createTree(
+private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
     env: WorkflowToolServices,
     ctx: CallContext,
     req: CreateTreeRequest

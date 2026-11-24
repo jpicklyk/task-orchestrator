@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
@@ -91,7 +92,7 @@ class DirectorVisibilityGuardTest {
             description = "Fixture.",
             ops =
                 members.map { (name, profiles) ->
-                    OpSpec<ToolExecutionContext, MarkerReq, String>(
+                    OpSpec<ToolExecutionContext, MarkerReq, String, RepositoryProvider>(
                         name = name,
                         doc = "Doc.",
                         profiles = profiles,

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -21,7 +22,7 @@ data class ConfigResetRequest(
 )
 
 internal val configResetOp =
-    OpSpec<ConfigToolServices, ConfigResetRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigResetRequest, JsonElement, ConfigStoreProvider>(
         name = "reset",
         doc =
             "Reset a root's config: append an empty reset version so the root falls back to the server config; history is " +

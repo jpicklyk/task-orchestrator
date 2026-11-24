@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -27,7 +28,7 @@ class AdvanceServiceFactory(
     private val resourceLeaseRepository: LeaseStore?,
     val configResolver: EffectiveConfigResolver,
     /** The transaction boundary every built [AdvanceService] runs its unit in. */
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<LifecycleStoreProvider>,
     private val resourceLeasesEnforced: () -> Boolean = { true },
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,

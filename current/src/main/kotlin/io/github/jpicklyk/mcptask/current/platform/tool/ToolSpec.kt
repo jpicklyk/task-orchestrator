@@ -181,7 +181,7 @@ class PageWith<out T>(
 class OpsToolSpec<R>(
     override val name: String,
     override val description: String,
-    val ops: List<OpSpec<*, *, R>>,
+    val ops: List<OpSpec<*, *, R, *>>,
     val codec: IdempotencyCodec<R>,
     override val profileDescriptions: Map<ToolProfile, String> = emptyMap(),
     val element: (R) -> JsonObject
@@ -191,9 +191,10 @@ class OpsToolSpec<R>(
  * One op of an [OpsToolSpec]: the [services] holder [execute] takes, its element [request] class (decoded strictly; `op` and `idempotencyKey`
  * are lifted first), the [profiles] it is visible in (an empty set is REST-only), whether it is [destructive], the [capability] a caller
  * needs (required, no default: a new write op must never silently be READ-only), the [errors] it may return
- * beyond the common ones, and [execute], which runs inside the element's write unit.
+ * beyond the common ones, and [execute], which runs inside the element's write unit. [P] is the store provider [execute]'s
+ * scope exposes: the op's own slice provider, which the dispatcher's unit provider implements.
  */
-class OpSpec<S : Any, E : Any, R>(
+class OpSpec<S : Any, E : Any, R, P>(
     val name: String,
     val doc: String,
     val profiles: Set<ToolProfile>,
@@ -202,7 +203,7 @@ class OpSpec<S : Any, E : Any, R>(
     val services: KClass<S>,
     val request: KSerializer<E>,
     val errors: Set<ErrorCode> = emptySet(),
-    val execute: suspend WriteScope.(S, CallContext, E) -> Outcome<R>
+    val execute: suspend WriteScope<P>.(S, CallContext, E) -> Outcome<R>
 ) {
     /** Decodes one `ops[]` element into [request]; field pointers are relative to the element. */
     internal fun decode(
@@ -210,7 +211,12 @@ class OpSpec<S : Any, E : Any, R>(
         element: JsonObject
     ): Outcome<BoundOp<R>> =
         decoder.decode(request, element, OP_RESERVED).map { value ->
-            BoundOp(name) { lookup, ctx -> execute.invoke(this, lookup.get(services), ctx, value) }
+            BoundOp(name) { lookup, ctx ->
+                // The dispatcher's unit exposes the server's full store provider, which implements every slice provider an
+                // op names as P; erasure leaves nothing to check at runtime.
+                @Suppress("UNCHECKED_CAST")
+                execute.invoke(this as WriteScope<P>, lookup.get(services), ctx, value)
+            }
         }
 
     companion object {
@@ -228,7 +234,7 @@ class OpSpec<S : Any, E : Any, R>(
 /** A decoded `ops[]` element of op [op], ready to run inside a write unit. */
 class BoundOp<R> internal constructor(
     val op: String,
-    val run: suspend WriteScope.(ToolServiceLookup, CallContext) -> Outcome<R>
+    val run: suspend WriteScope<*>.(ToolServiceLookup, CallContext) -> Outcome<R>
 )
 
 /** Every select or op of this tool as `tool.member` paired with the services holder type it declares, in registration order. */
@@ -242,7 +248,7 @@ fun ToolSpec.declaredServices(): List<Pair<String, KClass<*>>> =
 internal fun SelectToolSpec.visibleSelects(view: ToolView): List<SelectSpec<*, *, *>> = selects.filter { view.sees(it.profiles) }
 
 /** See [visibleSelects]. */
-internal fun <R> OpsToolSpec<R>.visibleOps(view: ToolView): List<OpSpec<*, *, R>> = ops.filter { view.sees(it.profiles) }
+internal fun <R> OpsToolSpec<R>.visibleOps(view: ToolView): List<OpSpec<*, *, R, *>> = ops.filter { view.sees(it.profiles) }
 
 /** Names of the selects or ops of [spec] visible to [profile], in registration order. */
 internal fun visibleNames(

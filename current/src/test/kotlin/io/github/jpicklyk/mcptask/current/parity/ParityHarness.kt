@@ -106,7 +106,7 @@ class ParitySeeder(
     private val repo: WorkItemRepository,
     private val deps: DependencyStore? = null,
     private val provider: RepositoryProvider? = null,
-    private val unitOfWork: UnitOfWork? = null
+    private val unitOfWork: UnitOfWork<RepositoryProvider>? = null
 ) {
     /**
      * Appends [yaml] as the next config version of [rootId] through the undecorated store inside a write unit (no event rows, the

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -201,9 +202,9 @@ object RetentionRows {
  * unit in call order; a unit that deleted nothing records 0.
  */
 class RemovedRowsUnitOfWork(
-    private val real: UnitOfWork,
+    private val real: UnitOfWork<RepositoryProvider>,
     private val jdbcUrl: String
-) : UnitOfWork by real {
+) : UnitOfWork<RepositoryProvider> by real {
     val deltas = CopyOnWriteArrayList<Long>()
 
     /** Units that removed at least one row, in call order. */
@@ -211,7 +212,7 @@ class RemovedRowsUnitOfWork(
 
     override suspend fun <T> write(
         op: String,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
     ): Outcome<T> {
         val before = RetentionRows.prunableTotal(jdbcUrl)
         val result = real.write(op, block)

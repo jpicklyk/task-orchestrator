@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsAssignRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.SeatAssignCommand
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -21,7 +22,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write assign: the coordinator assigns a seat of a member item. */
 internal val runsAssignOp =
-    OpSpec<RunToolServices, RunsAssignRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsAssignRequest, JsonObject, RunStoreProvider>(
         name = "assign",
         doc =
             "Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with " +
@@ -51,7 +52,7 @@ internal val runsAssignOp =
 /** How long a caller waits before retrying when the project config could not be read. */
 private const val CONFIG_RETRY_MS = 1000L
 
-private suspend fun WriteScope.assignSeat(
+private suspend fun WriteScope<RunStoreProvider>.assignSeat(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsAssignRequest

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.TraitResolver
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
@@ -51,7 +52,7 @@ data class InFlightImpact(
  */
 class ConfigImpactService(
     private val resolver: EffectiveConfigResolver,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<ConfigStoreProvider>,
 ) {
     suspend fun affectedInFlight(
         rootId: UUID,

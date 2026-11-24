@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsOpenRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -22,7 +23,7 @@ import java.util.UUID
 
 /** runs_write open: a run over a set of items of one root. */
 internal val runsOpenOp =
-    OpSpec<RunToolServices, RunsOpenRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsOpenRequest, JsonObject, RunStoreProvider>(
         name = "open",
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
@@ -39,7 +40,7 @@ internal val runsOpenOp =
 
 private const val MAX_ITEMS = 500
 
-private suspend fun WriteScope.openRun(
+private suspend fun WriteScope<RunStoreProvider>.openRun(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsOpenRequest
@@ -114,7 +115,7 @@ private suspend fun WriteScope.openRun(
 
 /** Resolves every item ref under the call scope, in order; the first failure wins. */
 internal suspend fun resolveItems(
-    scope: WriteScope,
+    scope: WriteScope<RunStoreProvider>,
     ctx: CallContext,
     refs: List<IdRef>,
     field: String

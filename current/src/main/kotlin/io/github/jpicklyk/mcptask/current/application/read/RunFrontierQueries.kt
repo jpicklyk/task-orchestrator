@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
@@ -84,7 +85,7 @@ data class RunFrontier(
  * decided on the true rows, so an invisible blocker still keeps its item waiting and is only left out of `blockers`.
  */
 class RunFrontierQueries(
-    private val unitOfWork: UnitOfWork
+    private val unitOfWork: UnitOfWork<RunStoreProvider>
 ) {
     /** The frontier of run [runId] at [now] under [scope], or null when there is no such run. */
     suspend fun frontier(

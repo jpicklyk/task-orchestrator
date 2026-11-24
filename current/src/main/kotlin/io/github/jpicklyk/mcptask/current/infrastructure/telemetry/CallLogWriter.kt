@@ -47,7 +47,7 @@ import kotlin.time.TimeSource
  * estimate-less rows add nothing). The writer only writes the counter; nothing enforces it.
  */
 class CallLogWriter(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<*>,
     private val store: CallLogStore,
     private val capacity: Int = DEFAULT_CAPACITY,
     private val batchSize: Int = DEFAULT_BATCH_SIZE,

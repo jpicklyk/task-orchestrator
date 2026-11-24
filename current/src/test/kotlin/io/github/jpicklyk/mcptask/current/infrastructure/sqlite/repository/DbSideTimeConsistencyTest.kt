@@ -121,7 +121,7 @@ class DbSideTimeConsistencyTest {
         now: Instant
     ): Decision {
         val scope =
-            object : ReadScope {
+            object : ReadScope<RepositoryProvider> {
                 override val stores: RepositoryProvider get() = repositoryProvider
                 override val now: Instant = now
             }

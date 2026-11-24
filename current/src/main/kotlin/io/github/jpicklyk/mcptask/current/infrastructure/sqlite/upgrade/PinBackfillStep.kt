@@ -71,7 +71,7 @@ class PinBackfillStep(
         val lifecycle: LifecycleMode?
     )
 
-    override suspend fun run(scope: WriteScope): Int {
+    override suspend fun run(scope: WriteScope<*>): Int {
         val tx = TransactionManager.current()
         val uuidType = UUIDColumnType()
 

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsAnswerRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionAnswerCommand
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -14,7 +15,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write answer: answer a pending decision. */
 internal val runsAnswerOp =
-    OpSpec<RunToolServices, RunsAnswerRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsAnswerRequest, JsonObject, RunStoreProvider>(
         name = "answer",
         doc =
             "Answer an open or acknowledged decision with an option key (text only for a freeform class) and an " +
@@ -37,7 +38,7 @@ internal val runsAnswerOp =
         execute = { env, ctx, req -> answerDecision(env, ctx, req) }
     )
 
-private suspend fun WriteScope.answerDecision(
+private suspend fun WriteScope<RunStoreProvider>.answerDecision(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsAnswerRequest

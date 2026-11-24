@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -38,7 +39,7 @@ data class ConfigEffectiveRequest(
 )
 
 internal val configEffectiveOp =
-    OpSpec<ConfigToolServices, ConfigEffectiveRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigEffectiveRequest, JsonElement, ConfigStoreProvider>(
         name = "effective",
         doc =
             "The resolved config view: every type's schema, the traits, the status graph and the layer fingerprints. With " +

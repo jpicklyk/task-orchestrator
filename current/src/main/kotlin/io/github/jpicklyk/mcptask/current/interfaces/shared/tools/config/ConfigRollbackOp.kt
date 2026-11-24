@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigRollbackResult
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -23,7 +24,7 @@ data class ConfigRollbackRequest(
 )
 
 internal val configRollbackOp =
-    OpSpec<ConfigToolServices, ConfigRollbackRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigRollbackRequest, JsonElement, ConfigStoreProvider>(
         name = "rollback",
         doc =
             "Append a copy of an earlier version as the new head (source rollback, history kept). Rolling back to the " +

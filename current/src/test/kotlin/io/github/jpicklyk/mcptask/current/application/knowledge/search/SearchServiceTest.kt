@@ -80,20 +80,20 @@ class SearchServiceTest {
     )
 
     /** Records how many times `read` is entered and whether an index call happens while a read is open. */
-    private class CountingUnitOfWork : UnitOfWork {
+    private class CountingUnitOfWork : UnitOfWork<RepositoryProvider> {
         var reads = 0
         var inRead = false
 
         override suspend fun <T> write(
             op: String,
-            block: suspend WriteScope.() -> Outcome<T>
+            block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
         ): Outcome<T> = error("search never writes")
 
-        override suspend fun <T> read(block: suspend ReadScope.() -> T): T {
+        override suspend fun <T> read(block: suspend ReadScope<RepositoryProvider>.() -> T): T {
             reads++
             inRead = true
             try {
-                return object : ReadScope {
+                return object : ReadScope<RepositoryProvider> {
                     override val stores: RepositoryProvider = mockk(relaxed = true)
                     override val now: Instant = Instant.EPOCH
                 }.block()

@@ -58,7 +58,7 @@ class ConfigService(
     private val repositoryProvider: ConfigStoreProvider,
     private val parser: ConfigDocumentParser,
     /** The transaction boundary: each write ([push], [rollback], [reset]) is ONE write unit. */
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<ConfigStoreProvider>,
     /** The admission check run by [push] and [validate]; production passes `productionConfigValidator()` (no default). */
     private val validator: ConfigValidator,
     /**

@@ -37,7 +37,7 @@ import java.util.UUID
  */
 class RunLimits(
     private val repositoryProvider: RunStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RunStoreProvider>,
     private val runService: RunService,
     private val seatService: SeatService,
     private val decisions: ServerDecisionRaiser
@@ -49,7 +49,7 @@ class RunLimits(
     suspend fun assign(command: SeatAssignCommand): Outcome<IssuedSeat> = seatService.assign(command, this)
 
     override suspend fun admit(
-        scope: WriteScope,
+        scope: WriteScope<RunStoreProvider>,
         run: Run,
         itemId: UUID,
         seat: String,
@@ -92,7 +92,7 @@ class RunLimits(
      * decision and the pause are written once the caller's unit ends, committed or rolled back ([pauseForAttempts]).
      */
     private fun attemptCapBreach(
-        scope: WriteScope,
+        scope: WriteScope<RunStoreProvider>,
         run: Run,
         itemId: UUID,
         seat: String,

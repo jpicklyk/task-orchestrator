@@ -119,7 +119,7 @@ class InMemoryEventStore(
 fun testClaimService(
     items: WorkItemRepository,
     leases: LeaseStore?,
-    unitOfWork: UnitOfWork,
+    unitOfWork: UnitOfWork<RepositoryProvider>,
     events: EventStore = InMemoryEventStore()
 ): ClaimService = ClaimService(StoresOnlyProvider(items, leases, events), unitOfWork)
 

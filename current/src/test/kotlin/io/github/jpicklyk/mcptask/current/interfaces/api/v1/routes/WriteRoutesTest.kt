@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -24,7 +25,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 fun Application.configureWriteTestApp(
     repo: DefaultRepositoryProvider,
     authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
-    unitOfWork: UnitOfWork
+    unitOfWork: UnitOfWork<RepositoryProvider>
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)

@@ -50,7 +50,7 @@ class TraitsFromPropertiesStep : DataStep {
         val item: String
     )
 
-    override suspend fun run(scope: WriteScope): Int {
+    override suspend fun run(scope: WriteScope<*>): Int {
         val tx = TransactionManager.current()
 
         val existing = HashMap<String, Existing>()

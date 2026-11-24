@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -13,7 +14,7 @@ import java.util.UUID
  */
 fun interface SeatAdmission {
     suspend fun admit(
-        scope: WriteScope,
+        scope: WriteScope<RunStoreProvider>,
         run: Run,
         itemId: UUID,
         seat: String,

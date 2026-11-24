@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsUpdateRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunUpdateCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -15,7 +16,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write update: the coordinator adds or removes items, lowers the budget or replaces the hints. */
 internal val runsUpdateOp =
-    OpSpec<RunToolServices, RunsUpdateRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsUpdateRequest, JsonObject, RunStoreProvider>(
         name = "update",
         doc =
             "Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), " +
@@ -38,7 +39,7 @@ internal val runsUpdateOp =
         execute = { env, ctx, req -> updateRun(env, ctx, req) }
     )
 
-private suspend fun WriteScope.updateRun(
+private suspend fun WriteScope<RunStoreProvider>.updateRun(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsUpdateRequest

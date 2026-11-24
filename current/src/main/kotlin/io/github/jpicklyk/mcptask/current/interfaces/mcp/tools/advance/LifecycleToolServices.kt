@@ -18,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  */
 class LifecycleToolServices(
     val stores: LifecycleStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<LifecycleStoreProvider>,
     val clock: Clock,
     val configResolver: EffectiveConfigResolver,
     val workViewQueries: WorkViewQueries,

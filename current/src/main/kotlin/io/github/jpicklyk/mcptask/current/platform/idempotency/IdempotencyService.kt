@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallReplayed
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.recordRejection
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyRecord
+import io.github.jpicklyk.mcptask.current.platform.port.PlatformStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
@@ -72,8 +73,8 @@ object JsonElementCodec : IdempotencyCodec<JsonElement> {
  * inside a joined unit does not roll the unit back, so returning [Outcome.Ok] for a failed element
  * would commit its partial writes and record them.
  */
-class IdempotencyService(
-    private val unitOfWork: UnitOfWork,
+class IdempotencyService<out S : PlatformStoreProvider>(
+    private val unitOfWork: UnitOfWork<S>,
     private val ttl: Duration = DEFAULT_TTL
 ) {
     private val logger = LoggerFactory.getLogger(IdempotencyService::class.java)
@@ -82,7 +83,7 @@ class IdempotencyService(
         op: String,
         req: IdempotentRequest,
         codec: IdempotencyCodec<T>,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<S>.() -> Outcome<T>
     ): IdempotentOutcome<T> {
         var replayed = false
         val outcome =

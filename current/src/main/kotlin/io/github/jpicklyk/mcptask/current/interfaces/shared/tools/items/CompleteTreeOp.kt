@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionResult
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionService
@@ -41,7 +42,7 @@ internal object CompleteTreeOp {
  * admitted is `forbidden`, nothing written), then the run. A per-item rejection is data in `items[]`, never an
  * element error; all applied transitions of the element commit together.
  */
-internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest, ItemWriteResult> =
+internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = CompleteTreeOp.NAME,
         doc = "Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.",
@@ -59,7 +60,7 @@ internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest,
         execute = { env, ctx, req -> itemWriteBody(ctx) { completeTree(env, ctx, req) } }
     )
 
-private suspend fun WriteScope.completeTree(
+private suspend fun WriteScope<WorkflowStoreProvider>.completeTree(
     env: WorkflowToolServices,
     ctx: CallContext,
     req: CompleteTreeRequest

@@ -59,7 +59,7 @@ class DataStepsStartupTest {
     ) : DataStep {
         val runs = AtomicInteger()
 
-        override suspend fun run(scope: WriteScope): Int {
+        override suspend fun run(scope: WriteScope<*>): Int {
             runs.incrementAndGet()
             return body()
         }

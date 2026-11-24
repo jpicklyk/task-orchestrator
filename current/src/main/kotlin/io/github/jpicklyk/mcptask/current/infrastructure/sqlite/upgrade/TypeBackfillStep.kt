@@ -33,7 +33,7 @@ class TypeBackfillStep(
     override val phase: DataStepPhase = DataStepPhase.ITEM_BACKFILL
     override val kind: DataStepKind = DataStepKind.ONCE
 
-    override suspend fun run(scope: WriteScope): Int {
+    override suspend fun run(scope: WriteScope<*>): Int {
         val global = globalLayer()
         val tx = TransactionManager.current()
 

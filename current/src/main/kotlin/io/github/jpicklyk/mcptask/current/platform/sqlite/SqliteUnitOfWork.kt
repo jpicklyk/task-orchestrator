@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.port.ActiveUnit
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventSink
+import io.github.jpicklyk.mcptask.current.platform.port.PlatformStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.platform.port.UnitElement
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -25,20 +25,20 @@ import kotlin.coroutines.coroutineContext
  * @param recorder what [WriteScope.events] appends through; defaults to a listener-less [EventRecorder] over
  *   [repositories]' event store (production passes the one recorder the decorator also uses)
  */
-class SqliteUnitOfWork(
+class SqliteUnitOfWork<S : PlatformStoreProvider>(
     private val dbs: DatabaseManager,
-    private val repositories: RepositoryProvider,
+    private val repositories: S,
     private val clock: Clock,
     recorder: EventSink?
-) : UnitOfWork {
+) : UnitOfWork<S> {
     /** A unit of work whose scopes record through a listener-less [EventRecorder] over [repositories]' event store. */
-    constructor(dbs: DatabaseManager, repositories: RepositoryProvider, clock: Clock) : this(dbs, repositories, clock, null)
+    constructor(dbs: DatabaseManager, repositories: S, clock: Clock) : this(dbs, repositories, clock, null)
 
     private val events: EventSink by lazy { recorder ?: EventRecorder(repositories.eventStore(), clock) }
 
     override suspend fun <T> write(
         op: String,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<S>.() -> Outcome<T>
     ): Outcome<T> {
         val ambient = coroutineContext[UnitElement]?.unit
         if (ambient != null) {
@@ -51,7 +51,7 @@ class SqliteUnitOfWork(
         }
     }
 
-    override suspend fun <T> read(block: suspend ReadScope.() -> T): T {
+    override suspend fun <T> read(block: suspend ReadScope<S>.() -> T): T {
         val ambient = coroutineContext[UnitElement]?.unit
         if (ambient != null) return ReadView(UnitScope(repositories, ambient, events)).block()
         return dbs.units.runRead(clock) { unit -> ReadView(UnitScope(repositories, unit, events)).block() }
@@ -59,11 +59,11 @@ class SqliteUnitOfWork(
 }
 
 /** The scope of one unit attempt; hooks land on the [ActiveUnit], so joined scopes share the outermost unit's hooks. */
-private class UnitScope(
-    override val stores: RepositoryProvider,
+private class UnitScope<S>(
+    override val stores: S,
     private val unit: ActiveUnit,
     override val events: EventSink
-) : WriteScope {
+) : WriteScope<S> {
     override val now: Instant get() = unit.now
 
     override fun afterCommit(fn: suspend () -> Unit) = unit.addCommit(fn)
@@ -72,6 +72,6 @@ private class UnitScope(
 }
 
 /** A read-only view, so a read block cannot downcast its scope to a [WriteScope]. */
-private class ReadView(
-    scope: ReadScope
-) : ReadScope by scope
+private class ReadView<S>(
+    scope: ReadScope<S>
+) : ReadScope<S> by scope

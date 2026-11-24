@@ -123,7 +123,7 @@ data class NoteWriteResult(
 class NoteCommandService(
     private val repositoryProvider: NoteStoreProvider,
     private val configResolver: EffectiveConfigResolver,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<NoteStoreProvider>,
     /** The not-closed run an item is a member of; the default resolves none (rule 2 never refuses). */
     private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
@@ -222,7 +222,7 @@ class NoteCommandService(
         // writeUnit maps any thrown exception to a store fault; config-unavailable must still propagate (not an Outcome).
         var configUnavailable: PerRootConfigUnavailableException? = null
         val result =
-            unitOfWork.writeUnit<Outcome<NoteWriteResult>>(
+            unitOfWork.writeUnit<NoteStoreProvider, Outcome<NoteWriteResult>>(
                 "NoteCommandService.upsert",
                 onFault = { Outcome.Err(it) }
             ) {
@@ -355,7 +355,7 @@ class NoteCommandService(
     ): Outcome<Note> {
         var configUnavailable: PerRootConfigUnavailableException? = null
         val result =
-            unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
+            unitOfWork.writeUnit<NoteStoreProvider, Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
                 val workItems = repositoryProvider.workItemRepository()
                 val item =
                     workItems.getById(itemId)

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.upgrade
 
 import io.github.jpicklyk.mcptask.current.application.port.DataStepStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
@@ -54,24 +55,25 @@ class DataStepRunnerTest {
         override val phase: DataStepPhase = DataStepPhase.ITEM_BACKFILL,
         override val kind: DataStepKind = DataStepKind.ONCE,
         override val after: Set<String> = emptySet(),
-        private val body: suspend (WriteScope) -> Int = { 0 }
+        private val body: suspend (WriteScope<*>) -> Int = { 0 }
     ) : DataStep {
         val runs = AtomicInteger()
 
-        override suspend fun run(scope: WriteScope): Int {
+        override suspend fun run(scope: WriteScope<*>): Int {
             runs.incrementAndGet()
             return body(scope)
         }
     }
 
     /** A unit of work that must never be reached: proves a call does not touch the database. */
-    private object NoDbUnitOfWork : UnitOfWork {
+    private object NoDbUnitOfWork : UnitOfWork<Nothing> {
         override suspend fun <T> write(
             op: String,
-            block: suspend WriteScope.() -> Outcome<T>
+            block: suspend WriteScope<Nothing>.() -> Outcome<T>
         ): Outcome<T> = throw AssertionError("the database was touched (write $op)")
 
-        override suspend fun <T> read(block: suspend ReadScope.() -> T): T = throw AssertionError("the database was touched (read)")
+        override suspend fun <T> read(block: suspend ReadScope<Nothing>.() -> T): T =
+            throw AssertionError("the database was touched (read)")
     }
 
     private object NoDbStore : DataStepStore {
@@ -131,7 +133,7 @@ class DataStepRunnerTest {
 
     private fun runner(
         steps: List<DataStep>,
-        uow: UnitOfWork = sqlite.unitOfWork(),
+        uow: UnitOfWork<RepositoryProvider> = sqlite.unitOfWork(),
         store: DataStepStore = realStore,
         version: String = "9.9.9-test"
     ) = DataStepRunner(steps, uow, store, clock, version)

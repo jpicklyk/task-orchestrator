@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.UsageFoldException
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.EventClasses
+import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.settings.RetentionSettings
@@ -56,7 +57,7 @@ data class RetentionPass(
  * never fatal; the loop runs on its own scope, which [stop] cancels and joins.
  */
 class RetentionPruner(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RetentionStores>,
     private val settings: RetentionSettings,
     private val sseBufferSize: Int,
     private val interval: Duration = Duration.ofHours(1),
@@ -168,7 +169,7 @@ class RetentionPruner(
      * One write unit: deletes at most [quota] rows, draining [sources] from index [from]. A source is exhausted (and
      * the unit moves to the next) when it returns fewer rows than asked for.
      */
-    private suspend fun WriteScope.pruneUnit(
+    private suspend fun WriteScope<RetentionStores>.pruneUnit(
         sources: List<Source>,
         from: Int,
         quota: Int
