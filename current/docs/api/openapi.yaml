@@ -1005,13 +1005,13 @@ paths:
         `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`; capability `runs`, and `ack` and `answer` with
         capability `decide`) serve runs and decisions. A run is as visible as
         its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
-        rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's coordinator credential (shown once).
+        rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's token (shown once).
         A token is shown once: a keyed replay of `open` or `assign` returns the stored result without
         `coordinatorToken` or `seatToken` and with `tokenRedacted: true` (the idempotency store never holds a token);
-        re-assign the seat for a fresh token, or close the run and open a new one for a new coordinator token.
-        The coordinator is the caller presenting that token as the top-level `seatToken`. `close` is for the
-        coordinator, the director profile or a human token; `pause` and `resume` for the director profile or a human
-        token (never under a seat token); `update` and `assign` for the coordinator; `end_seat` for the seat's own
+        re-assign the seat for a fresh token, or close the run and open a new one for a new run token.
+        The run's orchestrator is the caller presenting that token as the top-level `seatToken`. `close` is for the
+        run's orchestrator, the director profile or a human token; `pause` and `resume` for the director profile or a human
+        token (never under a seat token); `update` and `assign` for the run's orchestrator; `end_seat` for the seat's own
         token; a refusal is `forbidden` with `detail.scope: principal_kind` and `detail.required` the allowed kinds.
         `assign{runId, itemId, seat, hints?}` returns `{assignmentId, seatToken, attempt}` (an unknown seat is
         `not_found`, `detail.kind: seat`); `end_seat{outcome, summary?, links?}` returns `{assignmentId, itemId, seat,
@@ -1033,7 +1033,7 @@ paths:
         idempotency principal. `advance` `heartbeat` takes no `usage` (removed in 4.0.1). The run errors are 409 `run_closed` (`runId`, `terminalReason`), `run_paused` (`runId`, `pauseReason`,
         `pauseDecisionId?`), `invalid_run_state` (`runId`, `status`, `allowed`), `run_at_capacity` (transient; `runId`,
         `active`, `max`) and `decision_closed` (`decisionId`, `status`); a refused seat is 403 `seat_forbidden`. The check
-        order is scope, then permission, then the state of the run. The coordinator token of a closed run is dead
+        order is scope, then permission, then the state of the run. The token of a closed run is dead
         (`401 unauthenticated`); a director or human `close` still works.
       parameters:
         - name: tool

@@ -19,9 +19,9 @@ import {
   cellsWidth,
   closedRunIds,
   colourKey,
-  coordStalled,
-  coordinatorFromMarker,
-  coordinatorFromOpen,
+  orchestratorStalled,
+  orchestratorFromMarker,
+  orchestratorFromOpen,
   countsText,
   enterToast,
   envelopeData,
@@ -193,7 +193,7 @@ const FRONTIER = {
 
 const RUN = withFrontier(runFromList(LISTED) as BoardRun, FRONTIER)
 const RUN_BOARD: Board = { at: '2026-11-07T14:02:00.000Z', runs: [RUN], colours: {} }
-const COORD = { runId: RUN_ID, label: 'wave-8', since: 'x', source: 'tool' }
+const ORCH = { runId: RUN_ID, label: 'wave-8', since: 'x', source: 'tool' }
 
 /** A feature with a task under it, as the server answers them. */
 const FEATURE = {
@@ -213,10 +213,16 @@ const FEATURE_LISTS = {
 
 test('the footer always names the mode: orchestrator at rest, else the roster modes joined with &', async ($, on) => {
   const cases = [
-    { values: { director: null, coordinator: null }, modes: 'orchestrator' },
-    { values: { director: { since: '2026-11-07T14:02:00.000Z' }, coordinator: null }, modes: 'director' },
-    { values: { director: null, coordinator: COORD }, modes: 'coordinator' },
-    { values: { director: { since: 'x' }, coordinator: COORD }, modes: 'director & coordinator' },
+    { values: { director: null, orchestrator: null }, modes: 'orchestrator' },
+    { values: { director: { since: '2026-11-07T14:02:00.000Z' }, orchestrator: null }, modes: 'director' },
+    { values: { director: null, orchestrator: ORCH }, modes: 'orchestrator · run wave-8' },
+    { values: { director: { since: 'x' }, orchestrator: ORCH }, modes: 'director & orchestrator · run wave-8' },
+    // The open run a hot-reloaded session still holds under the pre-rename `coordinator` key; the new key wins.
+    { values: { coordinator: ORCH }, modes: 'orchestrator · run wave-8' },
+    { values: { coordinator: ORCH, orchestrator: { ...ORCH, label: 'new-run' } }, modes: 'orchestrator · run new-run' },
+    // The footer shortens the run label as the band does.
+    { values: { orchestrator: { ...ORCH, label: 'r-202611101447-6e90e4d6' } }, modes: 'orchestrator · run 6e90e4d6' },
+    { values: { orchestrator: { ...ORCH, label: 'A run label that is far too long for one cell' } }, modes: 'orchestrator · run A run label that is far…' },
   ]
   let values: Record<string, unknown> = {}
   on('state.get', seedState(() => values))
@@ -231,7 +237,7 @@ test('the footer always names the mode: orchestrator at rest, else the roster mo
       const ui = await $.ui.mount({ ...FOOTER, surface })
       expect(await ui.find({ type: 'Text', text: /engine/ })).toBe(undefined)
       expect((await ui.find({ type: 'Text', text: /^TO$/ }))?.text).toBe('TO')
-      expect((await ui.find({ type: 'Text', text: /orchestrator|director|coordinator/ }))?.text).toBe(c.modes)
+      expect((await ui.find({ type: 'Text', text: /orchestrator|director/ }))?.text).toBe(c.modes)
       expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
       await ui.unmount()
     }
@@ -262,7 +268,7 @@ test('at rest the footer reads `TO orchestrator`, alone when no native label sta
 // The tests below leave $.state to the kit's own bottom: the plugin's writes are read back by the
 // drawings that read them (the footer for the modes, the band for the focus and the toggle).
 
-test("a runs_write open makes the session the run's coordinator; closing that run clears it", async ($, on) => {
+test("a runs_write open makes the session the run's orchestrator; closing that run clears it", async ($, on) => {
   const toasts: string[] = []
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
@@ -273,18 +279,18 @@ test("a runs_write open makes the session the run's coordinator; closing that ru
   on(
     'tool.call',
     answerWrites(op =>
-      op === 'open' ? { runId: RUN_ID, label: 'wave-8', status: 'open', coordinatorToken: 'coord-secret' } : { runId: RUN_ID, status: 'closed' },
+      op === 'open' ? { runId: RUN_ID, label: 'wave-8', status: 'open', coordinatorToken: 'orch-secret' } : { runId: RUN_ID, status: 'closed' },
     ),
   )
 
   await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'wave-8', items: [] }] })
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
-  expect(toasts.includes('Coordinator of run wave-8')).toBe(true)
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator · run wave-8')
+  expect(toasts.includes('Orchestrator of run wave-8')).toBe(true)
 
   await $.tool.call({ tool: 'mcp__mcp-task-orchestrator-director__runs_write', ops: [{ op: 'close', runId: 'a51588a2', reason: 'completed' }] })
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator')
   expect(toasts.includes('Run wave-8 closed')).toBe(true)
 })
 
@@ -303,7 +309,7 @@ test("a subagent's TO calls move neither the mode nor the focus", async ($, on) 
   await settle()
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }], agentId: 'seat-1' })
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator')
   expect(await shown($, BAND, /Band item|engine/)).toBe('engine')
 })
 
@@ -380,7 +386,7 @@ test('a lone leaf names itself on line 1 and shows its own phase pipeline, no ba
 })
 
 test('a long title is cut to the frame with an ellipsis, so no band line can wrap', async ($, on) => {
-  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coordinator)'
+  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, orchestrator)'
   const leaf = { id: 'd8999287-71c9', parentId: 'ce064d2c-0000', depth: 1, type: 'plugin-change', title, statusLabel: 'in-progress', role: 'work' }
   on('ui.toast', () => ({ value: undefined }))
   on('http.fetch', server({ d8999287: leaf, 'd8999287-71c9': leaf }))
@@ -533,12 +539,12 @@ test('the TO hook hands back the result as answered, and ignores an errored or d
   const errored = await $.tool.call(open)
   await settle()
   expect(errored.isError).toBe(true)
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator')
 
   answer = { deny: 'no runs here' }
   await $.tool.call(open)
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator')
   expect(toasts).toEqual([])
 
   answer = { result: opened, text: JSON.stringify(opened) }
@@ -546,10 +552,10 @@ test('the TO hook hands back the result as answered, and ignores an errored or d
   await settle()
   expect(ran.result).toEqual(opened)
   expect(ran.text).toBe(JSON.stringify(opened))
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator · run wave-8')
 })
 
-test('closing the run does not clear a coordinator that came from the marker', async ($, on) => {
+test('closing the run does not clear an orchestrator that came from the marker', async ($, on) => {
   const toasts: string[] = []
   on('env.get', (_, e) => ({ value: e.name === 'TMPDIR' ? '/tmp' : undefined }))
   on('session.id', () => ({ value: 's1' }))
@@ -575,12 +581,12 @@ test('closing the run does not clear a coordinator that came from the marker', a
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
-  expect(toasts.includes('Coordinator of run wave-8')).toBe(true)
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator · run wave-8')
+  expect(toasts.includes('Orchestrator of run wave-8')).toBe(true)
 
   await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'close', runId: RUN_ID, reason: 'completed' }] })
   await settle()
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator · run wave-8')
   expect(toasts.includes('Run wave-8 closed')).toBe(false)
 })
 
@@ -727,11 +733,13 @@ test('temp dir follows os.tmpdir() precedence and drops a trailing separator', a
 
 test('pure helpers', async () => {
   expect(footerLead(['focus'])).toBe('focus & ')
-  expect(footerLead(['focus', 'director', 'coordinator'])).toBe('focus & ')
+  expect(footerLead(['focus', 'director', 'orchestrator'])).toBe('focus & ')
   expect(footerLead([])).toBe('')
   expect(footerModes([])).toBe('orchestrator')
   expect(footerModes(['director'])).toBe('director')
-  expect(footerModes(['coordinator', 'director'])).toBe('director & coordinator')
+  expect(footerModes(['orchestrator', 'director'])).toBe('director & orchestrator · run')
+  expect(footerModes(['orchestrator', 'director'], 'wave-8')).toBe('director & orchestrator · run wave-8')
+  expect(footerModes(['orchestrator'])).toBe('orchestrator · run')
   expect(footerModes(['implementer', 'ralph'])).toBe('orchestrator')
   expect(isDirectorSkillCall(' task-orchestrator:director ')).toBe(true)
   expect(isDirectorSkillCall('task-orchestrator:work-summary')).toBe(false)
@@ -764,20 +772,20 @@ test('result envelopes: structuredContent first, then the first text block, erro
   expect(toolEnvelope({ text: 'nope' })).toBe(undefined)
 })
 
-test('coordinator detection: the open element with a token, a close of the run, a marker', async () => {
+test('orchestrator detection: the open element with a token, a close of the run, a marker', async () => {
   const open = { ops: [{ op: 'update', runId: 'r0' }, { op: 'open', rootId: 'x', title: 'Wave title' }] }
   const answered = { ok: true, data: { results: [{ ok: true }, { ok: true, runId: RUN_ID, title: 'Wave title', coordinatorToken: 't' }] } }
-  expect(coordinatorFromOpen(open, answered, 'now')).toEqual({ runId: RUN_ID, label: 'Wave title', since: 'now', source: 'tool' })
-  expect(coordinatorFromOpen(open, { ok: true, data: { results: [{ ok: true }, { ok: true, runId: RUN_ID, tokenRedacted: true }] } }, 'now')).toBe(null)
-  expect(coordinatorFromOpen(open, { ok: false, data: { results: [{ ok: true }, { ok: false }] } }, 'now')).toBe(null)
-  expect(coordinatorFromOpen({ ops: [{ op: 'open' }] }, undefined, 'now')).toBe(null)
+  expect(orchestratorFromOpen(open, answered, 'now')).toEqual({ runId: RUN_ID, label: 'Wave title', since: 'now', source: 'tool' })
+  expect(orchestratorFromOpen(open, { ok: true, data: { results: [{ ok: true }, { ok: true, runId: RUN_ID, tokenRedacted: true }] } }, 'now')).toBe(null)
+  expect(orchestratorFromOpen(open, { ok: false, data: { results: [{ ok: true }, { ok: false }] } }, 'now')).toBe(null)
+  expect(orchestratorFromOpen({ ops: [{ op: 'open' }] }, undefined, 'now')).toBe(null)
   const close = { ops: [{ op: 'close', runId: 'a51588a2' }, { op: 'close', runId: 'b' }] }
   expect(closedRunIds(close, { ok: false, data: { results: [{ ok: true }, { ok: false }] } })).toEqual(['a51588a2'])
   expect(sameId('a51588a2', RUN_ID)).toBe(true)
   expect(sameId(RUN_ID.toUpperCase(), 'a51588a2')).toBe(true)
   expect(sameId('', RUN_ID)).toBe(false)
-  expect(coordinatorFromMarker({ runId: RUN_ID, label: 'w' }, 'now')).toEqual({ runId: RUN_ID, label: 'w', since: 'now', source: 'marker' })
-  expect(coordinatorFromMarker({}, 'now').source).toBe('marker')
+  expect(orchestratorFromMarker({ runId: RUN_ID, label: 'w' }, 'now')).toEqual({ runId: RUN_ID, label: 'w', since: 'now', source: 'marker' })
+  expect(orchestratorFromMarker({}, 'now').source).toBe('marker')
 })
 
 test('the touched item of a TO call', async () => {
@@ -1035,10 +1043,10 @@ test('the title and status rows: the title with the bar; alerts first, then what
   })
   const one = (run: BoardRun): Board => ({ at: 'x', runs: [run] })
   const left = (board: Board) => statusRow(board, feature, null).left.map(c => c.text)
-  // A quiet coordinator with no seat in flight.
-  expect(left(one({ ...RUN, members: [], inFlight: 0, stalled: 0 }))).toEqual(['Coordinator not responding'])
+  // A quiet orchestrator with no seat in flight.
+  expect(left(one({ ...RUN, members: [], inFlight: 0, stalled: 0 }))).toEqual(['Orchestrator not responding'])
   expect(left(one({ ...RUN, status: 'paused', pauseReason: 'run-budget', members: [] }))).toEqual(['Run paused: run budget'])
-  // Every agent of a Workflow finished: the coordinator's move.
+  // Every agent of a Workflow finished: the orchestrator's move.
   const finished: BoardRun = { ...RUN, workflowLaunched: true, inFlight: 0, stalled: 0, members: [{ id: 'x', status: 'finished' }] }
   expect(statusRow(one(finished), feature, null).left).toEqual([{ text: 'All agents finished · advance the items', tone: 'needsYouBold' }])
   // Several of the session's runs: `2 waves`, then the agents of all of them.
@@ -1130,7 +1138,7 @@ test('every row is cut to the frame: the right side stays whole while the left g
   expect(fitRow(status, 96).right).toEqual(status.right)
   // Too narrow for both: the right side goes.
   expect(fitRow(status, 40)).toEqual({ ...status, right: [], left: [status.left[0], status.left[1]] })
-  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coordinator)'
+  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, orchestrator)'
   const head = fitRow(titleRow(RUN_BOARD, { itemId: 'd', title, type: '', label: '' }, null) as Row, 96)
   expect(head.left[0]?.text.length).toBe(96 - 5 - 2)
   expect(head.left[0]?.text.endsWith('…')).toBe(true)
@@ -1183,22 +1191,22 @@ test('a run is built from the list item and its frontier', async () => {
   expect(seatsDone({ ...finished, status: 'paused' })).toBe(false)
 })
 
-test('the coordinator alert follows the director rule: idle under a Workflow or beside a live seat, never on a paused run', async () => {
-  // RUN: the server flags the coordinator, and one of its two seats is live.
-  expect(coordStalled(RUN)).toBe(false)
-  expect(coordStalled({ ...RUN, stalled: 2 })).toBe(true)
-  expect(coordStalled({ ...RUN, stalled: 2, coordinatorStalled: false })).toBe(false)
-  // A launched Method A run: the Workflow coordinates it, nothing calls under the coordinator token.
+test('the orchestrator alert follows the director rule: idle under a Workflow or beside a live seat, never on a paused run', async () => {
+  // RUN: the server flags the orchestrator, and one of its two seats is live.
+  expect(orchestratorStalled(RUN)).toBe(false)
+  expect(orchestratorStalled({ ...RUN, stalled: 2 })).toBe(true)
+  expect(orchestratorStalled({ ...RUN, stalled: 2, coordinatorStalled: false })).toBe(false)
+  // A launched Method A run: the Workflow drives it, nothing calls under the orchestrator token.
   const workflow = runFromList({ ...LISTED, hints: { method: 'A', phase: 'launched' } }) as BoardRun
   expect(workflow.workflowLaunched).toBe(true)
-  expect(coordStalled({ ...workflow, inFlight: 0, stalled: 0 })).toBe(false)
+  expect(orchestratorStalled({ ...workflow, inFlight: 0, stalled: 0 })).toBe(false)
   expect(runFromList({ ...LISTED, hints: { method: 'A', phase: 'post-run' } })?.workflowLaunched).toBe(false)
   expect(runFromList({ ...LISTED, hints: { method: 'B', phase: 'launched' } })?.workflowLaunched).toBe(false)
-  // No seat in flight at all: a quiet coordinator is stalled.
-  expect(coordStalled({ ...RUN, inFlight: 0, stalled: 0 })).toBe(true)
+  // No seat in flight at all: a quiet orchestrator is stalled.
+  expect(orchestratorStalled({ ...RUN, inFlight: 0, stalled: 0 })).toBe(true)
   // A paused run is paused, never stalled.
-  expect(coordStalled({ ...RUN, status: 'paused', inFlight: 0 })).toBe(false)
-  // The frontier's own coordinator flag is the fresher read.
+  expect(orchestratorStalled({ ...RUN, status: 'paused', inFlight: 0 })).toBe(false)
+  // The frontier's own orchestrator flag is the fresher read.
   expect(withFrontier(runFromList(LISTED) as BoardRun, { ...FRONTIER, stalled: false }).coordinatorStalled).toBe(false)
 })
 
@@ -1206,20 +1214,20 @@ test('the band shows only the runs of this session, in every mode', async () => 
   const run = (id: string, label: string, scopeId?: string): BoardRun => ({ ...RUN, id, label, scopeId })
   const theirs = run('72100b56-0000', 'theirs', 'a977f05e-0000')
   const scoped = run('11111111-0000', 'scoped', 'd99e4f7a-0000')
-  const coordinated = run('22222222-0000', 'coordinated')
+  const orchestrated = run('22222222-0000', 'orchestrated')
   const background = run('33333333-0000', 'background')
-  const all = [theirs, scoped, coordinated, background]
+  const all = [theirs, scoped, orchestrated, background]
   const labels = (runs: BoardRun[]) => runs.map(r => r.label)
 
   expect(labels(sessionRuns(all, { watched: [] }))).toEqual([])
   // A run this session or one of its subagents opened or acted on, by id prefix either way.
   expect(labels(sessionRuns(all, { watched: ['33333333'] }))).toEqual(['background'])
-  // The coordinated run comes first, whatever the server's order; a run scoped to an item the session only
+  // The orchestrated run comes first, whatever the server's order; a run scoped to an item the session only
   // touched is never its own.
-  expect(labels(sessionRuns(all, { coordinatorRunId: '22222222', watched: ['33333333-0000'] }))).toEqual(['coordinated', 'background'])
+  expect(labels(sessionRuns(all, { orchestratorRunId: '22222222', watched: ['33333333-0000'] }))).toEqual(['orchestrated', 'background'])
   expect(labels(sessionRuns(all, { watched: ['11111111'] }))).toEqual(['scoped'])
-  // A marker coordinator that names no run matches nothing.
-  expect(labels(sessionRuns(all, { coordinatorRunId: '', watched: [''] }))).toEqual([])
+  // A marker orchestrator that names no run matches nothing.
+  expect(labels(sessionRuns(all, { orchestratorRunId: '', watched: [''] }))).toEqual([])
   expect(runFromList({ ...LISTED, scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })).toMatchObject({ scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })
   expect(runFromList(LISTED)?.scopeId).toBe(undefined)
 })
@@ -1319,7 +1327,7 @@ test("a run a subagent opened is the session's: the title row names its scope it
   await settle()
   expect(await shown($, BAND, /run|engine/)).toBe('engine')
 
-  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'bg' }], agentId: 'coordinator-1' })
+  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'bg' }], agentId: 'orchestrator-1' })
   await settle()
   const band = await texts($, BAND)
   expect(band).toEqual(['Model and effort policy', 'no agent working'])
@@ -1337,6 +1345,6 @@ test("a run a subagent opened is the session's: the title row names its scope it
   }
   expect(await rowKeys(6)).toEqual(['title', 'status'])
   expect(await rowKeys(3)).toEqual(['title'])
-  // A subagent's open never makes the session a coordinator.
-  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
+  // A subagent's open never makes the session an orchestrator.
+  expect(await shown($, FOOTER, /orchestrator/)).toBe('orchestrator')
 })

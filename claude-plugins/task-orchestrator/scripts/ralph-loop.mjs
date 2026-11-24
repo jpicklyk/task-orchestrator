@@ -7,8 +7,8 @@
 // git worktree) through a 0o600 file, wait for the iteration's `RALPH_OUTCOME:` marker, and
 // end the seat. Every exit path ends any active seat first, then closes the run.
 //
-// Every coordinator call goes over REST (hooks/lib/api-client.mjs callOp): reads token-less,
-// update/assign/close under the coordinator token, claim/heartbeat/release/end_seat under the seat
+// Every orchestrator call goes over REST (hooks/lib/api-client.mjs callOp): reads token-less,
+// update/assign/close under the run token, claim/heartbeat/release/end_seat under the seat
 // token. Token values never reach argv, env, prompt text or console output.
 //
 // Stdlib-only. Node 18+.
@@ -228,7 +228,7 @@ if (cfg.dryRun) {
 // Every known token value is masked on everything this process writes, child output included.
 const knownTokens = [];
 function scrub(text) {
-    return redactTokens(text, knownTokens).replace(/\b(seat|coordinator)Token\b/g, "$1 token");
+    return redactTokens(text, knownTokens).replace(/\bseatToken\b/g, "seat token").replace(/\bcoordinatorToken\b/g, "run token");
 }
 function say(line = "") {
     process.stdout.write(scrub(line) + "\n");
@@ -342,7 +342,7 @@ await warnOpenRalphRuns();
     run.coordinatorToken = r.value?.coordinatorToken;
     if (typeof run.coordinatorToken === "string") knownTokens.push(run.coordinatorToken);
     if (!run.runId || !run.coordinatorToken) {
-        warn("error: runs_write open answered without a run id or a coordinator credential");
+        warn("error: runs_write open answered without a run id or a run token");
         process.exit(2);
     }
     say(`  Run:           ${run.runId} (label ${label})`);
@@ -619,7 +619,7 @@ async function waitWhilePaused() {
 }
 
 /**
- * run_paused / run_closed / unauthenticated from a coordinator call. "stop": the loop is ending.
+ * run_paused / run_closed / unauthenticated from an orchestrator call. "stop": the loop is ending.
  * "pause": the run paused (the loop waits for it). null: not a stop.
  */
 async function handleCoordinatorStop(error, what) {
@@ -635,7 +635,7 @@ async function handleCoordinatorStop(error, what) {
     }
     if (code === "unauthenticated") {
         if (await runClosedElsewhere(what)) return "stop";
-        endLoop(`the coordinator credential was refused on ${what} (unauthenticated)`, 2);
+        endLoop(`the run token was refused on ${what} (unauthenticated)`, 2);
         return "stop";
     }
     return null;
@@ -1047,7 +1047,7 @@ function formatCleanupResult(worktreeName, result) {
     }
 }
 
-/** The coordinator-to-director report block (ids, counts, short reasons only), printed for a relaying agent. */
+/** The orchestrator-to-director report block (ids, counts, short reasons only), printed for a relaying agent. */
 function ralphReport(event, extra = {}) {
     const kept = stats.outcomes.filter((o) => o.outcome.status === "gate-blocked" || o.outcome.status === "error");
     const base = {
@@ -1171,7 +1171,7 @@ Exit codes:
        run closed elsewhere). A paused run does not end the loop: it waits,
        polling the run every 30s, until the run is resumed or closed.
   2    Error budget exhausted, or a REST call the loop depends on failed
-       (open, coordinator credential refused)
+       (open, run token refused)
   64   CLI argument error, no REST API URL, or no project root
   70   Could not read iteration prompt
   130  Interrupted (SIGINT): iteration stopped, seat ended, run closed cancelled

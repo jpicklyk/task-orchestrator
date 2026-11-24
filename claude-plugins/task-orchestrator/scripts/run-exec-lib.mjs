@@ -10,7 +10,7 @@
 // pure helpers (validateAgainst, scanReport's word list, verify, notesAudit, provenance,
 // closeReason, advanceFollowUps) take no core because they don't call into the @core-begin region.
 //
-// No function here renders a seat token or a coordinator token: the orchestrator holds them,
+// No function here renders a seat token or a run token: the orchestrator holds them,
 // writes seat tokens to the token files runOps names, and adds the right token as the top-level
 // seatToken of each call it sends. The stage-result handler reads the run's token files solely
 // to redact them (with any seatToken/coordinatorToken key) from the state it prints; nothing
@@ -1894,7 +1894,7 @@ function resultsOf(advanceResult) {
  * advanceFollowUps(advanceResult) -> {unblocked, seatBlocked, gateBlocked, reviewPending, gateMissing}.
  * advanceResult is an advance response (the envelope or its data): data.results[i] per transition.
  * Over the successful elements: unblocked = unblocked[].itemId; from cascades[] with applied false,
- * seatBlocked = blocked "seat" (the coordinator token re-sends the parent's transition), reviewPending
+ * seatBlocked = blocked "seat" (the run token re-sends the parent's transition), reviewPending
  * = blocked "gate" with reason "review-pending" (a terminal cascade into a parent in review, by design),
  * gateBlocked = any other blocked "gate" (gateMissing[itemId] = its missing[].key). Every array holds
  * item ids, deduplicated, in result order; every member is present ([] / {} when nothing applies).
@@ -1958,13 +1958,13 @@ function runHints(doc, phase) {
 
 /**
  * runOps(core, doc, opts) -> {tool, ops, tokenFiles?} - the exact ops array the orchestrator sends.
- * Never carries a seatToken key: the orchestrator adds the right token top-level (the coordinator
+ * Never carries a seatToken key: the orchestrator adds the right token top-level (the run
  * token, except end_seat, which goes under each seat's own token).
  * opts.phase:
  *   open      runs_write open {rootId, items, scopeId?, label: runId, title, hints:{plan, method,
  *             worktreeMode}, budget?} (budget only from the profile's opt-in runBudget, meta.runBudget);
  *             also tokenFile: <scratchDir>/tokens/coordinator.token, where the orchestrator persists the
- *             coordinator token so a restart or compaction can read it back (the file is redacted by value).
+ *             run token so a restart or compaction can read it back (the file is redacted by value).
  *   assign    runs_write assign {runId, itemId, seat}; without opts.item every non-inserted stage of
  *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
  *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
@@ -2108,7 +2108,7 @@ export function runOps(core, doc, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Coordinator report (pure) and the review-wave args builder (pure).
+// Orchestrator report (pure) and the review-wave args builder (pure).
 // ---------------------------------------------------------------------------------------
 
 function unwrapObject(value, depth = 0) {

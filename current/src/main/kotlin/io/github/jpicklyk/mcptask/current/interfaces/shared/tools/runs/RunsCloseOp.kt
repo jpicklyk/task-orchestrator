@@ -22,7 +22,7 @@ internal val runsCloseOp =
         name = "close",
         doc =
             "End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). " +
-                "Coordinator, director or a human. Any reason but completed ends active seats and releases claims and " +
+                "Run token, director or a human. Any reason but completed ends active seats and releases claims and " +
                 "leases of the members; completed is refused while a seat is active. Returns the run and a snapshot of " +
                 "what the close recorded.",
         destructive = true,

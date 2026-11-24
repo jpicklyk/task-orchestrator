@@ -10,7 +10,7 @@ Manage `blocks` and `relates_to` edges between work items: view them, create the
 
 ## Director mode
 
-Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Director-safe here: VIEW by id (`deps_read` plus `items_read` `get`), a broad DIAGNOSE with `items_read` `blocked`, and resolving a title with `items_read` `list` (not `search`, which the guard denies). An `awaiting_decision` entry in the blocked list belongs to the board: answer it through `/task-orchestrator:director`. A single-item `context` diagnosis and every CREATE or DELETE are delegated, because an edge on a run member changes that run's frontier: `SendMessage` the run's coordinator for a member, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set). The agent reports edge counts and item ids, one line per edge changed, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Director-safe here: VIEW by id (`deps_read` plus `items_read` `get`), a broad DIAGNOSE with `items_read` `blocked`, and resolving a title with `items_read` `list` (not `search`, which the guard denies). An `awaiting_decision` entry in the blocked list belongs to the board: answer it through `/task-orchestrator:director`. A single-item `context` diagnosis and every CREATE or DELETE are delegated, because an edge on a run member changes that run's frontier: `SendMessage` the run's orchestrator for a member, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set). The agent reports edge counts and item ids, one line per edge changed, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
 ## Step 1: Determine intent
 
@@ -127,7 +127,7 @@ For an explicit block, act on the `reason`:
 
 | `reason` | Needed |
 |---|---|
-| `awaiting_decision`, `resumable: false` | the decision must be answered (director board); do not resume |
+| `awaiting_decision`, `resumable: false` | the decision must be answered (the board's decision inbox); do not resume |
 | `awaiting_decision`, `resumable: true` | answered or withdrawn: resume per [decisions.md](../status-progression/references/decisions.md) |
 | `resource` | lease contention: read `context` `resourceLeases`, retry later |
 | `manual` | `resume` via `/status-progression` |

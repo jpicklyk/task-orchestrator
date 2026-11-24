@@ -650,12 +650,12 @@ internal fun profileInstructions(profile: ToolProfile): String =
                 "hierarchy and what is blocked. deps_read: dependency edges. No read here returns a note or document " +
                 "body, and there is no item or note write."
         ToolProfile.KNOWLEDGE ->
-            "Task Orchestrator MCP server, ${profile.wire} tool profile: work items, their notes, dependencies and " +
-                "versioned documents, without phase transitions or runs. Call any tool with describe: true for its " +
-                "selects, operations and parameters. items_read and items_write: find, read, create, update and " +
-                "delete items. notes_read and notes_write: the notes on an item. deps_read and deps_write: dependency " +
-                "edges between items. docs_read and docs_write: plans, rules and other versioned documents of a " +
-                "project root."
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: items, their notes and dependencies, and " +
+                "versioned documents with their links, without phase transitions or runs. Call any tool with describe: " +
+                "true for its selects, operations and parameters. items_read and items_write: find, read, create, " +
+                "update and delete items. notes_read and notes_write: the notes on an item. deps_read and deps_write: " +
+                "dependency edges between items. docs_read and docs_write: plans, rules and other versioned documents " +
+                "of a project root, and the links a document makes to items, notes and other documents."
         ToolProfile.ORCHESTRATION ->
             "Task Orchestrator MCP server, ${profile.wire} tool profile: work items that move through gated phases, " +
                 "with the notes each phase requires, dependencies, documents and runs. Call any tool with describe: " +

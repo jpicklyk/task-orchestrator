@@ -43,7 +43,7 @@ import java.util.UUID
  * ## Who
  *
  * Acknowledge and answer need the request's answerers to admit the caller ([admits]); withdraw needs the raiser (same
- * principal and seat) or the coordinator token of the request's run, and a server-raised request (`run-budget`,
+ * principal and seat) or the run token of the request's run, and a server-raised request (`run-budget`,
  * `attempt-cap`) cannot be withdrawn at all: it stays pending until answered (a run close withdraws no decision). A
  * refusal is `forbidden` (`principal_kind`), checked before the status. The caller has already checked that the request's root is in scope.
  *
@@ -260,7 +260,7 @@ class DecisionService(
     // -------------------------------------------------------------------------
 
     /**
-     * Withdraws request [decisionId]: its raiser or the coordinator token of its run, while it is pending. A
+     * Withdraws request [decisionId]: its raiser or the run token of its run, while it is pending. A
      * server-raised request is never withdrawable.
      */
     suspend fun withdraw(

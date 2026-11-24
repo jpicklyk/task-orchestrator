@@ -100,7 +100,7 @@ class StoreRunFacts(
     }
 
     /**
-     * The active member seats of the run (the coordinator excluded) and those of them stalled under the run's
+     * The active member seats of the run (the `coordinator` pseudo-seat excluded) and those of them stalled under the run's
      * `stallAfterSeconds` at now, silent longest first (then item id, then seat), at most [limit] entries; `count` is the
      * true number. Null when there is no such run.
      */
@@ -115,7 +115,7 @@ class StoreRunFacts(
         }
     }
 
-    /** Every member-seat assignment of the run, ended ones included (the coordinator excluded), and the highest attempt. */
+    /** Every member-seat assignment of the run, ended ones included (the `coordinator` pseudo-seat excluded), and the highest attempt. */
     override suspend fun attempts(runId: UUID): AttemptCounts =
         unitOfWork.read {
             val rows = stores.runSeatStore().list(runId, includeEnded = true).filter { !it.isCoordinator }

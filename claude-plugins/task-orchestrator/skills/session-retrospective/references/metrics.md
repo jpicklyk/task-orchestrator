@@ -51,7 +51,7 @@ An optional second line `extra-seats=<seat>:<model>:<tokens>:<effort>:<cause>:<i
 
 ## Layer meters
 
-A line `layer-meters=<layer>:<i>/<cw>/<cr>/<o>,... run=<runId>[ session-window=run|whole-session]` (on the run's target parent's `delegation-metadata`, one per run id, or in the run report) is the cost of the two layers above the seats: `coordinator` (the tier-2 or tier-2b coordinator's own transcript) and `session` (the launching session's transcript; `session-window=run` when limited to the run window, `whole-session` when no window flag was given or no usage line carried a timestamp). It is layer cost, not a delegation, and is not scored. `<layer>:unknown` is a gap. The `seats` row of `perLayer` is the sum of the run's item `meters=` tails plus the six-field `extra-seats` meters; a run with no layer line has no `perLayer` rows.
+A line `layer-meters=<layer>:<i>/<cw>/<cr>/<o>,... run=<runId>[ session-window=run|whole-session]` (on the run's target parent's `delegation-metadata`, one per run id, or in the run report) is the cost of the two layers above the seats: `coordinator` (the tier-2 or tier-2b orchestrator's own transcript) and `session` (the launching session's transcript; `session-window=run` when limited to the run window, `whole-session` when no window flag was given or no usage line carried a timestamp). It is layer cost, not a delegation, and is not scored. `<layer>:unknown` is a gap. The `seats` row of `perLayer` is the sum of the run's item `meters=` tails plus the six-field `extra-seats` meters; a run with no layer line has no `perLayer` rows.
 
 ## Fix-cycle cost
 

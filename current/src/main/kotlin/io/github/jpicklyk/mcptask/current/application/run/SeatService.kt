@@ -30,7 +30,7 @@ import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
-/** Assigns [seat] of member [itemId] of run [runId] to the principal [principalId] (the coordinator's own principal). */
+/** Assigns [seat] of member [itemId] of run [runId] to the principal [principalId] (the orchestrator's own principal). */
 data class SeatAssignCommand(
     val runId: UUID,
     val itemId: UUID,
@@ -61,10 +61,10 @@ data class SeatEndResult(
  * It is bound to the principal that received it ([RunSeat.principalId]) and dies with its assignment: [resolve] accepts
  * a token only while its assignment is active AND the presenting principal is the bound one.
  *
- * ## Coordinator
+ * ## Run token
  *
- * `open` creates the run-scoped `coordinator` pseudo-seat ([openCoordinator]); its token is the run's only coordinator
- * credential. It is not a member seat: [activeCount] does not count it and a close's in-flight list never names it.
+ * `open` creates the run-scoped `coordinator` pseudo-seat ([openCoordinator]); its token is the run token, the only
+ * credential of its kind. It is not a member seat: [activeCount] does not count it and a close's in-flight list never names it.
  *
  * Also the [RunSeatPort] the run close uses (delegated to the store).
  */
@@ -91,10 +91,10 @@ class SeatService(
     ): List<InFlightSeat> = store.endActive(runId, outcome)
 
     // -------------------------------------------------------------------------
-    // coordinator
+    // run token
     // -------------------------------------------------------------------------
 
-    /** Creates the coordinator pseudo-seat of the just-opened [run] for [principalId] (the opener) and returns its token. */
+    /** Creates the `coordinator` pseudo-seat of the just-opened [run] for [principalId] (the opener) and returns its token. */
     suspend fun openCoordinator(
         run: Run,
         principalId: String
@@ -121,7 +121,7 @@ class SeatService(
     // -------------------------------------------------------------------------
 
     /**
-     * Assigns a seat (task-scope D5, D6), after the caller checked the run's scope and the coordinator token. In order:
+     * Assigns a seat (task-scope D5, D6), after the caller checked the run's scope and the run token. In order:
      * the run is not closed (`run_closed`) or paused (`run_paused`); [SeatAssignCommand.seat] is not `coordinator`
      * (`invalid_request /seat`); the item is a member of the run (`invalid_request /itemId`); the seat is one of the
      * item's schema seats, or `implementer`/`planner` for a seat-less or schema-free item, plus `reviewer` when the
@@ -247,7 +247,7 @@ class SeatService(
     }
 
     /**
-     * Marks [seat] as seen now (task-scope D9), in its own small unit: `last_seen_at`, and for the coordinator also the
+     * Marks [seat] as seen now (task-scope D9), in its own small unit: `last_seen_at`, and for the `coordinator` pseudo-seat also the
      * run's `coordinator_seen_at`. Skipped while the stored `last_seen_at` is less than [TOUCH_INTERVAL] old.
      */
     suspend fun touch(seat: RunSeat) {

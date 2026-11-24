@@ -1322,18 +1322,17 @@ intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0`
 
 A **run** is a bounded pass over a set of items of one root, optionally capped. Everything before this chapter works without one. A run adds four things on top: scoped credentials for the agents that work the items (seat tokens), enforcement of who may do what to a member, a liveness view, and a channel for questions that need a human or a director (decisions).
 
-### Why three session layers
+### Why two session layers
 
-One session used to be both the user's point of contact and the coordinator of every run. That filled its context, made it unavailable while a run was in flight, and left the state it held fragile across compaction. The layers split those jobs so each context is purposeful and clearable, token cost stays proportional to the work, and the server, not a prompt, holds state and boundaries.
+One session used to be both the user's point of contact and the driver of every run. That filled its context, made it unavailable while a run was in flight, and left the state it held fragile across compaction. The two layers split those jobs so each context is purposeful and clearable, token cost stays proportional to the work, and the server, not a prompt, holds state and boundaries.
 
 - **Seat**: one agent on one phase of one item (planner, implementer, test author, reviewer), with one dispatch and a fresh context.
-- **Orchestrator** (the default): the user's own session. It plans, sizes, dispatches seats and makes every later transition. When it opens a run it is also that run's coordinator.
-- **Coordinator**: whoever presents a run's coordinator token. It owns one run (one wave) and is disposable.
-- **Director**: an opt-in session mode that runs the board instead of the code. `/task-orchestrator:init` registers the director MCP entry by default, because decisions are answered through it; `--no-director` opts out.
+- **Orchestrator**: drives the work. It plans, sizes, dispatches seats and makes every later transition. The user's own session is the orchestrator in orchestration mode (the default) and can hold a run itself; a run's orchestrator may also be placed in another session or a background agent. Its scope is ad hoc items or one run; a run's orchestrator presents that run's token, and one in a background agent is disposable.
+- **Director**: decides on the user's behalf. Director mode is an opt-in session mode in which the user's session acts on the board, at the user's instruction, instead of on the code. `/task-orchestrator:init` registers the director MCP entry by default, because decisions are answered through it; `--no-director` opts out.
 
-"Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the coordinator token may write; it is a seat of the item's schema, not a session.
+"Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the run's orchestrator token may write; it is a seat of the item's schema, not a session.
 
-A director earns its keep when the work is long or wide, for four reasons: its context stays lean and long-lived because it holds decisions and rollups rather than code, it is one decision inbox across runs, the user's session stays free to talk while a coordinator runs a wave, and more parallel and longer-running work fits than one session can hold. For small work or one short wave, orchestrator mode is enough.
+A director earns its keep when the work is long or wide, for four reasons: its context stays lean and long-lived because it holds decisions and rollups rather than code, it is one decision inbox across runs, the user's session stays free to talk while a run's orchestrator drives a wave, and more parallel and longer-running work fits than one session can hold. For small work or one short wave, orchestration mode is enough.
 
 ### A run, and when to open one
 
@@ -1348,7 +1347,7 @@ A run is `open`, may be `paused`, and ends `closed` with a terminal reason. An i
 
 ### Tokens
 
-`open` returns a **coordinator token**, shown once. The coordinator is whoever presents it, as the top-level `seatToken` field next to `select` or `ops`. `assign` (coordinator only) hands out a **seat token** for one member item and one seat, also shown once:
+`open` returns an **orchestrator token** (the `coordinatorToken` field), shown once. The run's orchestrator is whoever presents it, as the top-level `seatToken` field next to `select` or `ops`. `assign` (orchestrator only) hands out a **seat token** for one member item and one seat, also shown once:
 
 ```json
 {"seatToken": "<coordinatorToken>",
@@ -1356,17 +1355,17 @@ A run is `open`, may be `paused`, and ends `closed` with a terminal reason. An i
 ```
 
 - A token is never stored or replayed. A keyed retry of `open` or `assign` answers `tokenRedacted: true`; recover a seat token by assigning the seat again (the old token dies and the attempt count goes up).
-- A lost coordinator token cannot be recovered. Close the run and open a new one.
+- A lost orchestrator token cannot be recovered. Close the run and open a new one.
 - A token is only good from the principal it was issued to, and only while its assignment is active. Anything else is a flat `unauthenticated`.
 - Calls under a token lose ADMIN. Claims and notes are held by the pair (principal, assignment), so two agents that share one `local` principal are still separate holders.
-- Closing a run ends its tokens. A closed run's coordinator token answers `unauthenticated`, though a director or a human can still `close`.
+- Closing a run ends its tokens. A closed run's orchestrator token answers `unauthenticated`, though a director or a human can still `close`.
 
 ### Seats in a run
 
 Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-transitions)). Inside a run that is not closed, on a member whose pinned schema declares seats, the server enforces them:
 
 - A seat token acts only on its own item. It may `start` that item only into the phase of the seat that `enters`, and may send another trigger only if the seat's `transitions:` lists it (default `block` and `hold`).
-- A seat writes only the note keys its seat owns, plus unowned keys. The coordinator token writes only the keys of the seat named `orchestrator`, and unowned ones.
+- A seat writes only the note keys its seat owns, plus unowned keys. The orchestrator token writes only the keys of the seat named `orchestrator`, and unowned ones.
 - A human credential without a token is exempt. Over stdio the caller is the `local` principal, which is an agent, so it is not exempt.
 - A refusal is `seat_forbidden` (or `note_owned_by_other` for a note) and applies nothing.
 - A seat entry may list `rules:` (rule keys) and `skills:` (skill names). The server serves each list and never enforces it; the run-wave plugin hands them to the seat's agent. `items_read` `context` and `advance` `transition` carry `callerSeat`, the seat a seat token holds on its own item.
@@ -1380,13 +1379,13 @@ Outside a run, seats stay an orchestration signal and nothing is enforced. A sea
 
 ### Cascades into seat-enforced members
 
-A cascade is a write too. When a child's change would move a parent that is a member of a run that is not closed, the cascade is applied only if the caller could have sent the equivalent trigger to that parent directly. Otherwise it is suppressed and reported as `blocked: seat` (and `seat_forbidden` on an `items_write`), after the ownership check and before the gates. In practice a seat child does not complete its member parent by cascade unless its token is bound to that parent. The recovery is to advance the parent with the coordinator token or a human credential. See the [cascade rules](./api-reference.md#advance).
+A cascade is a write too. When a child's change would move a parent that is a member of a run that is not closed, the cascade is applied only if the caller could have sent the equivalent trigger to that parent directly. Otherwise it is suppressed and reported as `blocked: seat` (and `seat_forbidden` on an `items_write`), after the ownership check and before the gates. In practice a seat child does not complete its member parent by cascade unless its token is bound to that parent. The recovery is to advance the parent with the orchestrator token or a human credential. See the [cascade rules](./api-reference.md#advance).
 
 ### Liveness and the frontier
 
-A seat or the coordinator is **stalled** when it has been quiet for strictly longer than the run's `stallAfterSeconds` (pinned when the run opens; default 600). Quiet means no call under its token on a tool that takes `ops`; a read through a `select` tool does not count, so a long-running seat makes some call on an `ops` tool now and then, for example an `advance` `heartbeat` on its claim. Stalled is only a view: nothing is ended or released for you.
+A seat or the orchestrator is **stalled** when it has been quiet for strictly longer than the run's `stallAfterSeconds` (pinned when the run opens; default 600). Quiet means no call under its token on a tool that takes `ops`; a read through a `select` tool does not count, so a long-running seat makes some call on an `ops` tool now and then, for example an `advance` `heartbeat` on its claim. Stalled is only a view: nothing is ended or released for you.
 
-`runs_read` with `select: "frontier"` is the one read that tells the coordinator what to do next:
+`runs_read` with `select: "frontier"` is the one read that tells the orchestrator what to do next:
 
 ```json
 {"select": "frontier", "runId": "7c0f3a91"}
@@ -1396,11 +1395,11 @@ It returns the members that are `ready` (no active seat, no unmet dependency, no
 
 ### Why an item is blocked
 
-`block` and `hold` take a `reason` (`awaiting_decision`, `dependency`, `resource`, default `manual`). `awaiting_decision` carries a `decisionId` naming an open decision on that item. The reason shows on the item as `blockedReason`, and every way out of `blocked` (`resume`, `cancel`, `items_write` `complete_tree`) clears it. Answering a decision never resumes the item: the coordinator does that, after reading the answer.
+`block` and `hold` take a `reason` (`awaiting_decision`, `dependency`, `resource`, default `manual`). `awaiting_decision` carries a `decisionId` naming an open decision on that item. The reason shows on the item as `blockedReason`, and every way out of `blocked` (`resume`, `cancel`, `items_write` `complete_tree`) clears it. Answering a decision never resumes the item: the orchestrator does that, after reading the answer.
 
 ### Decisions
 
-A decision is a question with 1 to 8 options that a seat or the coordinator raises when it needs a person or a director. Its **class** (see [decision classes](./config-reference.md#decision-classes-decision_classes)) sets who may answer, the default severity and when it becomes overdue.
+A decision is a question with 1 to 8 options that a seat or the orchestrator raises when it needs a person or a director. Its **class** (see [decision classes](./config-reference.md#decision-classes-decision_classes)) sets who may answer, the default severity and when it becomes overdue.
 
 ```json
 {"seatToken": "<seatToken>",
@@ -1412,7 +1411,7 @@ A decision is a question with 1 to 8 options that a seat or the coordinator rais
 
 Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#runs_write).
 
-The director (or the human) lists and reads decisions with `runs_read` `decisions` and `decision`, then `ack`s and `answer`s with `runs_write`. An answer is final. The raiser or the run's coordinator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
+The director (or the human) lists and reads decisions with `runs_read` `decisions` and `decision`, then `ack`s and `answer`s with `runs_write`. An answer is final. The raiser or the run's orchestrator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
 
 ### Budgets, caps, concurrency and pauses
 
@@ -1420,13 +1419,13 @@ A run can carry an attempt cap per (item, seat) and a cap on concurrently active
 
 - **Attempt cap.** An `assign` past `attemptsPerSeat` is refused `run_paused`, the run pauses (`attempts`) and an `attempt-cap` decision is raised (`allow_one`, `skip_item`, `stop`).
 - **Concurrency.** An `assign` past `maxActiveSeats` is a transient `run_at_capacity`. Retry when a seat ends.
-- **Manual pause.** A director or human can `pause` and `resume` a run. Members in flight can still finish. A pause for `attempts` (or a `budget` pause stored by 4.0.0) cannot be resumed by the coordinator; only the answer resumes it, or a `close` ends it. While a run is paused for a limit, a `start` under any of its tokens is refused.
+- **Manual pause.** A director or human can `pause` and `resume` a run. Members in flight can still finish. A pause for `attempts` (or a `budget` pause stored by 4.0.0) cannot be resumed by the orchestrator; only the answer resumes it, or a `close` ends it. While a run is paused for a limit, a `start` under any of its tokens is refused.
 
 Operator-side detail, including what the numbers mean and what is only an estimate, is in [Run Budgets and Caps](./fleet-deployment.md#run-budgets-and-caps).
 
 ### Closing a run
 
-`close` takes a reason (`completed`, `cancelled`, `failed` or `abandoned`; `budget_exhausted` is the server's own) and is allowed to the coordinator, the director profile or a human. Any reason but `completed` ends the active seats and releases the members' claims and leases; `completed` is refused while a seat is active. The answer carries a `snapshot` of what the close recorded, the stored `run.ended` event carries the run rollup computed at that moment, and `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers that snapshot for a closed run, so the figures survive retention.
+`close` takes a reason (`completed`, `cancelled`, `failed` or `abandoned`; `budget_exhausted` is the server's own) and is allowed to the orchestrator, the director profile or a human. Any reason but `completed` ends the active seats and releases the members' claims and leases; `completed` is refused while a seat is active. The answer carries a `snapshot` of what the close recorded, the stored `run.ended` event carries the run rollup computed at that moment, and `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers that snapshot for a closed run, so the figures survive retention.
 
 `runs_write` `mark` (REST only) stamps a named instant on a run, for example a retrospective marker. A mark is first-write-wins and cannot be removed, and `runs_read` `list` with `unmarked` returns the closed runs that lack it.
 

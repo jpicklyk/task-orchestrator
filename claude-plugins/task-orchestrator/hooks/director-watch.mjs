@@ -9,7 +9,7 @@
 // 2. Run-ended retrospective. A `runs_read` `get` result (the run view) for a run whose status is
 //    `closed` (idle or paused is not done) and that carries no `retro` mark yields the
 //    retrospective dispatch directive from retro-lib, once per run per session, for a run this session
-//    opened or closed (retro-lib ownsRun; a coordinator in a session of its own handles its own run's
+//    opened or closed (retro-lib ownsRun; a run's orchestrator in a session of its own handles its own run's
 //    retrospective): a director session
 //    is always treated as dispatch mode (`nudge` included; `off` stays silent), because the director
 //    must never run a retrospective in its own context. A run closed more than 24 h ago is skipped
@@ -97,7 +97,7 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (rest !== null && rest !== undefined) return {};
   if (state.retro.includes(runId)) return {};
   // Only a run this session opened or closed (retro-trigger records both, a subagent's calls included):
-  // a coordinator running in a session of its own handles its own run's retrospective.
+  // a run's orchestrator running in a session of its own handles its own run's retrospective.
   const retroState = isPlainObject(opts.retroState) ? opts.retroState : readSessionState(opts.sessionId);
   if (!ownsRun(retroState, runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;

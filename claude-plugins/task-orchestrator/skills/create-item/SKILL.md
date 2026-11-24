@@ -10,7 +10,7 @@ Create work items from conversation context: anchor them in a category container
 
 ## Director mode
 
-Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Creating an item writes through `items_write` and `notes_write`, which a director does not run inline: dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below, or `SendMessage` the run's coordinator when the new item is meant for a member of an open or paused run. Hand the agent the title, kind, priority, parent hint and whether it is an observation. It reports one line only, `Created: <title> (<short-id>) under <path>`, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Creating an item writes through `items_write` and `notes_write`, which a director does not run inline: dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below, or `SendMessage` the run's orchestrator when the new item is meant for a member of an open or paused run. Hand the agent the title, kind, priority, parent hint and whether it is an observation. It reports one line only, `Created: <title> (<short-id>) under <path>`, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
 ## Step 1 - Infer intent
 

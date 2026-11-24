@@ -1,14 +1,15 @@
 // Orchestration-mode mod: the band above the prompt shows the progression of the graph this session
 // drives (open runs, else the focus item), in every mode; the footer names the TO modes a user sees
-// in a session of their own (director, coordinator); a desktop backdrop per mode, and toasts.
+// in a session of their own (director mode, orchestration mode with a run indicator); a desktop
+// backdrop per label, and toasts.
 // Work items 7380eb6a-7c30-4c4f-9451-2cccaa33d421 and d8999287-71c9-4b30-8b5e-cde721cdb283.
 //
 // Director mode comes from the marker file the plugin's `director-guard` hook writes for the session
 // (`<tmp>/task-orchestrator/<session>/director.json`), never from this module's own memory of a Skill
 // call, so the indicator agrees with the guard after a resume, a reload, or an `off` from any path.
-// Coordinator mode comes from this session's own `runs_write` `open` (its result carries the
-// coordinator token, which is never kept) until that run closes, or from a `coordinator.json` marker
-// beside the director one.
+// The open-run indicator on the orchestrator label comes from this session's own `runs_write` `open`
+// (its result carries the orchestrator token, which is never kept) until that run closes, or from a
+// `coordinator.json` marker beside the director one.
 //
 // The board is read on the director profile (no note-body read exists there), by the mod and not by
 // the model, so it costs no context and cannot breach the altitude rule. By default it goes over the
@@ -21,7 +22,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer, ToolCallResult } from 'claude-code'
 
-import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState, ItemFacts } from '../types'
+import type { Board, BoardRun, OrchestratorState, DirectorState, FocusBoard, FocusState, ItemFacts } from '../types'
 import type { CellStyle, FocusItem, Row } from './model.ts'
 import {
   BACKDROP_ALT,
@@ -41,9 +42,9 @@ import {
   bandWidth,
   blockerOf,
   closedRunIds,
-  coordinatorFromMarker,
-  coordinatorFromOpen,
-  coordinatorToast,
+  orchestratorFromMarker,
+  orchestratorFromOpen,
+  orchestratorToast,
   enterToast,
   fitRow,
   envelopeData,
@@ -53,6 +54,7 @@ import {
   focusProgress,
   footerLead,
   footerModes,
+  shortRunLabel,
   isDirectorSkillCall,
   itemFacts,
   line3Cells,
@@ -85,11 +87,27 @@ import {
 const PLUGIN = 'orchestration-mode'
 
 const director = atom({ plugin: 'orchestration-mode', key: 'director' } as const, null as DirectorState)
-const coordinator = atom({ plugin: 'orchestration-mode', key: 'coordinator' } as const, null as CoordinatorState)
+const orchestrator = atom({ plugin: 'orchestration-mode', key: 'orchestrator' } as const, null as OrchestratorState)
+/** The orchestrator atom's key before the rename: a hot-reloaded session may still hold its state here. Read as a fallback and cleared, never set. */
+const legacyOrchestrator = atom({ plugin: 'orchestration-mode', key: 'coordinator' } as const, null as OrchestratorState)
 const focus = atom({ plugin: 'orchestration-mode', key: 'focus' } as const, null as FocusState)
 const bandHidden = atom({ plugin: 'orchestration-mode', key: 'bandHidden' } as const, false)
 const board = atom({ plugin: 'orchestration-mode', key: 'board' } as const, null as Board)
 const watchedRuns = atom({ plugin: 'orchestration-mode', key: 'watchedRuns' } as const, [] as string[])
+
+/**
+ * The orchestrator state: the current key, else the pre-rename `coordinator` key (a hot-reloaded
+ * session may still hold its open run there). Never writes, so the footer can call it while drawing.
+ */
+async function readOrchestrator($: EngineInterface): Promise<OrchestratorState> {
+  return (await read($, orchestrator)) ?? (await read($, legacyOrchestrator))
+}
+
+/** Ends the orchestrator state under both keys, so a pre-rename value cannot come back after the run ends. */
+async function clearOrchestratorState($: EngineInterface): Promise<void> {
+  await update($, orchestrator, () => null)
+  await update($, legacyOrchestrator, () => null)
+}
 
 const enter = (): DirectorState => ({ since: new Date().toISOString() })
 const leave = (): DirectorState => null
@@ -121,16 +139,16 @@ const rewalked = new Set<string>()
  * read, so each id is walked once and a sibling stops at the first shared ancestor.
  */
 const resolvedFocus = new Map<string, FocusItem>()
-/** Failed `runs_read` `get` reads in a row of the coordinated run; at the cap the mode is cleared. */
+/** Failed `runs_read` `get` reads in a row of the orchestrated run; at the cap the mode is cleared. */
 /** Touched item id (lowercase) to that item as its walk first read it (line 3's facts until the board reads it). */
 const touchedItems = new Map<string, FocusItem>()
-let coordReadFailures = 0
-const MAX_COORD_READ_FAILURES = 3
+let orchReadFailures = 0
+const MAX_ORCH_READ_FAILURES = 3
 
 /** The roster mode names that are on, from the two mode atoms' values. */
-const modeNames = (dir: DirectorState, coord: CoordinatorState): string[] => [
+const modeNames = (dir: DirectorState, orch: OrchestratorState): string[] => [
   ...(dir !== null ? ['director'] : []),
-  ...(coord !== null ? ['coordinator'] : []),
+  ...(orch !== null ? ['orchestrator'] : []),
 ]
 
 /** This session's marker `file` path. Throws when the engine cannot say where. */
@@ -183,7 +201,7 @@ async function clearBackdrop($: EngineInterface): Promise<void> {
  * clears it even when this module instance did not set it (a reload, then a mode off).
  */
 async function syncBackdrop($: EngineInterface, turnedOff: boolean): Promise<void> {
-  const first = modesOn(modeNames(await read($, director), await read($, coordinator)))[0]
+  const first = modesOn(modeNames(await read($, director), await readOrchestrator($)))[0]
   if (first === undefined) {
     if (backdropMode !== null || turnedOff) await clearBackdrop($)
     return
@@ -250,10 +268,10 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
   }
 }
 
-/** Leaves coordinator mode: state, toast, backdrop. */
-async function clearCoordinator($: EngineInterface, label: string): Promise<void> {
-  coordReadFailures = 0
-  await update($, coordinator, () => null)
+/** Ends the open-run indicator on the orchestrator label: state, toast, backdrop. */
+async function clearOrchestrator($: EngineInterface, label: string): Promise<void> {
+  orchReadFailures = 0
+  await clearOrchestratorState($)
   $.ui.toast(runClosedToast(label))
   await syncBackdrop($, true)
 }
@@ -262,7 +280,7 @@ async function clearCoordinator($: EngineInterface, label: string): Promise<void
  * Reads the board (this session's open and paused runs with their frontiers, every run in director
  * mode; decisions waiting; and, once a TO call named an item, the focus graph) and stores it, which
  * redraws the band. Faults land in `board.error`
- * and keep the last read. Skipped while the band is off or hidden and no run is coordinated.
+ * and keep the last read. Skipped while the band is off or hidden and no run is orchestrated.
  */
 async function refreshBoard($: EngineInterface, force = false): Promise<void> {
   const now = Date.now()
@@ -274,9 +292,9 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
   refreshing = true
   lastRefreshAt = now
   try {
-    const coord = await read($, coordinator)
+    const orch = await readOrchestrator($)
     const shown = bandWanted && !(await read($, bandHidden))
-    if (!shown && coord === null) return
+    if (!shown && orch === null) return
     const [open, paused] = await Promise.all([
       directorRead($, 'runs_read', { select: 'list', status: 'open', limit: 20 }),
       directorRead($, 'runs_read', { select: 'list', status: 'paused', limit: 20 }),
@@ -287,7 +305,7 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
     const current = focusValue(await read($, focus))
     // Only this session's runs, in every mode: the board of every run is the director's to read, not the band's.
     // A run scoped to the focus is not one of them unless the session acted on it through `runs_write`.
-    const mine = sessionRuns(listedAll, { coordinatorRunId: coord?.runId, watched: (await read($, watchedRuns)) ?? [] })
+    const mine = sessionRuns(listedAll, { orchestratorRunId: orch?.runId, watched: (await read($, watchedRuns)) ?? [] })
     const runs = await Promise.all(
       mine
         .slice(0, MAX_RUN_ROWS)
@@ -300,20 +318,20 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
       const scopeItem = focusFromGet(await directorRead($, 'items_read', { select: 'get', itemId: containerId }).catch(() => undefined))
       runs[0] = { ...lead, container: scopeItem === null ? null : itemFacts(scopeItem) }
     }
-    // The coordinated run, gone from the open and paused lists: clear the mode once it reads closed,
-    // once the server says it does not exist, or after MAX_COORD_READ_FAILURES failed reads in a row.
-    if (coord !== null && coord.source === 'tool' && !listedAll.some(run => sameId(run.id, coord.runId))) {
+    // The orchestrated run, gone from the open and paused lists: clear the mode once it reads closed,
+    // once the server says it does not exist, or after MAX_ORCH_READ_FAILURES failed reads in a row.
+    if (orch !== null && orch.source === 'tool' && !listedAll.some(run => sameId(run.id, orch.runId))) {
       try {
-        const closed = runIsClosed(await directorRead($, 'runs_read', { select: 'get', runId: coord.runId }))
-        coordReadFailures = 0
-        if (closed) await clearCoordinator($, coord.label)
+        const closed = runIsClosed(await directorRead($, 'runs_read', { select: 'get', runId: orch.runId }))
+        orchReadFailures = 0
+        if (closed) await clearOrchestrator($, orch.label)
       } catch (err) {
         const notFound = err instanceof Error && err.message.startsWith('not_found')
-        coordReadFailures += 1
-        if (notFound || coordReadFailures >= MAX_COORD_READ_FAILURES) await clearCoordinator($, coord.label)
+        orchReadFailures += 1
+        if (notFound || orchReadFailures >= MAX_ORCH_READ_FAILURES) await clearOrchestrator($, orch.label)
       }
     } else {
-      coordReadFailures = 0
+      orchReadFailures = 0
     }
     const focusBoard = current !== null ? await readFocus($, current) : null
     // The stored focus is a cache of a walk; the touched item's id is the fact. A focus this load has not walked
@@ -367,7 +385,7 @@ function startTicker($: EngineInterface): void {
 
 /**
  * Brings the modes to the markers: director on or off from `director.json`, and a marker-sourced
- * coordinator from `coordinator.json`; then the backdrop, the ticker and a board refresh (a reload or
+ * orchestrator from `coordinator.json`; then the backdrop, the ticker and a board refresh (a reload or
  * resume drops the backdrop and the ticker). Idempotent; safe from any hook.
  */
 async function reconcile($: EngineInterface): Promise<void> {
@@ -385,15 +403,15 @@ async function reconcile($: EngineInterface): Promise<void> {
     turnedOff = true
   }
   const marker = await readMarker($, 'coordinator.json')
-  const coord = await read($, coordinator)
-  if (marker !== null && coord === null) {
-    const next = coordinatorFromMarker(marker, new Date().toISOString())
-    await update($, coordinator, () => next)
-    $.ui.toast(coordinatorToast(next.label))
+  const orch = await readOrchestrator($)
+  if (marker !== null && orch === null) {
+    const next = orchestratorFromMarker(marker, new Date().toISOString())
+    await update($, orchestrator, () => next)
+    $.ui.toast(orchestratorToast(next.label))
     turnedOn = true
-  } else if (marker === null && coord !== null && coord.source === 'marker') {
-    await update($, coordinator, () => null)
-    $.ui.toast(runClosedToast(coord.label))
+  } else if (marker === null && orch !== null && orch.source === 'marker') {
+    await clearOrchestratorState($)
+    $.ui.toast(runClosedToast(orch.label))
     turnedOff = true
   }
   await syncBackdrop($, turnedOff)
@@ -436,7 +454,7 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
 
 /**
  * Makes the runs a `runs_write` call opened or acted on this session's (`watchedRuns`), whoever in the
- * session made it: the session itself or one of its subagents (a background coordinator, a Workflow, a
+ * session made it: the session itself or one of its subagents (a background orchestrator, a Workflow, a
  * seat). A run seen for the first time redraws the band.
  */
 async function watchNamedRuns($: EngineInterface, tool: string, input: Record<string, unknown>, ran: ToolCallResult): Promise<void> {
@@ -453,20 +471,20 @@ async function observeCall($: EngineInterface, tool: string, input: Record<strin
   await watchNamedRuns($, tool, input, ran)
   if (toolBase(tool) === 'runs_write') {
     const envelope = toolEnvelope(ran)
-    const opened = coordinatorFromOpen(input, envelope, new Date().toISOString())
+    const opened = orchestratorFromOpen(input, envelope, new Date().toISOString())
     if (opened !== null) {
-      coordReadFailures = 0
-      await update($, coordinator, () => opened)
-      $.ui.toast(coordinatorToast(opened.label))
+      orchReadFailures = 0
+      await update($, orchestrator, () => opened)
+      $.ui.toast(orchestratorToast(opened.label))
       await syncBackdrop($, false)
       await refreshBoard($, true)
       return
     }
-    // Only a coordinator this session's own open made: a marker-sourced one follows its marker,
+    // Only an orchestrator this session's own open made: a marker-sourced one follows its marker,
     // which reconcile would read back on at turn end.
-    const coord = await read($, coordinator)
-    if (coord !== null && coord.source === 'tool' && closedRunIds(input, envelope).some(id => sameId(id, coord.runId))) {
-      await clearCoordinator($, coord.label)
+    const orch = await readOrchestrator($)
+    if (orch !== null && orch.source === 'tool' && closedRunIds(input, envelope).some(id => sameId(id, orch.runId))) {
+      await clearOrchestrator($, orch.label)
       await refreshBoard($, true)
     }
     return
@@ -482,7 +500,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   lastRefreshAt = 0
   ticker = null
   backdropMode = null
-  coordReadFailures = 0
+  orchReadFailures = 0
   resolvedFocus.clear()
   touchedItems.clear()
   backdropWanted = options.backdrop !== false
@@ -528,10 +546,10 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     return result
   })
 
-  // TO calls on either server. This session's own: a `runs_write` open or close moves coordinator
-  // mode, the item a write or an item read touched moves the focus, and a run it names becomes its
+  // TO calls on either server. This session's own: a `runs_write` open or close moves the open-run
+  // indicator, the item a write or an item read touched moves the focus, and a run it names becomes its
   // own. A subagent's call (it carries an agent id) only makes the runs it names this session's (a
-  // background coordinator or a Workflow it dispatched); it never moves the mode or the focus.
+  // background orchestrator or a Workflow it dispatched); it never moves the indicator or the focus.
   on(
     'tool.call',
     {
@@ -573,7 +591,8 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   // the baseline matches the neighbours. Reading the atoms here subscribes the footer, so a mode
   // change redraws it.
   on('ui.render', { component: 'SessionMode' }, async ($, e) => {
-    const modes = footerModes(modeNames(await read($, director), await read($, coordinator)))
+    const orch = await readOrchestrator($)
+    const modes = footerModes(modeNames(await read($, director), orch), orch === null ? '' : shortRunLabel(orch.label))
     const { Box, Text } = $.ui.resolve(e)
     const lead = footerLead(e.props.modes)
 
@@ -681,7 +700,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   })
 
   // The desktop backdrop this plugin set for director mode: an amber gradient with a faint DIRECTOR
-  // watermark. The coordinator backdrop is its glass alone.
+  // watermark. The orchestrator backdrop is its glass alone.
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
     if (e.props.plugin !== PLUGIN || e.props.id !== 'director') return next(e)
     if (e.surface !== 'desktop') return next(e)
