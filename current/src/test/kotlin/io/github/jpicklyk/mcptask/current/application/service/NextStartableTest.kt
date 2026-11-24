@@ -209,6 +209,17 @@ class NextStartableTest {
             assertNull(rig.get(plan).claimedBy)
         }
 
+    @Test
+    fun `T5 claim select skips a builds false leaf without includeParents`(): Unit =
+        irApp(db.db, dir, yaml = STARTABLE_YAML) { rig ->
+            val plan = rig.svc("Plan", type = "plan-only")
+
+            val element = rig.claimSelect(""""type":"plan-only"""")
+
+            assertEquals(false, element.flag("claimed"), "$element")
+            assertNull(rig.get(plan).claimedBy)
+        }
+
     // ------------------------------------------------------------------ T8 pinned before the push
 
     @Test
@@ -230,6 +241,27 @@ class NextStartableTest {
             assertTrue(repinned.repinned, "the pin differs in builds, so repin writes")
             assertEquals(false, rig.get(plan).pin?.builds)
             assertEquals(emptyList(), select("""{"select":"next","limit":200}""").items.titles())
+        }
+
+    @Test
+    fun `T8 repin of an item pinned before V38 whose schema builds answers repinned false and writes no item pinned row`(): Unit =
+        irApp(db.db, dir, yaml = STARTABLE_YAML) { rig ->
+            val build = rig.svc("Build")
+            val pin = checkNotNull(rig.get(build).pin) { "fixture: the item is pinned" }
+            assertEquals(true, pin.builds, "fixture: the schema builds")
+            // A pin taken before V38 carries no builds value; the config is unchanged since.
+            rig.raw.workItemRepository().update(rig.get(build).copy(pin = pin.copy(builds = null)))
+
+            val (repinned, rows) =
+                rig.written {
+                    rig.ctx.itemCommandService
+                        .repin(build.id, null)
+                        .orFail()
+                }
+
+            assertFalse(repinned.repinned, "NULL builds equals the default, so the pin is unchanged")
+            assertTrue(rows.none { it.type == "item.pinned" }, "no item.pinned row: ${rows.map { it.type }}")
+            assertNull(rig.get(build).pin?.builds, "the stored pin is left as it was")
         }
 
     // ------------------------------------------------------------------ T9-T10 claim select and empty answers

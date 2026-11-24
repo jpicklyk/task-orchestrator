@@ -121,7 +121,10 @@ class SchemaPinService(
     }
 
     companion object {
-        /** True when [a] and [b] pin the same versions, base schema, lifecycle and builds (the pin instant is ignored). */
+        /**
+         * True when [a] and [b] pin the same versions, base schema, lifecycle and builds (the pin instant is ignored). A null
+         * builds (a pin taken before V38) reads as true, so it equals a pin whose resolved builds is the default.
+         */
         fun samePin(
             a: SchemaPin?,
             b: SchemaPin?
@@ -131,7 +134,7 @@ class SchemaPinService(
                 a?.schemaKey == b?.schemaKey &&
                 a?.schemaLayer == b?.schemaLayer &&
                 a?.lifecycle == b?.lifecycle &&
-                a?.builds == b?.builds &&
+                (a?.builds ?: true) == (b?.builds ?: true) &&
                 (a == null) == (b == null)
 
         /**

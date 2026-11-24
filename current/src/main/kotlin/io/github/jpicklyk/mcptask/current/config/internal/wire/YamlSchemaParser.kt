@@ -581,7 +581,7 @@ internal object YamlSchemaParser {
      * Parses each trait's optional `builds` boolean into a trait-name to value map. A trait that does not set it is
      * absent from the result; a non-boolean value (including YAML null) is a soft finding and is ignored.
      */
-    @Suppress("UNCHECKED_CAST")
+    @Suppress("UNCHECKED_CAST") // SnakeYAML mapping nodes are untyped String-keyed maps; erasure leaves the cast unchecked
     private fun parseTraitBuilds(
         root: Map<String, Any>,
         warnings: ParseFindings

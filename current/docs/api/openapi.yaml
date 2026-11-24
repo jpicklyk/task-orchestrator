@@ -171,6 +171,10 @@ components:
         appliesWhen:
           type: string
           description: The trait's declared applies_when text. Omitted when the trait declares none. Never evaluated by the server.
+        builds:
+          type: boolean
+          enum: [false]
+          description: Present (false) only when the trait sets builds false; omitted otherwise.
 
     EffectiveSchemaDto:
       type: object
@@ -207,6 +211,10 @@ components:
           type: array
           items:
             type: string
+        builds:
+          type: boolean
+          enum: [false]
+          description: Present (false) only when the schema sets builds false; omitted when the schema builds.
 
     EffectiveConfigDto:
       type: object

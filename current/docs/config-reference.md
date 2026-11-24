@@ -149,7 +149,8 @@ name as a whole, so a per-root trait that omits them serves neither.
 plan or a design item. In the `queue` role, `items_read` `next` and an `advance` `claim` select skip them, with or
 without `includeParents`; a claim by `itemId` still claims them, and the other roles are unaffected. An item builds unless
 its schema or any of its traits (item traits, then `default_traits`) sets `builds: false`: false wins, and `builds: true`
-changes nothing. A trait that carries only `builds: false` still applies. A per-root trait entry replaces the server's
+changes nothing. A trait that carries only `builds: false` still applies. A schema-free item (a type no schema resolves)
+always builds: its traits' `builds` is not read. A per-root trait entry replaces the server's
 entry whole, so a per-root trait that omits `builds` leaves it unset. A non-boolean value is a parser finding and is
 ignored. The value is part of the item's [schema pin](#schema-pins): a later push changes it only when the item re-pins
 (`repin`), and an item pinned before the flag was stored builds until it re-pins. `config` `effective` shows `builds: false` on a schema or
@@ -352,7 +353,8 @@ unknown `project.rootId` fails startup. An absent, empty or comment-only file im
 Every config version is immutable, so an item can resolve against the exact versions it started under. Each item is
 **pinned**: it records the server config version and its root's config version that were the heads when the pin was
 taken (none for a scope with no config or a reset head), the base schema its type resolved to under them (the schema
-key and whether the server or the root layer declared it; none when schema-free) and that schema's `lifecycle`.
+key and whether the server or the root layer declared it; none when schema-free), that schema's `lifecycle`, and its
+[`builds`](#schema-and-trait-builds) merged with the item's traits (none when schema-free).
 
 **What a pin governs.** A pinned item's schema (notes and gates), trait merge, seats, dispatch and resource
 requirements come from its pinned versions and its pinned base schema, so a later push, rollback or reset of either
