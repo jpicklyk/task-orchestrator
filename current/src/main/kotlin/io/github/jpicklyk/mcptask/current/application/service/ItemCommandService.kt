@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
+import io.github.jpicklyk.mcptask.current.dependency.dependencyRemovedEvent
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
@@ -38,7 +39,6 @@ import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.dependencyRemovedEvent
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.itemChangedFields
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite

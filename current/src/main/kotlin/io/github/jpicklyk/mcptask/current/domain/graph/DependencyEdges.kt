@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.model.dependency.RelatesEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.util.UUID
 

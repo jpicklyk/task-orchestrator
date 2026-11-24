@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.api.deps
+package io.github.jpicklyk.mcptask.current.dependency
 
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.platform.request.Doc

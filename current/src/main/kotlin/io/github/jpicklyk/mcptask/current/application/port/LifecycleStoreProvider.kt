@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.claim.ClaimStore
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.model.run.Run

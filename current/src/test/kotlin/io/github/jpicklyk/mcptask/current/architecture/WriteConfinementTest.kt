@@ -77,10 +77,10 @@ internal class WriteConfinementTest {
         const val CLAIM_SERVICE = "claim/ClaimService.kt"
 
         /** Port files that sit in a slice's top package instead of [PORT_DIR] (a port leaves `application/port/` with its slice). */
-        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt", "claim/LeaseStore.kt")
+        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt", "claim/LeaseStore.kt", "dependency/DependencyStore.kt")
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
-        private val STORE_OWNER_FILES = setOf(CLAIM_SERVICE)
+        private val STORE_OWNER_FILES = setOf(CLAIM_SERVICE, "dependency/DependencyCommandService.kt")
 
         private val STORE_OWNER_DIRS = listOf("application/service/", "application/knowledge/")
         private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/", "infrastructure/sqlite/knowledge/")
@@ -839,6 +839,9 @@ internal class WriteConfinementTest {
             "claim/ClaimStore.kt",
             "claim/internal/sqlite/SqliteClaimStore.kt",
             "claim/internal/sqlite/nested/Deep.kt",
+            "dependency/DependencyStore.kt",
+            "dependency/DependencyCommandService.kt",
+            "dependency/internal/sqlite/SQLiteDependencyRepository.kt",
             "application\\service\\X.kt"
         ).forEach { assertTrue(storeWriteAllowed(it), "StoreWrite must be allowed in: $it") }
         listOf(
@@ -851,6 +854,9 @@ internal class WriteConfinementTest {
             "application/knowledgebase/A.kt",
             "infrastructure/sqlite/repositoryx/A.kt",
             "claim/Other.kt",
+            "dependency/Other.kt",
+            "dependency/internal/wire/DepsCreateOps.kt",
+            "dependency/DependencyCommandServiceHelper.kt",
             "claim/internal/app/A.kt",
             "claim/internal/wire/A.kt",
             "claim/internal/sqlitex/A.kt",
@@ -891,6 +897,13 @@ internal class WriteConfinementTest {
         assertEquals(1, markerViolations("application/service/AdvanceService.kt", claimOptIn), "ClaimWrite outside ClaimService")
         assertEquals(0, markerViolations(CLAIM_SERVICE, "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"), "ClaimService owns both")
         assertEquals(0, markerViolations("application/service/X.kt", "@OptIn(StoreWrite::class)\nclass A"), "services own StoreWrite")
+        val storeOptIn = "@OptIn(StoreWrite::class)\nclass A"
+        assertEquals(
+            0,
+            markerViolations("dependency/DependencyCommandService.kt", storeOptIn),
+            "the dependency command service owns StoreWrite"
+        )
+        assertEquals(1, markerViolations("dependency/Other.kt", storeOptIn), "StoreWrite opt-in elsewhere in the dependency slice")
     }
 
     @Test
@@ -957,6 +970,16 @@ internal class WriteConfinementTest {
             "application/knowledge/link/LinkService.kt"
         ).forEach { assertEquals(0, optInViolations(it, "@file:OptIn(StoreWrite::class)\npackage x"), "StoreWrite owner: $it") }
         assertEquals(0, optInViolations(CLAIM_SERVICE, bothOptIn), "ClaimService owns both")
+        assertEquals(
+            0,
+            optInViolations("dependency/DependencyCommandService.kt", "@file:OptIn(StoreWrite::class)\npackage x"),
+            "owner file"
+        )
+        assertEquals(
+            1,
+            optInViolations("dependency/Other.kt", "@file:OptIn(StoreWrite::class)\npackage x"),
+            "a dependency slice file is no owner"
+        )
         assertEquals(1, optInViolations("application/knowledge/link/LinkService.kt", claimOptIn), "knowledge: no claim")
 
         // lexer conventions: comments and strings are not opt-ins; unrelated opt-ins are fine

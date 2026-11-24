@@ -1,9 +1,7 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency
 
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
 /** The services `deps_read` and `deps_write` take as `env`. Building the holder touches no store. */

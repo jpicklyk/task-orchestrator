@@ -1,11 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.dependency.DependencyTools
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.configTool
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps.depsReadTool
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps.depsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs.docsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs.docsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
@@ -140,8 +139,8 @@ fun buildToolSpecs(): List<ToolSpec> =
         itemsWriteTool(),
         notesReadTool,
         notesWriteTool,
-        depsReadTool(),
-        depsWriteTool(),
+        DependencyTools.read(),
+        DependencyTools.write(),
         advanceTool(),
         ItemsReadTool.spec,
         docsReadTool(),

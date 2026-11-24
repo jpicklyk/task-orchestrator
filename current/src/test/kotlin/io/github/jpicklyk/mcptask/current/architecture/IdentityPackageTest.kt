@@ -297,7 +297,14 @@ class IdentityPackageTest {
      * that left it with their slice (a file path: the guard follows each service to its slice path, it never shrinks).
      */
     private val serviceNodePaths =
-        listOf("application/service/", "platform/eventrecording/", "platform/idempotency/", "claim/ClaimService.kt", "claim/FenceGuard.kt")
+        listOf(
+            "application/service/",
+            "platform/eventrecording/",
+            "platform/idempotency/",
+            "claim/ClaimService.kt",
+            "claim/FenceGuard.kt",
+            "dependency/DependencyCommandService.kt"
+        )
 
     private fun isServiceNode(path: String): Boolean = serviceNodePaths.any { GuardSupport.normalizedPath(path).startsWith(it) }
 
@@ -340,7 +347,9 @@ class IdentityPackageTest {
                 synthetic("application/service/J.kt", "import $request.Doc"),
                 synthetic("claim/ClaimService.kt", "import $api.ActorAware"),
                 synthetic("claim/FenceGuard.kt", "val p = $call.Principal"),
-                synthetic("claim/ClaimStore.kt", "import $api.ActorAware")
+                synthetic("claim/ClaimStore.kt", "import $api.ActorAware"),
+                synthetic("dependency/DependencyCommandService.kt", "import $api.ActorAware"),
+                synthetic("dependency/DependencyStore.kt", "import $api.ActorAware")
             )
         assertEquals(
             setOf(
@@ -351,7 +360,8 @@ class IdentityPackageTest {
                 "platform/idempotency/H.kt",
                 "application/service/J.kt",
                 "claim/ClaimService.kt",
-                "claim/FenceGuard.kt"
+                "claim/FenceGuard.kt",
+                "dependency/DependencyCommandService.kt"
             ),
             serviceImportingApi(seeded).toSet()
         )

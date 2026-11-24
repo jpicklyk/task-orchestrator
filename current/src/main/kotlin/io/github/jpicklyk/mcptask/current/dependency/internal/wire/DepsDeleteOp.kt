@@ -1,7 +1,8 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsDeleteRequest
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
+import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
+import io.github.jpicklyk.mcptask.current.dependency.DepsDeleteRequest
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind

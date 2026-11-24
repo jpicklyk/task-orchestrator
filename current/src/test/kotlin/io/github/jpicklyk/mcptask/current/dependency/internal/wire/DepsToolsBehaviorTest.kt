@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry

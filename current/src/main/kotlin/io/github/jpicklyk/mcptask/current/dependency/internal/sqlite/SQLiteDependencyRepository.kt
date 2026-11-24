@@ -1,8 +1,8 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.dependency.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DuplicateDependencyException

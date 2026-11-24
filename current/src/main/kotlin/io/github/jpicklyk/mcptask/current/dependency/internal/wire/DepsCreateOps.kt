@@ -1,13 +1,14 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsCreateRequest
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanInRequest
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanOutRequest
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
-import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.dependency.DepType
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
+import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
+import io.github.jpicklyk.mcptask.current.dependency.DepsCreateRequest
+import io.github.jpicklyk.mcptask.current.dependency.DepsFanInRequest
+import io.github.jpicklyk.mcptask.current.dependency.DepsFanOutRequest
+import io.github.jpicklyk.mcptask.current.dependency.DepsLinearRequest
+import io.github.jpicklyk.mcptask.current.dependency.UnblockAt
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

@@ -1,6 +1,7 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsGraphRequest
+import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
+import io.github.jpicklyk.mcptask.current.dependency.DepsGraphRequest
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency

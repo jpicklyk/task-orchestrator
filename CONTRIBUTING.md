@@ -152,7 +152,7 @@ Fixes #53
 - Follow the layer model — domain and model (the shared model) → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
-- A tool is a `ToolSpec` of selects or ops registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`); its request classes live in `application/api/<area>/`
+- A tool is a `ToolSpec` of selects or ops registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`); its request classes live in `application/api/<area>/` (a slice that has moved keeps its requests in `<slice>/` and its selects and ops in `<slice>/internal/wire/`, contributed to the registry through `<Slice>Tools`, for example `DependencyTools`)
 - Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), and
   `PackageCycleTest` keeps the `application/<sub>` packages acyclic. Both check against two-way-ratcheted
   baselines under `current/src/test/resources/architecture/` (`layering-baseline.txt`,
@@ -165,7 +165,7 @@ See the `add-component` skill (`.claude/skills/add-component/SKILL.md`) for the 
 
 **Summary**:
 - [ ] Write the request class with `@Doc` on every field (`current/src/main/kotlin/.../application/api/<area>/`)
-- [ ] Add one select/op file with its name, `doc`, profile, capability and `errors` (`interfaces/shared/tools/<area>/`, or `interfaces/mcp/tools/<area>/` for the `notes` and `advance` tools)
+- [ ] Add one select/op file with its name, `doc`, profile, capability and `errors` (`interfaces/shared/tools/<area>/`, or `interfaces/mcp/tools/<area>/` for the `notes` and `advance` tools; a moved slice as stated above)
 - [ ] Return `Outcome` values from the handler (domain errors, never exceptions, for expected failures)
 - [ ] Register the select/op in its tool, and a new tool in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`)
 - [ ] Run `./gradlew :current:regenerateToolGoldens` and `./gradlew :current:regenerateApiReference`, and commit both outputs

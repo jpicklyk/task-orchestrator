@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
+import io.github.jpicklyk.mcptask.current.model.dependency.RelatesEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import kotlin.test.Test
 import kotlin.test.assertEquals

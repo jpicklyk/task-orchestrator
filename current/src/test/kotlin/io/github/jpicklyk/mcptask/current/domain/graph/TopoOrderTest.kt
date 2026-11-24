@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals

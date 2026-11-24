@@ -1,7 +1,8 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
+package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepDirection
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepsListRequest
+import io.github.jpicklyk.mcptask.current.dependency.DepDirection
+import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
+import io.github.jpicklyk.mcptask.current.dependency.DepsListRequest
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

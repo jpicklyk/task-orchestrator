@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.eventrecording
 
 import io.github.jpicklyk.mcptask.current.application.port.NoteRef
-import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -59,19 +58,6 @@ internal fun noteDeletedEvent(
     root: UUID,
     cause: DeleteCause
 ): DomainEvent = DomainEvent.NoteDeleted(ref.id, root, ref.itemId, ref.key, ref.role, cause)
-
-/** `dependency.added` for [dep] under [root] (the from item's root). */
-internal fun dependencyAddedEvent(
-    dep: Dependency,
-    root: UUID
-): DomainEvent = DomainEvent.DependencyAdded(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt)
-
-/** `dependency.removed` for [dep] under [root]. */
-internal fun dependencyRemovedEvent(
-    dep: Dependency,
-    root: UUID,
-    cause: DeleteCause
-): DomainEvent = DomainEvent.DependencyRemoved(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt, cause)
 
 /**
  * The item fields whose change an `item.updated` row reports (bookkeeping fields excluded: version, timestamps).

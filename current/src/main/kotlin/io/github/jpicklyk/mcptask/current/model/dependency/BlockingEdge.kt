@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.graph
+package io.github.jpicklyk.mcptask.current.model.dependency
 
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.util.UUID

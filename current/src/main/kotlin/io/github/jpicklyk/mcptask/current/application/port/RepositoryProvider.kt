@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.claim.ClaimItems
 import io.github.jpicklyk.mcptask.current.claim.ClaimStore
 import io.github.jpicklyk.mcptask.current.claim.ClaimStoreProvider
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
