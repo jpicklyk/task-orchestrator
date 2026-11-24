@@ -24,6 +24,17 @@ package io.github.jpicklyk.mcptask.current.architecture
  * `platform` folder that counts as `infrastructure` or `interfaces`; `infrastructure` forbids those that count as
  * `interfaces`.
  *
+ * Slices (the slice-first layout of plans/application-package-reorg.md): a path whose first folder is not a legacy layer or
+ * a shared area ([GuardSupport.RESERVED_FIRST_SEGMENTS]) is a slice `<s>/`. `<s>/F.kt` is [SLICE_TOP], what another slice or
+ * the platform names; `<s>/internal/{domain,app,sqlite,wire}/..` counts as `domain`, `application`, `infrastructure` and
+ * `interfaces` respectively; any other path under `<s>/` is itself a violation (slice shape), like a `platform/` folder with no
+ * row. A reference to `<root>.<s>.internal.<l>..` takes the layer of `<l>` and `<root>.<s>.X` is slice-top (only for a slice
+ * `<s>` in the `slices` set the caller passes, the first folders of the production files, so a look-alike package such as
+ * `applicationx` is no slice); so the layer rules
+ * above also hold between a slice and the legacy layers: `model` and `domain` forbid slice-top and every slice layer,
+ * `application` forbids slice `infrastructure` and `interfaces`, `infrastructure` forbids slice `interfaces`, and slice-top
+ * forbids only `bootstrap` and the transports.
+ *
  * A rule is broken by an import or by a fully-qualified reference on a CODE line (an FQN needs no import). Comment lines
  * (trimmed lines starting with a line-comment marker, a block-comment opener or an asterisk, which covers KDoc bodies) are not code and are skipped.
  */
@@ -61,6 +72,23 @@ object LayeringRules {
         )
     private val TRANSPORTS = listOf("io.modelcontextprotocol", "io.ktor")
 
+    /** The layer of a slice's top package: what another slice or the platform names. */
+    const val SLICE_TOP = "slice-top"
+
+    /** The layer folders allowed under `<s>/internal/` and the layer each counts as. */
+    private val SLICE_INTERNAL_LAYER =
+        mapOf("domain" to "domain", "app" to "application", "sqlite" to "infrastructure", "wire" to "interfaces")
+
+    /** The layers of another slice that a file of each layer must not reach (see the class KDoc). */
+    private val FORBIDDEN_SLICE_LAYERS =
+        mapOf(
+            "domain" to setOf(SLICE_TOP, "application", "infrastructure", "interfaces"),
+            "model" to setOf(SLICE_TOP, "application", "infrastructure", "interfaces"),
+            "application" to setOf("infrastructure", "interfaces"),
+            "infrastructure" to setOf("interfaces")
+        )
+    private val SLICE_FQN = Regex("(?<![A-Za-z0-9_.])" + Regex.escape("$CURRENT_ROOT.") + "([a-z][A-Za-z0-9_]*)((?:\\.[A-Za-z0-9_]+)+)")
+
     /** One forbidden dependency: the file [path] (relative to the `current/` source root) reaches [importedFqName]. */
     data class Violation(
         val path: String,
@@ -92,12 +120,37 @@ object LayeringRules {
         return if (parts.size > 2) parts[1] else ""
     }
 
-    /** The layer a file at [path] belongs to: its first folder, or for `platform/<folder>/` the layer its folder row names. */
+    /** The layer of a slice file at [path]: [SLICE_TOP], the layer of its `internal/<l>/` folder, or null for a path of no valid slice shape. */
+    private fun sliceLayerOf(path: String): String? {
+        val parts = path.split('/')
+        return when {
+            parts.size == 2 -> SLICE_TOP
+            parts.size >= 4 && parts[1] == "internal" -> SLICE_INTERNAL_LAYER[parts[2]]
+            else -> null
+        }
+    }
+
+    /**
+     * The layer of the slice class [fqn] names, or null when it names no slice. `<root>.<s>.internal.<l>.X` takes the layer
+     * of `<l>`; any other `<root>.<s>.X` is [SLICE_TOP]. `<s>` must be in [slices] and be followed by a segment.
+     */
+    private fun sliceLayerOfFqn(
+        fqn: String,
+        slices: Set<String>
+    ): String? {
+        if (!fqn.startsWith("$CURRENT_ROOT.")) return null
+        val parts = fqn.removePrefix("$CURRENT_ROOT.").split('.')
+        if (parts.size < 2 || parts[0] !in slices) return null
+        return if (parts[1] == "internal" && parts.size >= 4) SLICE_INTERNAL_LAYER[parts[2]] ?: SLICE_TOP else SLICE_TOP
+    }
+
+    /** The layer a file at [path] belongs to: a slice's top or internal layer, its first folder, or for `platform/<folder>/` the layer its folder row names. */
     fun layerOf(
         path: String,
         folderLayer: Map<String, String> = PLATFORM_FOLDER_LAYER
     ): String? {
         val p = path.replace('\\', '/')
+        if (GuardSupport.sliceOf(p) != null) return sliceLayerOf(p)
         val platformFolder = platformFolderOf(p)
         return if (platformFolder != null) folderLayer[platformFolder] else p.substringBefore('/', "")
     }
@@ -117,6 +170,7 @@ object LayeringRules {
                     platformFoldersCountingAs(folderLayer, "infrastructure", "interfaces") + TRANSPORTS
             "infrastructure" -> listOf(INTERFACES, BOOTSTRAP) + platformFoldersCountingAs(folderLayer, "interfaces")
             "interfaces" -> listOf(BOOTSTRAP)
+            SLICE_TOP -> listOf(BOOTSTRAP) + TRANSPORTS
             else -> emptyList()
         }
 
@@ -129,20 +183,34 @@ object LayeringRules {
             !trimmed.startsWith("*")
     }
 
-    /** Every violation of R1-R5 in one file: its [imports] (FQ names) and the FQN references on the code lines of [text]. */
+    /**
+     * Every violation of R1-R5 in one file: its [imports] (FQ names) and the FQN references on the code lines of [text].
+     * [slices] are the slices of the tree (the first folders of its production files); a reference names a slice only if its
+     * first segment is in it.
+     */
     fun violations(
         path: String,
         imports: List<String>,
-        text: String
+        text: String,
+        slices: Set<String> = emptySet()
     ): List<Violation> {
         val forbidden = forbiddenPrefixesFor(path)
+        val forbiddenSlice = FORBIDDEN_SLICE_LAYERS[layerOf(path)].orEmpty()
         val found = mutableListOf<Violation>()
         platformFolderOf(path)?.let { folder ->
             if (folder !in PLATFORM_FOLDER_LAYER) found += Violation(path, "$PLATFORM.${folder.ifEmpty { "<root>" }} has no layer row")
         }
-        if (forbidden.isEmpty()) return found
+        GuardSupport.sliceOf(path)?.let { slice ->
+            if (layerOf(path) == null) {
+                found +=
+                    Violation(path, "$CURRENT_ROOT.$slice has no valid slice shape (<s>/F.kt or <s>/internal/{domain,app,sqlite,wire}/..)")
+            }
+        }
+        if (forbidden.isEmpty() && forbiddenSlice.isEmpty()) return found
         imports.forEach { name ->
-            if (forbidden.any { name == it || name.startsWith("$it.") }) found += Violation(path, name)
+            if (forbidden.any { name == it || name.startsWith("$it.") } || sliceLayerOfFqn(name, slices) in forbiddenSlice) {
+                found += Violation(path, name)
+            }
         }
         text.lineSequence().filter { isCodeLine(it) && !it.trim().startsWith("import ") }.forEach { line ->
             forbidden.forEach { prefix ->
@@ -150,6 +218,11 @@ object LayeringRules {
                     Regex("(?<![A-Za-z0-9_.])" + Regex.escape(prefix) + "(\\.[A-Za-z0-9_]+)+").findAll(line).forEach { match ->
                         found += Violation(path, match.value)
                     }
+                }
+            }
+            if (forbiddenSlice.isNotEmpty() && line.contains(CURRENT_ROOT)) {
+                SLICE_FQN.findAll(line).forEach { match ->
+                    if (sliceLayerOfFqn(match.value, slices) in forbiddenSlice) found += Violation(path, match.value)
                 }
             }
         }

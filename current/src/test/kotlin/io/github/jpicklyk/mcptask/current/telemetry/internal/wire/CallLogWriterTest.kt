@@ -1,7 +1,7 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.telemetry
+package io.github.jpicklyk.mcptask.current.telemetry.internal.wire
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.github.jpicklyk.mcptask.current.test.RecordingCallLogStore
@@ -411,8 +411,10 @@ class CallLogWriterTest {
                 java.util.concurrent.atomic
                     .AtomicInteger(0)
             val hangingStore =
-                object : io.github.jpicklyk.mcptask.current.application.port.CallLogStore {
-                    override suspend fun append(records: List<io.github.jpicklyk.mcptask.current.application.port.CallLogRecord>): Int {
+                object : io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore {
+                    override suspend fun append(
+                        records: List<io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord>
+                    ): Int {
                         entered.incrementAndGet()
                         inFlight.set(true)
                         try {

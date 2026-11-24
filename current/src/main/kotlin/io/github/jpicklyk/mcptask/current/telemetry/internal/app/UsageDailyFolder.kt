@@ -1,29 +1,16 @@
-package io.github.jpicklyk.mcptask.current.infrastructure
+package io.github.jpicklyk.mcptask.current.telemetry.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
-import io.github.jpicklyk.mcptask.current.application.port.TelemetryStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.port.CallLogFold
+import io.github.jpicklyk.mcptask.current.platform.port.FoldPass
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.UsageFoldException
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.telemetry.TelemetryStoreProvider
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-
-/** What one [UsageDailyFolder.foldOnce] pass did: [days] folded, [groups] summary rows they hold, the watermark after it, and whether it stopped at the day cap. */
-data class FoldPass(
-    val days: Int,
-    val groups: Int,
-    val foldedThrough: LocalDate?,
-    val capped: Boolean
-)
-
-/** A fold write unit failed on [day]; [days] earlier days of the pass were folded. [cause] is the original failure. */
-class UsageFoldException(
-    val day: LocalDate,
-    val days: Int,
-    cause: Throwable
-) : RuntimeException("usage fold failed on UTC day $day", cause)
 
 /**
  * Folds completed UTC days of `call_log` into `usage_daily` (R13) and answers the fold watermark to the retention pruner.
@@ -38,7 +25,7 @@ class UsageDailyFolder(
     private val unitOfWork: UnitOfWork<TelemetryStoreProvider>,
     private val grace: Duration = Duration.ofHours(1),
     private val maxDaysPerPass: Int = 400
-) : CallLogFoldWatermark {
+) : CallLogFold {
     init {
         require(maxDaysPerPass > 0) { "maxDaysPerPass must be positive: $maxDaysPerPass" }
         require(!grace.isNegative) { "grace must not be negative: $grace" }
@@ -51,7 +38,7 @@ class UsageDailyFolder(
     )
 
     /** Folds the pending completed days, one write unit each. A failed unit is thrown (earlier days stay folded). */
-    suspend fun foldOnce(): FoldPass {
+    override suspend fun foldOnce(): FoldPass {
         val plan =
             unitOfWork.read {
                 val store = stores.usageDailyStore()

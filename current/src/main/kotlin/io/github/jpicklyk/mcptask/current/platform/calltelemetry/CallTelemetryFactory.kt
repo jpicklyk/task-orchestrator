@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.calltelemetry
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-
 /** The one place a [CallTelemetry] is built, so every transport derives `host` the same way. Takes plain strings. */
 object CallTelemetryFactory {
     /** MCP call: host is the normalized `clientInfo.name` of the session, null when unknown or blank. */

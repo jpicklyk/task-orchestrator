@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.rest.correlation
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.github.jpicklyk.mcptask.current.platform.call.auditClaim
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogFields
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId

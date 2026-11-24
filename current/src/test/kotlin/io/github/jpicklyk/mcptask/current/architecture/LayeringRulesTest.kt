@@ -11,15 +11,18 @@ import kotlin.test.assertTrue
 class LayeringRulesTest {
     private val root = LayeringRules.CURRENT_ROOT
 
+    /** The slices of the synthetic tree; a look-alike such as `applicationx` is deliberately not one. */
+    private val slices = setOf("telemetry")
+
     private fun imports(
         path: String,
         vararg names: String
-    ) = LayeringRules.violations(path, names.toList(), "").map { it.importedFqName }
+    ) = LayeringRules.violations(path, names.toList(), "", slices).map { it.importedFqName }
 
     private fun code(
         path: String,
         text: String
-    ) = LayeringRules.violations(path, emptyList(), text).map { it.importedFqName }
+    ) = LayeringRules.violations(path, emptyList(), text, slices).map { it.importedFqName }
 
     // ------------------------------------------------------------------ S1 R4 by import
 
@@ -188,6 +191,156 @@ class LayeringRulesTest {
         assertEquals(listOf("$root.platform.unknown has no layer row"), imports("platform/unknown/A.kt"))
         assertEquals(listOf("$root.platform.<root> has no layer row"), imports("platform/A.kt"))
         assertEquals(emptyList(), imports("platform/sqlite/A.kt"), "a mapped folder is not itself a violation")
+    }
+
+    // ------------------------------------------------------------------ S4c slices
+
+    @Test
+    fun `S4c a slice file takes slice-top or the layer of its internal folder`() {
+        assertEquals(LayeringRules.SLICE_TOP, LayeringRules.layerOf("telemetry/A.kt"))
+        assertEquals("domain", LayeringRules.layerOf("telemetry/internal/domain/A.kt"))
+        assertEquals("application", LayeringRules.layerOf("telemetry/internal/app/A.kt"))
+        assertEquals("application", LayeringRules.layerOf("telemetry/internal/app/sub/A.kt"), "an old sub-package stays a sub-folder")
+        assertEquals("infrastructure", LayeringRules.layerOf("telemetry/internal/sqlite/A.kt"))
+        assertEquals("interfaces", LayeringRules.layerOf("telemetry/internal/wire/A.kt"))
+    }
+
+    @Test
+    fun `S4c a path under a slice that is neither top nor an internal layer folder is a shape violation`() {
+        val shape = "has no valid slice shape (<s>/F.kt or <s>/internal/{domain,app,sqlite,wire}/..)"
+        listOf(
+            "telemetry/internal/A.kt",
+            "telemetry/internal/other/A.kt",
+            "telemetry/internal/sqlitex/A.kt",
+            "telemetry/sub/A.kt",
+            "telemetry/app/A.kt",
+            "telemetry/sqlite/A.kt"
+        ).forEach { path ->
+            assertEquals(listOf("$root.telemetry $shape"), imports(path), path)
+            assertEquals(null, LayeringRules.layerOf(path), path)
+        }
+        assertEquals(emptyList(), imports("telemetry/A.kt"))
+        assertEquals(emptyList(), imports("telemetry/internal/wire/A.kt"))
+    }
+
+    @Test
+    fun `S4c server and the legacy layers are not slices`() {
+        assertEquals(null, GuardSupport.sliceOf("server/A.kt"))
+        assertEquals(null, GuardSupport.sliceOf("CurrentMain.kt"))
+        assertEquals("server", LayeringRules.layerOf("server/A.kt"))
+        assertEquals(emptyList(), imports("server/A.kt", "$root.telemetry.internal.sqlite.X", "io.ktor.server.X"))
+        listOf("domain", "application", "infrastructure", "interfaces", "bootstrap", "model", "platform", "server").forEach {
+            assertEquals(null, GuardSupport.sliceOf("$it/x/A.kt"), it)
+        }
+        assertEquals("telemetry", GuardSupport.sliceOf("telemetry/A.kt"))
+    }
+
+    @Test
+    fun `S4c model and domain forbid slice-top and every slice layer but not a slice domain`() {
+        val top = "$root.telemetry.TelemetryStoreProvider"
+        val app = "$root.telemetry.internal.app.CallLogStore"
+        val sqlite = "$root.telemetry.internal.sqlite.SqliteCallLogStore"
+        val wire = "$root.telemetry.internal.wire.CallLogWriter"
+        val domain = "$root.telemetry.internal.domain.Rule"
+        listOf("model/item/A.kt", "domain/lifecycle/A.kt").forEach { path ->
+            assertEquals(listOf(top, app, sqlite, wire), imports(path, top, app, sqlite, wire, domain), path)
+        }
+    }
+
+    @Test
+    fun `S4c application forbids a slice infrastructure and interfaces but not slice-top or application`() {
+        val top = "$root.telemetry.TelemetryStoreProvider"
+        val app = "$root.telemetry.internal.app.CallLogStore"
+        val sqlite = "$root.telemetry.internal.sqlite.SqliteCallLogStore"
+        val wire = "$root.telemetry.internal.wire.CallLogWriter"
+        assertEquals(listOf(sqlite, wire), imports("application/port/A.kt", top, app, sqlite, wire))
+        assertEquals(
+            listOf(sqlite, wire),
+            imports("platform/calltelemetry/A.kt", top, app, sqlite, wire),
+            "a platform folder counting as application"
+        )
+        assertEquals(listOf(sqlite, wire), imports("telemetry/internal/app/A.kt", top, app, sqlite, wire), "a slice application folder")
+    }
+
+    @Test
+    fun `S4c infrastructure forbids a slice interfaces only`() {
+        val top = "$root.telemetry.TelemetryStoreProvider"
+        val app = "$root.telemetry.internal.app.CallLogStore"
+        val sqlite = "$root.telemetry.internal.sqlite.SqliteCallLogStore"
+        val wire = "$root.telemetry.internal.wire.CallLogWriter"
+        assertEquals(listOf(wire), imports("infrastructure/sqlite/repository/A.kt", top, app, sqlite, wire))
+        assertEquals(listOf(wire), imports("telemetry/internal/sqlite/A.kt", top, app, sqlite, wire), "a slice infrastructure folder")
+        assertEquals(emptyList(), imports("interfaces/mcp/A.kt", top, app, sqlite, wire), "interfaces reach every slice layer")
+        assertEquals(emptyList(), imports("telemetry/internal/wire/A.kt", top, app, sqlite, wire))
+    }
+
+    @Test
+    fun `S4c slice-top reaches its own internal sqlite and forbids only bootstrap and the transports`() {
+        assertEquals(
+            emptyList(),
+            imports("telemetry/A.kt", "$root.telemetry.internal.sqlite.SqliteCallLogStore"),
+            "top -> own internal.sqlite"
+        )
+        assertEquals(
+            emptyList(),
+            imports(
+                "telemetry/A.kt",
+                "$root.application.port.X",
+                "$root.infrastructure.config.X",
+                "$root.platform.port.X",
+                "$root.model.item.X"
+            )
+        )
+        assertEquals(
+            listOf("$root.bootstrap.X", "io.ktor.server.X", "io.modelcontextprotocol.kotlin.sdk.server.Server"),
+            imports("telemetry/A.kt", "$root.bootstrap.X", "io.ktor.server.X", "io.modelcontextprotocol.kotlin.sdk.server.Server")
+        )
+    }
+
+    @Test
+    fun `S4c a slice internal layer follows the rules of the layer it counts as`() {
+        assertEquals(listOf("io.ktor.server.X"), imports("telemetry/internal/app/A.kt", "io.ktor.server.X"), "application: no transports")
+        assertEquals(listOf("io.ktor.server.X"), imports("telemetry/internal/domain/A.kt", "io.ktor.server.X"))
+        assertEquals(
+            listOf("$root.platform.port.X"),
+            imports("telemetry/internal/domain/A.kt", "$root.platform.port.X"),
+            "domain forbids platform"
+        )
+        assertEquals(emptyList(), imports("telemetry/internal/app/A.kt", "$root.platform.port.X", "$root.model.item.X"))
+        assertEquals(emptyList(), imports("telemetry/internal/sqlite/A.kt", "io.ktor.client.HttpClient", "$root.platform.sqlite.X"))
+        assertEquals(emptyList(), imports("telemetry/internal/wire/A.kt", "io.ktor.server.X", "$root.application.port.X"))
+        assertEquals(listOf("$root.bootstrap.X"), imports("telemetry/internal/wire/A.kt", "$root.bootstrap.X"))
+        assertEquals(listOf("$root.bootstrap.X"), imports("telemetry/internal/sqlite/A.kt", "$root.bootstrap.X"))
+    }
+
+    @Test
+    fun `S4c a fully-qualified slice reference on a code line counts and a KDoc line does not`() {
+        val text =
+            """
+            /** See [$root.telemetry.internal.sqlite.SqliteCallLogStore]. */
+            val store = $root.telemetry.internal.sqlite.SqliteCallLogStore(db)
+            val top = $root.telemetry.TelemetryStoreProvider::class
+            """.trimIndent()
+        assertEquals(listOf("$root.telemetry.internal.sqlite.SqliteCallLogStore"), code("application/service/X.kt", text))
+        assertEquals(emptyList(), code("infrastructure/config/X.kt", text))
+    }
+
+    @Test
+    fun `S4c a reference that names no slice is not one`() {
+        assertEquals(
+            emptyList(),
+            imports("application/service/A.kt", "$root.CurrentMain", "$root.telemetryx.internal.sqlite.X", "$root.Telemetry.X")
+        )
+        assertEquals(emptyList(), imports("model/item/A.kt", "$root.CurrentMain", "$root.telemetryx.X", "$root.telemetry"))
+        assertEquals(
+            listOf("$root.telemetry.X"),
+            LayeringRules.violations("model/item/A.kt", listOf("$root.telemetry.X"), "", slices).map { it.importedFqName }
+        )
+        assertEquals(
+            emptyList(),
+            LayeringRules.violations("model/item/A.kt", listOf("$root.telemetry.X"), "").map { it.importedFqName },
+            "with no slice given, no reference names one"
+        )
     }
 
     // ------------------------------------------------------------------ S5 baseline diff

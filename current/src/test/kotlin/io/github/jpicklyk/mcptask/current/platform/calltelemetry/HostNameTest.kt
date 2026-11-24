@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.calltelemetry
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.util.Locale
