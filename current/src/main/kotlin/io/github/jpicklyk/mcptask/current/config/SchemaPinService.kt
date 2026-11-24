@@ -150,7 +150,7 @@ class SchemaPinService(
 
         /**
          * The event side of [pin]. `builds` is read as [samePin] reads it (a NULL on a keyed pin is `true`), so two
-         * sides differ in `builds` exactly when a repin sees a change; a schema-free pin has none.
+         * sides differ in `builds` exactly when [samePin]'s `builds` comparison sees a change; a schema-free pin has none.
          */
         fun refOf(pin: SchemaPin): PinRef =
             PinRef(
