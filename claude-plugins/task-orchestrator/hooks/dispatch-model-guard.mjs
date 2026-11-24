@@ -7,7 +7,7 @@
 // validated: the Agent tool owns that.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not Agent -> headless
-// iteration -> no located config -> orchestration mode off -> model and effort present.
+// iteration -> no located config -> steering off -> model and effort present.
 // A director session is still guarded (its dispatches must pass `model` and `effort` too).
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
 // Fail-open: any throw yields `{}` and exit 0.

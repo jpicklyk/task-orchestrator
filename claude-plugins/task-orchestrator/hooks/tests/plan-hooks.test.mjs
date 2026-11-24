@@ -177,7 +177,7 @@ for (const hook of HOOKS) {
     assertDirective(hook, exec(hook, fx, { ...hook.stdin, session_id: 'other-session' }), 'other session');
   });
 
-  test(`S8 ${hook.name}: orchestration mode off (block, inline, any case) -> {}`, () => {
+  test(`S8 ${hook.name}: steering off (block, inline, any case) -> {}`, () => {
     assert.deepEqual(run(hook, ext('off')), {});
     assert.deepEqual(run(hook, `${BASE}extensions:\n  claude-code:\n    orchestration: { mode: off }\n`), {});
     assert.deepEqual(run(hook, ext('OFF')), {});
