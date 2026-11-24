@@ -4,7 +4,7 @@ One short record per architectural decision, so a later reader does not undo a c
 
 ## Rules
 
-- A record is never edited to change its decision. When a later decision overtakes it, mark the old record `Superseded by NNNN` and link both ways.
+- While the design is being explored and no code implements a record, a refinement is folded into the record itself, so each decision reads in one place. Once code implements a record, it is never edited to change its decision: a later decision supersedes it, the old record is marked `Superseded by NNNN` and both link to each other.
 - Work that would conflict with an accepted record is raised with the owner first, not decided silently.
 - A pure term decision belongs in a [GLOSSARY.md](../../GLOSSARY.md) entry. A record is needed only when the reason does not fit there.
 - Design documents in [design/](../README.md) describe current intent and link here for the why. They do not restate a decision.
