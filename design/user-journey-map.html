@@ -1,0 +1,458 @@
+<title>Strategic Journey Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; the loop is the hero; wide tables scroll inside their own frames. Each moment owns a hue used for every chip that belongs to it. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --sunk:#e9ecf1; --ink:#18202c; --muted:#5a6577; --line:#d3d9e2;
+  --accent:#2f5fd0; --accent-soft:#e3eafb;
+  --good:#1f8a5b; --partial:#b7791f; --tactical:#7a4fc9; --missing:#c43d3d;
+  --good-bg:#e4f4ec; --partial-bg:#fbf0dc; --tactical-bg:#efe8fa; --missing-bg:#fbe5e5;
+  --m-i:#2f5fd0; --m-i-bg:#e3eafb; --m-d:#b0532a; --m-d-bg:#fbe9df; --m-a:#1f8a5b; --m-a-bg:#e4f4ec;
+  --m-m:#7a4fc9; --m-m-bg:#efe8fa; --m-l:#4d6275; --m-l-bg:#e6ebf0; --m-g:#7c8592; --m-g-bg:#eef0f3; --m-e:#0f7c86; --m-e-bg:#dcf1f2;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47;
+  --good:#4cc38a; --partial:#e0a84a; --tactical:#a98bf0; --missing:#f07a7a;
+  --good-bg:#16302a; --partial-bg:#33281a; --tactical-bg:#271f3d; --missing-bg:#3a1f22;
+  --m-i:#7aa2ff; --m-i-bg:#1d2a47; --m-d:#f0a27a; --m-d-bg:#3a2519; --m-a:#4cc38a; --m-a-bg:#16302a;
+  --m-m:#a98bf0; --m-m-bg:#271f3d; --m-l:#9fb3c6; --m-l-bg:#1f2833; --m-g:#9aa3ae; --m-g-bg:#1d222a; --m-e:#5cc8d0; --m-e-bg:#16302f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47;
+  --good:#4cc38a; --partial:#e0a84a; --tactical:#a98bf0; --missing:#f07a7a;
+  --good-bg:#16302a; --partial-bg:#33281a; --tactical-bg:#271f3d; --missing-bg:#3a1f22;
+  --m-i:#7aa2ff; --m-i-bg:#1d2a47; --m-d:#f0a27a; --m-d-bg:#3a2519; --m-a:#4cc38a; --m-a-bg:#16302a;
+  --m-m:#a98bf0; --m-m-bg:#271f3d; --m-l:#9fb3c6; --m-l-bg:#1f2833; --m-g:#9aa3ae; --m-g-bg:#1d222a; --m-e:#5cc8d0; --m-e-bg:#16302f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:68ch}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+section{display:flex;flex-direction:column;gap:18px}
+.lede{color:var(--muted);font-size:16px}
+code,.sk{font-family:var(--mono);font-size:12.5px}
+.sk{background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap;display:inline-block;margin:2px 3px 2px 0}
+.sk.new{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--c)}
+.updated{display:inline-flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 12px;max-width:max-content}
+.f-good{--c:var(--good);--cb:var(--good-bg)} .f-partial{--c:var(--partial);--cb:var(--partial-bg)}
+.f-too-tactical{--c:var(--tactical);--cb:var(--tactical-bg)} .f-missing{--c:var(--missing);--cb:var(--missing-bg)}
+.m-I{--c:var(--m-i);--cb:var(--m-i-bg)} .m-D{--c:var(--m-d);--cb:var(--m-d-bg)} .m-A{--c:var(--m-a);--cb:var(--m-a-bg)}
+.m-M{--c:var(--m-m);--cb:var(--m-m-bg)} .m-L{--c:var(--m-l);--cb:var(--m-l-bg)} .m-G{--c:var(--m-g);--cb:var(--m-g-bg)} .m-E{--c:var(--m-e);--cb:var(--m-e-bg)} .m-S{--c:var(--m-g);--cb:var(--m-g-bg)}
+.pill{font:500 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--c);background:var(--cb);padding:4px 6px;border-radius:3px;white-space:nowrap}
+
+/* The loop */
+.loopwrap{min-width:980px;display:grid;grid-template-columns:190px 1fr;gap:12px}
+.setup{border:1px dashed var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);align-self:start}
+.loopgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 18px;position:relative}
+.look{grid-column:1/-1;border:1.5px solid var(--m-l);background:var(--m-l-bg);border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin-bottom:14px}
+.look b{font-family:var(--display);color:var(--m-l)}
+.moment{background:var(--surface);border:1.5px solid var(--c);border-top-width:5px;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative}
+.moment:not(.last)::after{content:"→";position:absolute;right:-16px;top:40%;color:var(--muted);font-size:16px}
+.moment .n{font:700 22px/1 var(--display);color:var(--c)}
+.moment .q{font-size:14px}
+.moment .lbl{font:500 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.moment .decs{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.return{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);margin-top:12px}
+.return .bar{flex:1;border-top:2px dashed var(--m-m)}
+.between{grid-column:1/-1;margin-top:14px;background:var(--m-g-bg);border:1px dashed var(--line);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+
+/* Dials */
+.dials{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.dial{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;font-size:14px;min-width:0}
+.range{display:flex;align-items:center;gap:8px;font:500 12px/1.3 var(--mono);color:var(--muted)}
+.range .track{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--sunk),var(--accent))}
+.dial ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+
+/* Decision layers */
+.layers{min-width:880px;display:grid;grid-template-columns:1fr 34px 1.5fr 34px 1fr;align-items:stretch}
+.lcol{display:flex;flex-direction:column;gap:10px}
+.lbox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;flex:1}
+.lbox.you{border:1.5px solid var(--m-d)}
+.lbox .who{font:500 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.lbox ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.arrowcol{display:flex;align-items:center;justify-content:center;color:var(--m-d);font-size:20px}
+.gap{color:var(--missing);font-size:13px}
+.esc{border-left:3px solid var(--missing);padding-left:10px}
+
+/* Journeys */
+.jcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:0;overflow:hidden}
+.jcard summary{cursor:pointer;list-style:none;padding:14px 18px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.jcard summary::-webkit-details-marker{display:none}
+.jcard summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.jcard summary .chev{margin-left:auto;color:var(--muted);font-size:13px}
+.jcard[open] summary .chev{transform:rotate(90deg)}
+.jbody{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px}
+.stages{display:flex;gap:10px;min-width:max-content}
+.stage{width:206px;flex:none;border:1px solid var(--line);border-top:4px solid var(--c);border-radius:6px;padding:10px 11px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.stage .top{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
+.stage .nm{font:600 14px/1.25 var(--display)}
+.stage .intent{font-size:13px;font-style:italic}
+.stage .lbl{font:500 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.stage .fit{font:500 10.5px/1 var(--mono);color:var(--fc)}
+.fit-good{--fc:var(--good)} .fit-partial{--fc:var(--partial)} .fit-too-tactical{--fc:var(--tactical)} .fit-missing{--fc:var(--missing)}
+.insight{border-left:3px solid var(--accent);padding:4px 0 4px 12px;font-size:14px}
+.mbar{display:flex;height:8px;border-radius:4px;overflow:hidden;min-width:120px;flex:0 0 160px}
+.mbar span{background:var(--c)}
+
+/* Tables */
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--surface)}
+th,td{text-align:left;vertical-align:top;padding:9px 10px;border-bottom:1px solid var(--line)}
+th{font:500 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.tbl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tbl .scroll{padding:0}
+.tbl table{min-width:760px}
+.sev{font:600 11px/1 var(--mono);text-transform:uppercase;padding:4px 6px;border-radius:3px;white-space:nowrap}
+.sev.high{color:var(--missing);background:var(--missing-bg)} .sev.med{color:var(--partial);background:var(--partial-bg)} .sev.low{color:var(--good);background:var(--good-bg)}
+td.num{font-family:var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.kind{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.cols2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;font-size:14px;min-width:0}
+.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.fates{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.fate{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.fate ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;font-size:13px}
+.fate li{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.count{font:500 12px var(--mono);color:var(--muted)}
+.footer{color:var(--muted);font-size:13px}
+@media (prefers-reduced-motion:no-preference){.stage{transition:transform .15s}.stage:hover{transform:translateY(-2px)}}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:14px">
+  <div class="eyebrow">Task Orchestrator · user-callable skills</div>
+  <h1>Strategic Journey Map</h1>
+  <p class="lede">The development journeys turned out to be one loop, and a knowledge base runs a lighter version of it. You <b>intend</b>, <b>decide</b>, <b>accept</b> and <b>improve</b>, and you <b>look</b> at where things stand whenever you need to. At any point you can <b>learn</b> the system from an agent that knows your own setup. The agent handles everything between those moments. The journeys only differ in where three dials are set (scope, certainty, autonomy) and in what the loop is pointed at: the product, its defects, or the process itself.</p>
+  <div class="updated"><span class="sk new">v9</span>Methodology words (epic, story, charter, increment) are schema vocabulary, not Task Orchestrator concepts, so the map now speaks of nodes, their goal notes and the work-item graph. New: the loop repeats at every node of the tree (discovery), tree depth sits on the Scope dial, and a node's content is either internal or referenced. Entry names are unchanged: <code>shape</code>, <code>tune</code>, user-only <code>audit</code>.</div>
+</header>
+
+<section>
+  <div class="eyebrow">The root</div>
+  <h2>One loop, four moments that are yours</h2>
+  <p class="lede"><b>Seats do the work, the orchestrator drives it, and you decide, or the director decides for you.</b> Each moment has a few entries, and each of the thirteen user decisions belongs to exactly one moment.</p>
+  <div class="scroll"><div class="loopwrap">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="setup"><span class="pill m-S">Before the loop</span><b style="color:var(--ink)">Setup</b><span>Make Task Orchestrator work here. Setup checks which endpoint it is connected to, asks the domain first (software or a knowledge base), then two to four questions about the work, and applies one pre-built, tested template from its library, steering included. After setup there is always a config, and the schema it chose defines the journey. Setup records which template and version it applied, so it can keep the config current and leave your own edits alone.</span><span><span class="sk new">start</span></span></div>
+      <div class="setup m-E" style="border:1.5px solid var(--m-e);background:var(--m-e-bg)"><span class="pill m-E">Any time</span><b style="color:var(--m-e)">Learn</b><span style="color:var(--ink)">"How does this work, and why is it doing that?"</span><span>An agent front end to the documentation and glossary, so the discussion uses the right terms. It explains a moment, walks you through one once, or answers why something is blocked, against your own board and schema.</span><span><span class="sk new">learn</span></span></div>
+    </div>
+    <div class="loopgrid" id="loop"></div>
+  </div></div>
+</section>
+
+<section>
+  <div class="eyebrow">The loop at every level</div>
+  <h2>Discovery: the moments repeat at every node</h2>
+  <p class="lede">Work is a tree. A top node holds the goal, the nodes below it are pieces that can each be accepted on their own, and under each sits its work-item graph. The same moments run at every node, so exploring a design needs no new concept: a spike is Intend, Decide and Accept on a small node. For example, an incremental-delivery schema calls these levels epic and story, and the goal note a charter; the tool itself names none of them.</p>
+  <div class="cols2">
+    <div class="card"><h3>Decide settles a question three ways</h3><ul>
+      <li><b>Ask:</b> a decision, answered by you or by the director.</li>
+      <li><b>Research:</b> a background agent returns a concise finding.</li>
+      <li><b>Build:</b> a small node builds to learn. The agent judges what is thrown away and what is refined toward the parent.</li>
+    </ul></div>
+    <div class="card"><h3>A ruling reshapes the levels below</h3><ul>
+      <li>What Decide settles at one node can rewrite, split, reparent or cancel the nodes and graphs under it. Reparent and a cancelling <code>complete_tree</code> exist today.</li>
+      <li>An item that builds nothing (<code>builds: false</code>) blocks the items it gates until it is ruled, and a build seat never picks it up.</li>
+    </ul></div>
+    <div class="card"><h3>Nodes show current state</h3><ul>
+      <li>No history machinery. A node's content lists the decisions that shaped it; the decision records on the server keep their own trail.</li>
+      <li><b>Refined</b> means a node's required queue-phase notes are filled: enough to start, never locked.</li>
+      <li>Any node with a goal note can be accepted, judged against its own notes and rulings.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Settings, not journeys</div>
+  <h2>Three dials and a subject</h2>
+  <p class="lede">These are choices you make, not separate skills. Each dial changes how a moment plays out; none adds a moment.</p>
+  <div class="dials" id="dials"></div>
+</section>
+
+<section>
+  <div class="eyebrow">The six journeys</div>
+  <h2>Each journey is the loop at one setting</h2>
+  <p class="lede">The bar shows how each journey's stages fall across the moments. Open a journey to see its stages: each is tagged with its moment and with how well today's skills fit.</p>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Journey</th><th>Subject</th><th>Scope</th><th>Certainty</th><th>Autonomy</th><th>What it stresses</th></tr></thead><tbody id="jmatrix"></tbody></table></div></div>
+  <div class="legend" id="mlegend"></div>
+  <div class="legend"><span class="fit-good" style="color:var(--fc)">● good</span><span class="fit-partial" style="color:var(--fc)">● partial</span><span class="fit-too-tactical" style="color:var(--fc)">● too tactical</span><span class="fit-missing" style="color:var(--fc)">● missing</span></div>
+  <div id="journeys" style="display:flex;flex-direction:column;gap:10px"></div>
+</section>
+
+<section>
+  <div class="eyebrow">Inside Decide</div>
+  <h2>Who answers depends on your session mode</h2>
+  <p class="lede">A seat or the orchestrator raises a decision. You or the director answer it, as the decision class allows. The orchestrator never answers, and the director never drives. Answer authority comes from the decision class and the caller's credential, never from the role or the profile.</p>
+  <div class="scroll"><div class="layers">
+    <div class="lcol"><div class="lbox"><span class="who">Raise</span><b>Seat or orchestrator</b><span>A question comes up. <code>decisions_write raise</code> (today <code>runs_write raise</code>) with options and a recommendation. A blocking raise stops only that item, and the rest keeps going.</span><span style="color:var(--muted)">A seat rule sets which class it picks: goal change, irreversible choice, or shared interface.</span></div></div>
+    <div class="arrowcol">→</div>
+    <div class="lcol">
+      <div class="lbox you"><span class="who">Orchestration mode</span><b>You answer inline</b><span>A question card in your session. <code>decisions_write answer</code> carries your words verbatim and records that you decided.</span><span class="gap">Missing today: the card, the role-neutral <code>decisions_*</code> tools (orchestration mode can't even read a decision yet), and anything that acts on <code>decision.raised</code>.</span></div>
+      <div class="lbox"><span class="who">Director mode</span><b>The director runs the loop</b><ol><li>Works through the decision inbox, reading one decision in full at a time.</li><li>Sends a background research or prototype agent when the answer needs evidence; only its summary comes back.</li><li>Answers the classes it may.</li><li>Escalates the rest to you.</li></ol><span class="gap">Missing today: the research dispatch and the per-class autonomy field. The skill currently answers alone only for classes you explained in conversation.</span></div>
+    </div>
+    <div class="arrowcol">→</div>
+    <div class="lcol"><div class="lbox"><span class="who">Resume</span><b>Orchestrator</b><span>An answer never resumes the item. The orchestrator resumes it, either your session or the run's orchestrator, and re-dispatches the seat with the ruling.</span><span class="gap">Gap: the server doesn't refuse a resume while the decision is still open. And a decision raised outside any run has no run orchestrator, so in director mode a background orchestrator or the next shape pass has to resume it.</span></div></div>
+  </div></div>
+  <h3>When the director hands a decision to you</h3>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Criterion</th><th>Owner</th></tr></thead><tbody id="esc"></tbody></table></div></div>
+</section>
+
+<section>
+  <div class="eyebrow">Gaps, by moment</div>
+  <h2>What stands between you and the loop</h2>
+  <p class="lede">The reviewer's consolidated list, ranked across the first six journeys, plus the board gaps added after the board ruling and the gaps the light-touch journey added. Each gap is tagged by the moment it blocks, and Decide carries most of the weight.</p>
+  <div class="tbl"><div class="scroll"><table id="gaps"><thead><tr><th>#</th><th>Moment</th><th>Gap</th><th>Severity</th><th>Evidence</th><th>Fix shape</th><th>Kind</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<section>
+  <div class="eyebrow">Fate of today's 19</div>
+  <h2>Where each current skill goes</h2>
+  <div class="fates" id="fates"></div>
+</section>
+
+<section>
+  <div class="eyebrow">Config, not skills</div>
+  <h2>The schema defines the journey</h2>
+  <p class="lede">Methodology words belong to a schema, not to the tool. With no such config, work is plain items in the graph. <code>incremental-delivery</code> is one opt-in example profile under manage-schemas <code>profiles/</code>, never in the shipped default; the rows below are its own vocabulary. The entry skills read whatever the schema declares and hard-code no type or note name.</p>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Item</th><th>Where it lives</th></tr></thead><tbody id="prof"></tbody></table></div></div>
+  <div class="card" style="margin-top:16px"><h3>A node's content: internal or referenced</h3><ul>
+    <li><b>Internal</b> (no storage config): the content lives in the node's notes.</li>
+    <li><b>Referenced</b>: a schema can keep content outside, in markdown files in the repo, Jira or Linear. Items stay sparse, with a short note that references the source, and a skill bound in the schema (a note's <code>skill:</code> or a seat's <code>skills:</code>) writes it.</li>
+    <li>Task Orchestrator never syncs with the outside source or reads it back.</li>
+    <li>Decision records follow the same pattern later, as an adapter off <code>decision.*</code> events. Nothing is built for it now.</li>
+  </ul></div>
+</section>
+
+<section>
+  <div class="eyebrow">Before changing anything</div>
+  <h2>Constraints and corrections</h2>
+  <div class="cols2">
+    <div class="card"><h3>Layer rules, settled in GLOSSARY.md and CLAUDE.md</h3><ul>
+      <li><b>The orchestrator records your answer, never its own,</b> through role-neutral <code>decisions_write</code> with your words verbatim.</li>
+      <li><b>The director answering on its own</b> still contradicts director/SKILL.md. That's reshaping work: per-class autonomy moves into config.</li>
+      <li><b>Steering</b> is the new name for the hook config <code>orchestration.mode</code>, so "orchestration mode" now names only the session mode.</li>
+      <li><b>The board is your view, not the director's session.</b> This reverses an earlier reviewer ruling that the director session is the board. The director acts on the board at your instruction.</li>
+    </ul></div>
+    <div class="card"><h3>Mechanics of demotion</h3><ul>
+      <li><code>user-invocable: false</code> hides a skill from the slash menu, but the Skill tool can still reach it.</li>
+      <li><code>disable-model-invocation: true</code> means only the user can run it. Merging review-proposals means dropping that flag.</li>
+      <li>Hook and skill text tells the user to type <code>/session-retrospective</code>, <code>/director</code>, <code>/configure-server</code> and <code>/init</code>. Fix those strings first.</li>
+    </ul></div>
+    <div class="card"><h3>Corrections from verification</h3><ul>
+      <li>The server already streams <code>decision.raised</code> and <code>decision.answered</code> over SSE. The wake-up gap is in the plugin.</li>
+      <li><code>report rollup</code> already returns cost (director profile only).</li>
+      <li>Plan approval already starts the build, but all or nothing: one unrefined leaf sends the whole plan to hand dispatch.</li>
+      <li>Review has no send-back trigger, and <code>reopen</code> works only from terminal.</li>
+    </ul></div>
+    <div class="card"><h3>Top risks</h3><ul id="risks"></ul></div>
+  </div>
+</section>
+
+<p class="footer">Sources: five Sonnet explorers (journeys 1 to 5), two Opus explorers (decide-first, and Agile delivery, merged as journey 6), a summary of the aihero.dev wayfinder skill as prior art, and an Opus reviewer that checked the claims against <code>claude-plugins/task-orchestrator/</code> and <code>current/src/</code>. Entry names are working names. Terms follow GLOSSARY.md.</p>
+</div>
+
+<script>
+const S=a=>a.map(x=>`<span class="sk">${x}</span>`).join('');
+const N=a=>a.map(x=>`<span class="sk new">${x}</span>`).join('');
+const MN={I:'Intend',D:'Decide',A:'Accept',M:'Improve',L:'Look',E:'Learn',G:'Agent',S:'Setup'};
+
+const moments=[
+ {k:'I',name:'Intend',q:'"What do we build or fix, what comes first, and what do we drop?" Improving the code happens here.',entries:['shape','audit'],plain:['plan mode'],
+  decs:['1 Goal and bounds','2 Break the goal into nodes','4 Start on the refined part','8 Change scope mid-way','11 What to spend on looking']},
+ {k:'D',name:'Decide',q:'"What needs a call, and what is your recommendation?"',entries:['board','director'],plain:[],
+  decs:['3 Which questions are shared','5 Make each call','6 Proceed on an assumption, or block','7 Revise an earlier ruling']},
+ {k:'A',name:'Accept',q:'"Is this what I asked for? Ship it or send it back."',entries:['accept'],plain:[],
+  decs:['9 Accept or send back','10 Ship or not']},
+ {k:'M',name:'Improve',q:'"Is our process working, and what do we change?"',entries:['tune'],plain:[],
+  decs:['12 Change the process','13 How much autonomy']}
+];
+document.getElementById('loop').innerHTML=
+ `<div class="look"><span class="pill m-L">Any time</span><b>Look</b><span>"Where are we, and what's waiting on me?"</span><span>${N(['board'])}</span><span style="color:var(--muted);font-size:13px">Runs, open decisions, risk, cost. The board is your view in either mode. In director mode you read it and tell the director what to handle.</span></div>`+
+ moments.map((m,i)=>`<div class="moment m-${m.k}${i===3?' last':''}"><span class="n">${m.name}</span><span class="q">${m.q}</span><span class="lbl">Entries</span><span>${N(m.entries)}${S(m.plain)}</span><span class="lbl">Your decisions</span><span class="decs">${m.decs.map(d=>`<span>${d}</span>`).join('')}</span></div>`).join('')+
+ `<div class="return"><span>↺</span><div class="bar"></div><span>accepted work, retros and audit findings feed the next Intend</span></div>`+
+ `<div class="between"><b style="color:var(--ink)">Between the moments, the agent handles it</b><span>Shaping, sizing, dispatching seats, building, testing, reviewing, resuming and closing. ${S(['pre/post-plan','orchestrate','run-wave','ralph','status-progression','create-item','dependency-manager','batch-complete','session-retrospective','review phase'])}</span></div>`;
+
+const dials=[
+ {n:'Scope',lo:'one node',hi:'a deep tree across runs',what:['Tree depth is this dial: a vibe coder has one node, and larger work grows levels as it needs them. The schema defines the levels; with no such config everything lives in the graph.','Intend: plan mode for one change; shape for anything bigger.','Between: one implementer, a wave, or several waves.','Accept: any node, from one item to the top of the tree.']},
+ {n:'Certainty',lo:'all known up front',hi:'decide as you go',what:['This dial is judgement, not config: you or the agent set it in conversation from domain knowledge and experience, clarified through questions. Its outcomes are recorded as rulings, assumptions and acceptance grants; human-only decision classes are the limits a project sets.','Intend: decide only the goal, shared interfaces and irreversible choices; the rest becomes nodes to build, small nodes that build to learn, or stated assumptions.','Decide: an item that builds nothing blocks only the items it gates.','Leans decide-first when most items are blocked, there are no interfaces yet, choices are irreversible, or a ruling was reversed.']},
+ {n:'Autonomy',lo:'orchestration mode',hi:'director mode',what:['Decide: you answer inline, or the director answers what its class allows and escalates the rest.','Look: the board is always your view. In orchestration mode you act on it yourself; in director mode you tell the director what to handle.','Set per decision class in config.']},
+ {n:'Subject',lo:'the product',hi:'the process',what:['Product from an idea: journeys 1 and 2.','Product from defects and audit findings: journey 4. Findings feed Intend.','The process itself: journey 5. Schemas and rules are the product; retros and proposals are its Decide and Accept.','Knowledge, not code: journey 8, on the knowledge endpoint. Nothing is built; entries are captured, linked, found and revisited.']}
+];
+document.getElementById('dials').innerHTML=dials.map(d=>`<div class="dial"><h3>${d.n}</h3><div class="range"><span>${d.lo}</span><div class="track"></div><span>${d.hi}</span></div><ul>${d.what.map(w=>`<li>${w}</li>`).join('')}</ul></div>`).join('');
+
+const J=[
+ {n:"Greenfield: idea to v1",subj:"product, from an idea",scope:"a tree to v1",cert:"low",auto:"orchestration",stress:"The first pass, plus Setup. Intend is the gap: nothing shapes a v1.",
+  p:"A solo developer starting a new product and going from vision to a shipped v1.",
+  ins:"The strategic calls (what v1 is, what comes first, when to ship) have no owner. The 19 skills cover the agent's work between the moments.",
+  s:[["Set up","Make TO work here.","start: one question, what are you building?",["quick-start","init","configure-server","adopt-project-scope"],"partial","S"],
+     ["Vision to first pieces","What are the milestones, and what is v1?","shape: a goal note ending in ordered nodes",[],"missing","I"],
+     ["What first","What's the smallest piece that proves it?","approve a proposed order",["dependency-manager","work-summary"],"partial","I"],
+     ["Define done","Done when X works and I can demo it.","acceptance questions in plan mode",["pre/post-plan","planning-standards"],"good","I"],
+     ["Build","Go, and only tell me when you need a decision.","\"go\"",["run-wave","ralph","status-progression","batch-complete","director"],"too-tactical","G"],
+     ["Progress","Is v1 on track? What needs me?","board with the decision inbox",["work-summary","director"],"partial","L"],
+     ["Ship v1","Is v1 done? Ship it.","readiness against v1, then go/no-go",[],"missing","A"],
+     ["Learn","That felt slow. Change how we work.","one retro inbox",["session-retrospective","review-retrospectives","review-proposals","manage-schemas"],"partial","M"]]},
+ {n:"Steady-state cadence",subj:"product, from an idea",scope:"a feature or two a week",cert:"medium",auto:"orchestration",stress:"The loop at its default setting, repeated. Accept is the biggest gap.",
+  p:"A product owner on an established codebase: a daily check-in, a feature or two a week, a weekly release.",
+  ins:"Three human decisions recur: what to build, whether to accept it, and what to change in the process.",
+  s:[["Re-entry briefing","Where did I leave off? What needs me?","a digest at session start",["work-summary","director"],"partial","L"],
+     ["Prioritise","What matters this week, and what do we drop?","a proposed ranking with reasons",["work-summary","dependency-manager","batch-complete"],"missing","I"],
+     ["Idea to plan","Is X worth it? What shape, what cost?","plan mode",["pre/post-plan","orchestrate","create-item"],"good","I"],
+     ["Build hands-off","Only call me for real decisions.","plan approval triggers it",["run-wave","implement-wave","ralph","status-progression"],"too-tactical","G"],
+     ["Accept","Is this what I asked for?","outcome vs AC, approve or send back",["review phase (internal)"],"missing","A"],
+     ["Release prep","What's in it, and is it ready?","a readiness review, then the project seam",[],"missing","A"],
+     ["Learn and evolve","Did the process work?","one retro front door",["review-retrospectives","review-proposals","manage-schemas"],"partial","M"],
+     ["Monthly health","Is anything worth a cleanup feature?","audit (user-only) for findings; shape turns funded ones into work",["auditing-codebase","auditing-documentation","deep-codebase-audit"],"partial","I"]]},
+ {n:"Large parallel initiative",subj:"product, from an idea",scope:"a deep tree across runs",cert:"medium",auto:"director",stress:"The scope and autonomy dials turned up. Decide moves to the director.",
+  p:"A tech lead owning a multi-feature initiative across waves and days, with work running in the background.",
+  ins:"This user never wants a run, a wave or a seat: a direction, a decision loop that runs without them, and a view of the risk.",
+  s:[["Frame the initiative","Here's the outcome. Break it down and give me the risks.","describe, approve, go",["pre/post-plan","create-item","dependency-manager"],"partial","I"],
+     ["Launch","Start wave 1, then keep going.","a single go at plan approval",["run-wave --method/--mode","implement-wave"],"too-tactical","G"],
+     ["Stay free","Run it in the background so I can keep talking.","director mode",["director"],"good","D"],
+     ["Watch the board","What's at risk? What's waiting on me?","one attention-first board",["work-summary","director"],"partial","L"],
+     ["Decisions","Decide what you can; bring me only the hard ones.","the director's own answer loop",["director"],"partial","D"],
+     ["Steer","Pause that, cut scope, reprioritise.","plain talk",["director","dependency-manager","status-progression"],"too-tactical","I"],
+     ["Drain unattended","Burn down the small stuff overnight.","a standing-work policy",["ralph"],"too-tactical","G"],
+     ["Close and improve","What went wrong, and what should change?","a review prompt after each run",["session-retrospective","review-proposals","manage-schemas"],"partial","M"]]},
+ {n:"Maintenance and quality",subj:"product, from defects and findings",scope:"item to a small tree",cert:"high",auto:"either",stress:"Same loop, different source of intent: findings feed Intend. Funding is the strategic call.",
+  p:"A maintainer of a live product: bugs trickle in, there are incidents, and debt builds up.",
+  ins:"The two real decisions are how much to spend on looking and which findings to fund.",
+  s:[["Capture","Track that checkout crash.","no skill: \"Created X under Y\"",["create-item"],"too-tactical","I"],
+     ["Triage","What does the backlog really look like?","shape: keep, cancel or defer",["work-summary","batch-complete"],"partial","I"],
+     ["Health check","Where does it cost most, and what will looking cost?","one audit with scope and budget",["auditing-codebase","auditing-documentation","deep-codebase-audit"],"partial","I"],
+     ["Decide investment","Which findings do I fund?","findings table, then fund five",["create-item (findings path)"],"partial","I"],
+     ["Materialise","Yes, file those.","the same confirmation",["create-item"],"partial","G"],
+     ["Untangle","What blocks what?","a plain question",["dependency-manager"],"too-tactical","L"],
+     ["Dispatch","Fix the Act-now set.","run-wave or director",["run-wave","director"],"good","G"],
+     ["Close and learn","Did spend match the plan?","cost against plan, from the retro",["batch-complete","session-retrospective"],"partial","M"]]},
+ {n:"Process evolution",subj:"the process",scope:"proposal to profile",cert:"medium",auto:"either",stress:"The loop pointed at itself. All its stages sit in Improve, which has its own Intend, Decide and Accept.",
+  p:"The owner of the project's process, asking whether it works, what it costs and what to change.",
+  ins:"The loop already exists (retro, trends, proposals, adoption) but is spread over four commands. One entry, tune, to review the process and change it.",
+  s:[["Run closes","Tell me whether the run was healthy.","a one-line health note on the board",["session-retrospective","retro-analysis"],"good","M"],
+     ["Process health","What went well or badly, and what recurs?","tune: process health",["review-retrospectives"],"good","M"],
+     ["Decide proposals","Accept, reject or defer. What does it touch?","inline in the same flow",["review-proposals"],"partial","M"],
+     ["Edit the process","Make the reviewer cheaper.","plain intent; the agent picks the layer",["manage-schemas"],"partial","M"],
+     ["Still fits?","Is my config stale?","a health mode",["manage-schemas audit"],"partial","M"],
+     ["Did it work?","Did last month's change help?","an adoption-outcome line",["session-retrospective 8a"],"partial","M"],
+     ["Deep sweep","Audit it and tell me what to fix.","audit (user-only), then shape the fixes",["auditing-*","deep-codebase-audit"],"partial","I"]]},
+ {n:"Incremental delivery",subj:"product, from an idea",scope:"a tree that grows",cert:"low to high (the dial)",auto:"either",stress:"The certainty dial, and discovery: Decide happens before and during building, at every node.",
+  p:"A founder or tech lead who knows roughly where they're heading but can't define it all up front.",
+  ins:"Decide-first and decide-as-you-go are one model; only which work the unanswered questions block differs. Most of the loop exists under TO names: queue gate = definition of ready, required notes = definition of done, a retro per accepted node, a blocking raise stops only its own item.",
+  s:[["Frame","Roughly here. Keep it small.","shape: goal, bounds and non-goals in the top node's goal note",[],"missing","I"],
+     ["Shape","What are the pieces, and what must be decided?","the agent classifies each choice; you confirm only the shared ones",["create-item","dependency-manager","planning-standards"],"partial","I"],
+     ["Decide shared calls","Settle what gates every piece.","card in orchestration mode; the director's loop in director mode",["director"],"partial","D"],
+     ["Build to learn","Try it and see before we commit.","a small node runs Intend, Decide and Accept; its finding settles the question and can reshape, reparent or cancel the nodes below. The agent judges which of its code is kept",["decomposing-work"],"partial","D"],
+     ["Start","Build the refined ones; research the rest.","approval builds the refined, unblocked items",["post-plan (all-or-nothing)","run-wave"],"partial","G"],
+     ["Decide as they surface","Ask me only when it matters; keep the rest moving.","a blocking raise stops only that item",["run-wave","decisions.md","director"],"partial","D"],
+     ["Adjust scope","Drop Z, add W. That call was wrong.","plain talk: reshape, reparent or cancel the nodes a ruling touched",["items_write","runs_write"],"partial","I"],
+     ["Accept the node","Show me what this delivers against the goal.","accept: verdict against its own notes and rulings",[],"missing","A"],
+     ["Look back","What slowed us?","arrives on its own: a retro per accepted node",["session-retrospective"],"good","M"]]},
+ {n:"Light touch",subj:"product, from an idea",scope:"one node or a flat list",cert:"not considered",auto:"high: Auto mode",stress:"Setup and plain items: everything must work with the lightest config setup chooses, and without method words.",
+  p:"A developer vibe coding who wants TO to keep the work ordered and moving, without learning a process.",
+  ins:"This journey guards the neutral vocabulary: if it ever needs an epic or a charter, a method word has leaked into the tool. Setup always leaves a config, so the lightest journey has a light config, not none.",
+  s:[["Set up","Just make it work here.","start reads what kind of work this project does and picks a config to match, here a light one",["quick-start","init"],"partial","S"],
+     ["Say what you want","Add dark mode.","plain talk; the agent sizes it and plans in plan mode",["pre/post-plan","orchestrate"],"good","I"],
+     ["Agree the plan","Yes, do it.","approval means the discussion is agreed: the agent materializes the graph at the plan's own scope (a project, a feature, a fix). In Auto mode it is also a conditional grant of acceptance: it applies only if review passed, findings were disposed, the build is green and no decision is open",["post-plan-workflow"],"partial","I"],
+     ["Keep going","What's next?","next answers in context: next in the graph, next by rank, or the next node breadth- or depth-first",["work-summary"],"partial","G"],
+     ["Learn the words","What does refined mean?","learn: an agent front end to the docs and glossary, so the conversation uses the right terms",[],"missing","E"],
+     ["Stay current","The plugin changed.","start compares the template it applied with the library's current one and updates the config, leaving your own edits alone",[],"missing","S"]]},
+ {n:"Keep a knowledge base",subj:"knowledge, not code",scope:"one entry to a whole base",cert:"not considered",auto:"high for capture and retrieval; you confirm merges and deletes",stress:"Everything that assumes building: setup, hooks, capture and the board. It runs on the knowledge endpoint, which has no phases.",
+  p:"Someone who reads, researches or learns and wants one place where what they learned stays findable, connected and current.",
+  ins:"The tools already carry most of this journey: search, related, links and versioned pages. What fails is setup, plugin text that assumes building, and the absence of any skill shaped for a knowledge base. Entries are lifecycle-free items, the only coherent base on an endpoint with no advance.",
+  s:[["Set up","Somewhere to keep what I learn about soil ecology.","start checks which endpoint it is on, asks the domain, applies the knowledge-base template (steering off, no retrospective), registers only the knowledge entry",["init","quick-start"],"missing","S"],
+     ["Capture","Save this: fungal networks move carbon.","one entry with its source, a proposed topic and a duplicate check across items, notes and pages",["create-item (files it as a bug or feature)"],"partial","I"],
+     ["Link","This contradicts what I saved last week.","links proposed from related hits, each with a relation word; you confirm the set",["dependency-manager (speaks in blockers)"],"partial","I"],
+     ["Find","What do I know about carbon transfer?","an answer composed from hits, every claim citing its entry or page, and a line on what the base does not cover",["items_read search","related","docs_read links"],"good","L"],
+     ["Synthesise","Write up what I know about soil carbon.","a versioned page that cites entries; asking again writes the next version",["docs_write"],"partial","G"],
+     ["Revisit","What did I add this month? What have I never linked?","a digest: recent, untouched, orphans, pages wanted but never written",["work-summary (hides lifecycle-free items)"],"missing","L"],
+     ["Prune and reshape","Merge these two; archive the old notes.","one table of merges, archives and retags, applied on a yes; never a delete without one",["items_write","docs_write archive"],"partial","M"],
+     ["Learn","How does this base work?","learn explains the applied template and the few words you need, from the template record and the glossary",[],"missing","E"]]}
+];
+const ORDER=['S','E','I','D','G','L','A','M'];
+document.getElementById('mlegend').innerHTML=ORDER.map(k=>`<span class="m-${k}"><span class="dot"></span>${MN[k]}</span>`).join('');
+document.getElementById('jmatrix').innerHTML=J.map((j,i)=>{
+ const c={};j.s.forEach(s=>c[s[5]]=(c[s[5]]||0)+1);
+ const bar=ORDER.filter(k=>c[k]).map(k=>`<span class="m-${k}" style="flex:${c[k]}" title="${MN[k]}: ${c[k]}"></span>`).join('');
+ return `<tr><td><b>${i+1}. ${j.n}</b><div class="mbar" style="margin-top:6px">${bar}</div></td><td>${j.subj}</td><td>${j.scope}</td><td>${j.cert}</td><td>${j.auto}</td><td>${j.stress}</td></tr>`}).join('');
+document.getElementById('journeys').innerHTML=J.map((j,i)=>`<details class="jcard"><summary><span class="eyebrow">Journey ${i+1}</span><h3>${j.n}</h3><span class="chev">▸</span><span style="flex-basis:100%;color:var(--muted);font-size:14px">${j.p}</span></summary>
+ <div class="jbody"><div class="scroll"><div class="stages">${j.s.map(s=>`<div class="stage m-${s[5]}"><div class="top"><span class="nm">${s[0]}</span><span class="pill">${MN[s[5]]}</span></div>
+ <div class="intent">"${s[1]}"</div><div class="lbl">Ideal</div><div style="font-size:13px">${s[2]}</div>
+ <div class="lbl">Today</div><div>${s[3].length?S(s[3]):'<span class="gap">nothing</span>'}</div><span class="fit fit-${s[4]}">● ${s[4]}</span></div>`).join('')}</div></div>
+ <div class="insight">${j.ins}</div></div></details>`).join('');
+
+const esc=[
+ ["The class is human-only","Schema config (answerers). The server enforces it over HTTP; on stdio it can't."],
+ ["The class is marked ask: goal or bounds change, irreversible choice, release","Schema config: a new per-class field (director: answer | ask), returned with the decision"],
+ ["Which class the raiser picks","A rule covering seat conduct"],
+ ["No recommendation, or the research favours no option","Director skill"],
+ ["It contradicts an earlier ruling","The research agent flags it; the director skill escalates on the flag"],
+ ["High severity, or overdue","Director skill, using effectiveSeverity. on_expiry: escalate raises an overdue decision's severity, which meets this criterion"],
+ ["Cost","Expressed as scope (new nodes, a wider tree), never as money"]];
+document.getElementById('esc').innerHTML=esc.map(e=>`<tr><td class="esc">${e[0]}</td><td>${e[1]}</td></tr>`).join('');
+
+const gaps=[
+ ["D","Decision answering doesn't fit the session layers","high","Your session waits on the report (run-wave:94); work-summary points at director mode; decisions live under the run tools, split by profile; nothing acts on decision.raised.","Role-neutral decisions_read (list, scoped by item) and decisions_write, authority from class plus credential, a record of who decided. A question card in orchestration mode; the director's answer loop in director mode.","server + skill + hook"],
+ ["D","No line between deciding and building, and no refined selection","high","post-plan routes all or nothing; next ignores gate state and can't exclude a type; ralph only includes types.","A non-dispatchable type property honoured by next, claim, run-wave and post-plan; a refined filter; post-plan routes the refined subset.","server + schema + skill"],
+ ["A","No accept step, and no send-back trigger","high","The only user gate is plan approval; review has no send-back.","accept for any node; send-back runs as a fix cycle.","skill + server"],
+ ["I","No shape entry (goal, breakdown, ordering, for work of any size)","high","Found in journeys 1, 2, 4 and 6.","shape, reading whatever the schema declares; the incremental-delivery profile is one opt-in example.","skill + schema example"],
+ ["L","The board isn't one view for both modes","med","work-summary and the director skill render it separately; runs_read decisions and report rollup are served only on the director profile (frontier is on both).","One board rendering, with its reads served on the orchestration profile too, alongside decisions_read.","server + skill"],
+ ["D","Nothing on the board hands work to the director","med","In director mode the only way to steer is to talk to the director; the board has no \"handle these\" or \"decide this class from now on\".","A hand-to-director action on the board. Standing per-class instructions go into config, so they outlive the session.","skill + schema"],
+ ["D","Rulings go stale silently","med","reopen works only from terminal; derived_from has no version.","On answer, flag or hold linked items; versioned links.","server"],
+ ["D","Resume isn't refused while the decision is open","med","AdvanceService checks role only.","Refuse it in the resume path.","server"],
+ ["D","No gate can require an answered decision","med","Gates check note bodies and independence only.","A note property such as requires_answered_decision.","server + schema"],
+ ["D","Human identity on stdio","med","Human-only can't be answered on stdio.","Elicitation, or recorded user provenance.","server + host"],
+ ["M","Process loop split across commands; adoption outcomes invisible","med","No skill reads the retro's outcome-verification.","tune.","skill"],
+ ["M","Process editing framed as schema CRUD","med","No entry edits rules or run-profile.","tune.","skill"],
+ ["E","No way to learn the system from an agent, in context","med","quick-start is a one-time tutorial. How-to and why questions go to the docs, or to a general agent that doesn't read your board, schema or rules.","A learn entry: an agent front end to the docs and glossary that keeps the discussion's terms right, and answers how-to and why questions against your own state. Learn changes what you know; Improve changes the process.","skill"],
+ ["A","No release seam","med","run-profile is read only inside run-wave.","A run-profile release key.","plugin script"],
+ ["L","Too much tactical exposure","med","About six ways to say \"build\".","Demote per the fate table.","frontmatter"],
+ ["I","Fragmented audit entry","low","Three entries; required run arguments; nothing stops the agent launching an expensive audit by itself.","audit: user-only, analysis and report only, with funded findings handed to shape.","skill"],
+ ["L","Cost and delivery facts not on the board","low","report rollup already serves them.","A board line.","skill"],
+ ["S","Setup split four ways","low","Already chained.","start.","skill"],
+ ["S","Setup breaks on the knowledge endpoint","high","init reads context and runs, which the knowledge profile does not serve, and then reports a 3.x server; it registers only orchestration and director; no knowledge template exists.","start checks the connected profile first and applies a knowledge-base template.","skill"],
+ ["G","Hooks put build process into a knowledge session","high","session-start names advance, context and next; the orchestration core injects sizing tiers and materialisation; plan mode orders implementation; bundled build rules are pushed into every root.","Hooks stay silent, or speak the session's profile; the template's steering turns them off; a root with no seats gets no build rules.","hook"],
+ ["L","A knowledge base looks empty on the board","med","work-summary leaves lifecycle-free items out and reads selects the knowledge profile lacks.","A knowledge view: recent, untouched, orphans, wanted pages.","skill"],
+ ["I","Capture files knowledge as build work","med","create-item offers bug, feature and tech debt, and calls orchestration-only tools.","Capture follows the applied template's types.","skill"],
+ ["L","Retrieval misses relations and orphans","low","relates_to carries no relation word and the graph walk ignores it; no root-wide orphan or dangling-link read; a page cannot be the subject of related.","Tool-contract additions, sized when a knowledge user needs them.","server"],
+ ["G","next has one meaning","med","next returns what a build seat can start now. Next can also mean next in the graph, next by rank, or the next node breadth- or depth-first.","A context input that says which next is meant; the build-seat meaning stays the default.","server"],
+ ["S","Config does not follow the plugin","med","A config written at setup is never revisited when features are added, deprecated or removed.","start re-runs as a check: it reports and offers the config changes a release needs.","skill"],
+ ["A","Plan approval carries two meanings","low","Approval agrees the plan and materializes it; in Auto mode it is also a conditional grant of acceptance.","Keep them apart in the record: approval materializes at the plan's own scope, and the grant applies only once the acceptance gate's checks pass (review passed, findings disposed, build green, no open decision).","plugin"],
+ ["I","No backlog rank","low","Order uses priority and complexity only.","Defer until asked for.","server"]];
+document.querySelector('#gaps tbody').innerHTML=gaps.map((g,i)=>`<tr><td class="num">${i+1}</td><td><span class="pill m-${g[0]}">${MN[g[0]]}</span></td><td><b>${g[1]}</b></td><td><span class="sev ${g[2]}">${g[2]}</span></td><td>${g[3]}</td><td>${g[4]}</td><td class="kind">${g[5]}</td></tr>`).join('');
+
+const fates=[
+ ["Entries, by moment",[["start","Setup"],["shape","Intend (new)"],["audit","Intend input (new front, user-only)"],["board","Look and Decide (new): your view in both modes"],["director","Decide (kept)"],["accept","Accept (new)"],["tune","Improve (merge)"],["learn","Learn (new)"]]],
+ ["Merged into an entry",[["quick-start","split: setup to start, teaching to learn"],["work-summary","board"],["review-retrospectives","tune"],["review-proposals","tune"],["manage-schemas","tune"],["deep-codebase-audit","audit"]]],
+ ["Expert override",[["init","start calls it"],["configure-server",""],["run-wave","resume, hand-launched waves"],["ralph","until standing work exists"],["auditing-codebase","method for audit"],["auditing-documentation","method for audit"]]],
+ ["Agent-internal",[["create-item","called by shape"],["dependency-manager","called by shape"],["status-progression",""],["batch-complete","called by shape and accept"],["adopt-project-scope","init offers it"],["session-retrospective","after the nudge text changes"]]]];
+document.getElementById('fates').innerHTML=fates.map(f=>`<div class="fate"><h3>${f[0]} <span class="count">${f[1].length}</span></h3><ul>${f[1].map(([s,t])=>`<li><span class="sk${f[0].startsWith('Entries')?' new':''}">${s}</span>${t?`<span style="color:var(--muted)">→ ${t}</span>`:''}</li>`).join('')}</ul></div>`).join('');
+
+const prof=[
+ ["epic type (a goal node): manual lifecycle, a charter queue note, a review note at acceptance","Profile (schema)"],
+ ["story type (a node accepted on its own): its queue notes are the definition of ready","Profile"],
+ ["No spike type: a spike is a small node run through the same moments","Profile guidance"],
+ ["open-question trait: question-frame and ruling notes, builds: false","Profile"],
+ ["Edges: a question blocks the stories it touches; a shared question blocks every story","Profile guidance"],
+ ["goal-change decision class: human-only over HTTP, director-or-human with ask on stdio","Profile"],
+ ["Rules: present variants, never pick one; no production code in a spike or a question","Profile (project rules)"],
+ ["Classify each open choice: blocks this item, a later item, or a reversible assumption","planning-standards (engineering skill)"],
+ ["Proceed on a stated assumption with a non-blocking raise; block only when irreversible or the AC changes","A bundled seat-default rule"]];
+document.getElementById('prof').innerHTML=prof.map(p=>`<tr><td>${p[0]}</td><td>${p[1]}</td></tr>`).join('');
+
+document.getElementById('risks').innerHTML=[
+ "An answer that looks like yours but isn't: record who decided, with your words verbatim.",
+ "Shared questions creep back into waterfall: show the shared-question count on the board.",
+ "Items that build nothing drained as build work until next honours builds: false.",
+ "Research fan-out cost under director autonomy: report cost per accepted node.",
+ "Rulings go stale silently until links record versions."].map(r=>`<li>${r}</li>`).join('');
+</script>
