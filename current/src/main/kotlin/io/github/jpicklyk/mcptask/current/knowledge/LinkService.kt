@@ -113,16 +113,20 @@ class LinkService(
         links.unresolveTo(ref)
     }
 
-    /** Deletes every link sourced from note [noteId] (all relations). */
+    /** Deletes every link sourced from note [noteId] and every resolved link into it (all relations). */
     suspend fun onNoteDeleted(noteId: UUID) {
-        repositoryProvider.linkStore().deleteFrom(EntityRef(RefKind.NOTE, noteId))
+        val links = repositoryProvider.linkStore()
+        val ref = EntityRef(RefKind.NOTE, noteId)
+        links.deleteFrom(ref)
+        links.deleteToAny(listOf(ref), keep = emptySet())
     }
 
     /**
      * Cleans up after an item-delete cascade removed [itemIds] and, through the notes foreign key, [noteIds]: every
      * link sourced from a removed note or item is deleted (all relations), and so is every resolved link INTO a
-     * removed item except [LinkRelation.ADOPTED_BY] (an adoption outlives the adopting item). Matches on (kind, id)
-     * only, so links stamped with another root are cleaned too. Joins the ambient unit; records no event.
+     * removed note (all relations) or a removed item except [LinkRelation.ADOPTED_BY] (an adoption outlives the
+     * adopting item). Matches on (kind, id) only, so links stamped with another root are cleaned too. Joins the ambient
+     * unit; records no event.
      */
     suspend fun onItemsDeleted(
         itemIds: Collection<UUID>,
@@ -131,7 +135,9 @@ class LinkService(
         if (itemIds.isEmpty() && noteIds.isEmpty()) return
         val links = repositoryProvider.linkStore()
         val items = itemIds.map { EntityRef(RefKind.ITEM, it) }
-        links.deleteFromAny(noteIds.map { EntityRef(RefKind.NOTE, it) } + items)
+        val notes = noteIds.map { EntityRef(RefKind.NOTE, it) }
+        links.deleteFromAny(notes + items)
+        links.deleteToAny(notes, keep = emptySet())
         links.deleteToAny(items, keep = setOf(LinkRelation.ADOPTED_BY))
     }
 

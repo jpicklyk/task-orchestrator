@@ -8,9 +8,9 @@ import java.util.UUID
 
 /**
  * Persists polymorphic links (`links`). Link ends carry no foreign key: a link outlives the entities it names, and
- * only a root delete removes it by cascade; an item-delete cascade removes the links it orphans explicitly, and a
- * reparent restamps the root of the links its moved notes are the source of ([restampRoot]). A plain persistence port:
- * it records no events.
+ * only a root delete removes it by cascade; a note delete and an item-delete cascade remove the links they orphan
+ * explicitly, and a reparent restamps the root of the links its moved notes are the source of ([restampRoot]). A plain
+ * persistence port: it records no events.
  */
 interface LinkStore {
     /** Inserts [link] as given and returns it. A resolved duplicate (same ends and relation) is a unique violation. */

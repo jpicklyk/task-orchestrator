@@ -546,4 +546,29 @@ class ItemsWriteDerivedFromTest {
                     .to
             )
         }
+
+    @Test
+    fun `T8 deleting the note a link names removes that link and keeps the item's other links`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val keep =
+                f.k
+                    .call(create(r1, links("plan:rep", "item:$c1#goal"), "Keep"))
+                    .envelope.body
+                    .okId()
+            assertEquals(
+                listOf(RefKind.DOCUMENT, RefKind.NOTE),
+                f.k
+                    .linksFrom(keep)
+                    .map { it.to?.kind }
+                    .sortedBy { it?.name },
+                "control"
+            )
+
+            f.k.rig.ctx.noteCommandService
+                .delete(c1, "goal", caller = null)
+                .value()
+
+            assertEquals(listOf("plan:rep"), f.k.linksFrom(keep).map { it.toRef })
+        }
 }
