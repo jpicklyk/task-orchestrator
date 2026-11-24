@@ -21,7 +21,7 @@ its **absolute path** from every hand-dispatch and review prompt.
   Contract-change sweep · Docs · Notes · Review scoping.
 
 The Review scoping slot's commit map and the per-item bug-fix revert results are filled as the wave
-runs, not at Step 2; the budget-mutation results land after the wave's PR merges (the wave-boundary
+runs, not at Step 2; the budget-mutation results land after the feature PR merges (the wave-boundary
 red-proof stage, `/implement` "After merge"). Every other slot is complete before the first dispatch.
 
 Each adopted proposal's `adoption-decision` note names where its change landed.
@@ -45,7 +45,7 @@ Contract path (this file): `<absolute path in the MAIN checkout, e.g. D:\Project
 the feature worktree, so a relative `plans/<slug>.md` does not resolve for an agent whose working
 directory is the worktree.
 Base: `<short-sha>` (origin/main at <date>, after PR #<n>)
-PR boundary: ONE PR for the wave, opened when every item is terminal.
+PR boundary: ONE PR for the planned scope (every wave of the parent), opened when every item is terminal.
 Scratchpad: `<absolute scratchpad path from the session environment>`
 Lock helper (agents' ONLY gradle entry point): `<worktree>\.claude\skills\implement\references\gradle-locked.ps1`
 (the tracked file, referenced in place; never copied into the scratchpad and never hand-written per

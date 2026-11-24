@@ -97,7 +97,7 @@ and PR. Group when the changes are cohesive and independent fixes would create
 merge conflicts. Keep items separate when they're unrelated or when isolation makes
 review cleaner. A batch of unrelated bug fixes is not a Parallel-tier feature: each fix gets its
 own branch and PR (run-wave per-item mode); the shared worktree applies only to items under one
-parent feature.
+parent feature. Items materialized from one approved plan share one parent feature and one branch, whatever their wave count (`wave.md` Step 2); a split into several parents is named on the plan's `work-breakdown` note.
 
 ---
 

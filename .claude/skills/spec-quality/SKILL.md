@@ -20,6 +20,12 @@ shown when ADMIN OR the flag was false. The 4.0 rule lives at
 The error survived from spec to header because the sentence was written from intent and no line
 was opened.
 
+**A slice or package refactor is cut by kind of change, in one PR.** One mechanical-moves item (a
+scripted move is one item whatever its file count), one semantic item per slice whose ports or
+behaviour change, and one rules-and-guards item (`LayeringRules.kt`, ratchet baselines). The move
+is its own item with its own review verdict, so no single review mixes a mechanical diff with a
+behaviour change.
+
 **Automated budget headroom is measured while writing the spec.** When the blast radius touches a
 surface with an automated budget, ceiling or quota test (for example `ToolSurfaceGuardsTest`),
 record the measured values and the predicted post-change values; do not defer the measurement to
