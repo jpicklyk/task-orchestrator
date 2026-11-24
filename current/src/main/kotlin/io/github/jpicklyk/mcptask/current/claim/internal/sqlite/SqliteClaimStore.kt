@@ -37,7 +37,9 @@ import org.jetbrains.exposed.v1.core.Sum
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -357,6 +359,8 @@ class SqliteClaimStore(
         val conditions = ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.subtree(it) }, now) ?: return null
         // The caller's access scope, in the same SQL as the selector (before paging and counting); nothing visible = nothing.
         conditions.addAll(visibilityConditions(scope) ?: return null)
+        if (query.leavesOnly) conditions.add(NotOp(WorkViewSql.hasLifecycleChild()))
+        if (query.buildingOnly) conditions.add(WorkItemsTable.builds.isNull() or (WorkItemsTable.builds eq true))
         return conditions
     }
 

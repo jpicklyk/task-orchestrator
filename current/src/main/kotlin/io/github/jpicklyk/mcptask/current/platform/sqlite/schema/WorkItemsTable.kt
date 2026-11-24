@@ -55,6 +55,9 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     val blockedReason = text("blocked_reason").nullable()
     val blockedRef = javaUuidSqlite("blocked_ref").nullable()
 
+    // V38: the pinned builds flag (NULL = schema-free or pinned before V38, read as "builds").
+    val builds = boolSqlite("builds").nullable()
+
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)

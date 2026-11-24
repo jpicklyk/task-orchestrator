@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory
  *   already has one is demoted to non-entering (WARN).
  * - **Resources**: the union of keys; on a duplicate key EXCLUSIVE beats ADVISORY, and `ttlSeconds`
  *   keeps the first-seen value.
+ * - **Builds**: false when the base schema or ANY trait sets `builds: false` (false wins; `true` changes nothing).
  * - **Dispatch by role**: the first trait to declare a role wins.
  * - **Dispatch by seat**: per (phase, seat) the first MODEL-SELECTING override in trait order wins (see
  *   [isModelSelecting]), so `[delegated, complex-implementation]` resolves like `[complex-implementation,
@@ -46,7 +47,7 @@ class TraitResolver(
     /**
      * [base] merged with its traits ([order] of [itemTraits] and [base]'s `default_traits`). Unknown
      * traits WARN (naming [subject], e.g. the item id) and are skipped. Returns [base] unchanged when
-     * no trait contributes a note or a seat.
+     * no trait contributes a note, a seat or `builds: false`.
      */
     fun mergeSchema(
         base: WorkItemSchema,
@@ -58,6 +59,7 @@ class TraitResolver(
 
         val traitNoteEntries = mutableListOf<NoteSchemaEntry>()
         val traitSeatEntries = mutableListOf<SeatDefinition>()
+        var builds = base.builds
         for (traitName in traits) {
             val notes = layers.traitNotes(traitName)
             if (notes == null) {
@@ -66,13 +68,18 @@ class TraitResolver(
             }
             traitNoteEntries.addAll(notes)
             traitSeatEntries.addAll(layers.traitSeats(traitName))
+            if (layers.traitBuilds(traitName) == false) builds = false
         }
 
-        if (traitNoteEntries.isEmpty() && traitSeatEntries.isEmpty()) return base
+        // Builds is folded before this return, so a trait carrying only `builds: false` still applies.
+        if (traitNoteEntries.isEmpty() && traitSeatEntries.isEmpty()) {
+            return if (builds == base.builds) base else base.copy(builds = builds)
+        }
 
         return base.copy(
             notes = mergeNotes(base.notes, traitNoteEntries),
             seats = mergeSeats(base.seats, traitSeatEntries, subject),
+            builds = builds,
         )
     }
 

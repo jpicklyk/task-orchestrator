@@ -61,6 +61,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
  *   entirely.
  * @property traitDescriptors per-trait `description` and `applies_when` text; a trait with neither is
  *   absent from the map. Descriptive only: the server never evaluates it.
+ * @property traitBuilds per-trait `builds` value; a trait that does not set it is absent from the map.
  * @property independence the resolved top-level `independence:` block (A2), or `null` when the
  *   document has no `independence` key at all — a layering caller uses that `null` to fall through
  *   to another layer (mirrors [noteLimitsMode]'s null-means-absent contract), applying
@@ -86,6 +87,7 @@ data class ConfigDocument(
     val runs: RunsConfig? = null,
     val decisionClasses: Map<String, DecisionClassConfig>? = null,
     val traitDescriptors: Map<String, TraitDescriptor> = emptyMap(),
+    val traitBuilds: Map<String, Boolean> = emptyMap(),
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */

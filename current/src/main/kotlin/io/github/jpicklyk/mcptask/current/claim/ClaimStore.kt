@@ -179,7 +179,8 @@ interface ClaimStore {
      * One page of the items eligible under [query], plus the exact eligible count, both decided in
      * SQL in one transaction (no over-fetch window: an eligible item ranked behind any number of
      * ineligible ones is found). An item is eligible when it:
-     * - matches every selector filter of [query] (see [EligibilityQuery]);
+     * - matches every selector filter of [query] (see [EligibilityQuery]), [EligibilityQuery.leavesOnly] and
+     *   [EligibilityQuery.buildingOnly] included;
      * - is not dependency-blocked: every BLOCKS edge into it has a blocker whose role is at or
      *   beyond the edge threshold (`unblock_at`, TERMINAL when null), and a BLOCKED or missing
      *   blocker never satisfies; RELATES_TO edges are ignored;
@@ -268,6 +269,10 @@ data class EligibilityQuery(
     val requestingAssignmentId: UUID? = null,
     val rootIds: Set<UUID>? = null,
     val includeClaimed: Boolean = false,
+    /** When true, only leaves match: an item with a child whose role is set (any role, terminal included) does not. */
+    val leavesOnly: Boolean = false,
+    /** When true, only items that build match: an item whose pinned `builds` is false does not (NULL builds). */
+    val buildingOnly: Boolean = false,
 )
 
 /**

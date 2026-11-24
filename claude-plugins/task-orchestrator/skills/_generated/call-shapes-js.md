@@ -487,7 +487,7 @@ Profiles: orchestration.
 await tools['mcp__mcp-task-orchestrator__items_read']({select: 'next'});
 ```
 
-Optional: `parentId`, `ancestorId`, `role`, `priority`, `tags`, `type`, `complexityMax`, `createdAfter`, `createdBefore`, `modifiedAfter`, `modifiedBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy`, `includeClaimed`, `limit`, `cursor`, `fields`.
+Optional: `parentId`, `ancestorId`, `role`, `priority`, `tags`, `type`, `complexityMax`, `createdAfter`, `createdBefore`, `modifiedAfter`, `modifiedBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy`, `includeClaimed`, `includeParents`, `limit`, `cursor`, `fields`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#items_read-next).
 

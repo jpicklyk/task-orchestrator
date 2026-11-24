@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * per-tool ceiling, and a planned file that no longer describes something NEW (a full entry for a tool already visible in that
  * profile, or a delta property already in the production rendering) is stale and must be replaced by the real golden.
  *
- * Oracles: task-scope AC8 and AC9 (ceilings 8,000 / 22,000 / 42,000 / 14,000; production + planned within each), decision D4
+ * Oracles: task-scope AC8 and AC9 (ceilings 9,000 / 22,000 / 43,500 / 14,000; production + planned within each), decision D4
  * (format: `<tool>.<profile>.json` is a full tools/list entry sized by `ToolGoldens.compact`; `<tool>.<profile>.delta.json` is a
  * JSON object of properties to add, sized by its compact length plus 2; stale = a full entry for a visible tool or a delta
  * property already rendered; every json file counts) and decision D5 (the exact list of planned files and, per file, the members
@@ -255,7 +255,7 @@ class PlannedSurfaceGuardTest {
     fun `S8 the guard uses the frozen ceilings by default`() {
         val totals = PlannedSurfaceChecks.totals(production)
         assertEquals(22_000, totals.getValue(ToolProfile.KNOWLEDGE).ceiling)
-        assertEquals(42_000, totals.getValue(ToolProfile.ORCHESTRATION).ceiling)
+        assertEquals(43_500, totals.getValue(ToolProfile.ORCHESTRATION).ceiling)
         assertEquals(14_000, totals.getValue(ToolProfile.DIRECTOR).ceiling)
     }
 
@@ -276,13 +276,13 @@ class PlannedSurfaceGuardTest {
     }
 
     @Test
-    fun `S8 an orchestration total of exactly 42000 passes and 42001 is flagged`(
+    fun `S8 an orchestration total of exactly 43500 passes and 43501 is flagged`(
         @TempDir dir: Path
     ) {
-        for (i in 1..6) write(dir, "t${i}_tool.orchestration.json", entryOfSize("t${i}_tool", 7_000))
+        for (i in 1..6) write(dir, "t${i}_tool.orchestration.json", entryOfSize("t${i}_tool", 7_250))
         assertEquals(emptyList(), PlannedSurfaceChecks.violations(noProduction, dir))
 
-        write(dir, "t6_tool.orchestration.json", entryOfSize("t6_tool", 7_001))
+        write(dir, "t6_tool.orchestration.json", entryOfSize("t6_tool", 7_251))
         val violations = PlannedSurfaceChecks.violations(noProduction, dir)
         assertEquals(1, violations.size, violations.toString())
         assertTrue(violations.single().startsWith("total/orchestration"), violations.single())
@@ -344,12 +344,12 @@ class PlannedSurfaceGuardTest {
     // ------------------------------------------------------------------ S12 each fault alone
 
     @Test
-    fun `S12 a planned entry of exactly 8000 characters passes and one of 8001 is flagged`(
+    fun `S12 a planned entry of exactly 9000 characters passes and one of 9001 is flagged`(
         @TempDir dir: Path
     ) {
         assertEquals(
             emptyList(),
-            only(dir, "big_tool.director.json", entryOfSize("big_tool", 8_000), noProduction).filterNot {
+            only(dir, "big_tool.director.json", entryOfSize("big_tool", 9_000), noProduction).filterNot {
                 it.startsWith("total/")
             }
         )
@@ -357,11 +357,11 @@ class PlannedSurfaceGuardTest {
             only(
                 dir,
                 "big_tool.director.json",
-                entryOfSize("big_tool", 8_001),
+                entryOfSize("big_tool", 9_001),
                 noProduction
             ).filterNot { it.startsWith("total/") }
         assertEquals(1, violations.size, violations.toString())
-        assertTrue("big_tool.director.json" in violations.single() && "8001" in violations.single(), violations.single())
+        assertTrue("big_tool.director.json" in violations.single() && "9001" in violations.single(), violations.single())
     }
 
     @Test

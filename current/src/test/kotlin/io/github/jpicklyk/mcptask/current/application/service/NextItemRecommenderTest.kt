@@ -130,7 +130,35 @@ class NextItemRecommenderTest {
             recommender.recommend(NextItemRecommender.Criteria(), limit = 1)
 
             coVerify(exactly = 1) {
-                workItemRepo.findEligible(EligibilityQuery(role = Role.QUEUE, orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY), 1, 0)
+                workItemRepo.findEligible(
+                    EligibilityQuery(
+                        role = Role.QUEUE,
+                        orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                        leavesOnly = true,
+                        buildingOnly = true
+                    ),
+                    1,
+                    0
+                )
+            }
+        }
+
+    @Test
+    fun `the queue role asks for building leaves, includeParents drops the leaf rule, other roles ask for neither`(): Unit =
+        runBlocking {
+            assertEquals(
+                true to true,
+                NextItemRecommender.Criteria().toEligibilityQuery().let { it.leavesOnly to it.buildingOnly }
+            )
+            assertEquals(
+                false to true,
+                NextItemRecommender.Criteria(includeParents = true).toEligibilityQuery().let { it.leavesOnly to it.buildingOnly }
+            )
+            for (role in listOf(Role.WORK, Role.REVIEW, Role.BLOCKED)) {
+                for (flag in listOf(false, true)) {
+                    val query = NextItemRecommender.Criteria(role = role, includeParents = flag).toEligibilityQuery()
+                    assertEquals(false to false, query.leavesOnly to query.buildingOnly, "role $role includeParents $flag")
+                }
             }
         }
 
@@ -303,7 +331,9 @@ class NextItemRecommenderTest {
 
             recommender.recommend(NextItemRecommender.Criteria(requestingAgentId = agentId), limit = 1)
 
-            coVerify(exactly = 1) { workItemRepo.findEligible(EligibilityQuery(requestingAgentId = agentId), 1, 0) }
+            coVerify(exactly = 1) {
+                workItemRepo.findEligible(EligibilityQuery(requestingAgentId = agentId, leavesOnly = true, buildingOnly = true), 1, 0)
+            }
         }
 
     @Test

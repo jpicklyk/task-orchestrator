@@ -21,13 +21,16 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  *   [WorkItemSchema] straight from parsing carries only its own seats). Empty means this schema is
  *   not seat-aware (see [isSeatAware]) — every seat-related response field stays absent for such a
  *   schema (byte-identity with pre-A1 responses).
+ * @property builds False when items of this type are not work that builds (decision 0004): `next` and claim select
+ *   in the queue role skip them. A trait's `builds: false` also clears it at merge time (`TraitResolver.mergeSchema`).
  */
 data class WorkItemSchema(
     val type: String,
     val lifecycleMode: LifecycleMode = LifecycleMode.AUTO,
     val notes: List<NoteSchemaEntry> = emptyList(),
     val defaultTraits: List<String> = emptyList(),
-    val seats: List<SeatDefinition> = emptyList()
+    val seats: List<SeatDefinition> = emptyList(),
+    val builds: Boolean = true
 ) {
     /**
      * Returns true if this schema has any note entry assigned to the REVIEW phase.

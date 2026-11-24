@@ -125,7 +125,7 @@ class SqliteItemStore(
     }
 
     /**
-     * Writes [pin] into the V26 pin columns and `lifecycle` of [statement] (all NULL for an unpinned item). The layer is
+     * Writes [pin] into the V26 pin columns, `lifecycle` and the V38 `builds` of [statement] (all NULL for an unpinned item). The layer is
      * its lowercase wire value and the lifecycle its lowercase mode name, as the V26 CHECKs require.
      */
     private fun writePin(
@@ -138,6 +138,7 @@ class SqliteItemStore(
         statement[WorkItemsTable.pinnedSchemaLayer] = pin?.schemaLayer?.wire
         statement[WorkItemsTable.lifecycle] = pin?.lifecycle?.name?.lowercase()
         statement[WorkItemsTable.pinnedAt] = pin?.pinnedAt
+        statement[WorkItemsTable.builds] = pin?.builds
     }
 
     /** Writes [item]'s trait rows (positions 0..n-1) in the caller's transaction. */

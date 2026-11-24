@@ -44,6 +44,9 @@ interface GlobalConfigLookup {
     /** The `description` and `applies_when` text declared by trait [name], or null when it declares neither. */
     fun traitDescriptor(name: String): TraitDescriptor? = null
 
+    /** The `builds` value declared by trait [name], or null when it does not set one (or is unknown). */
+    fun traitBuilds(name: String): Boolean? = null
+
     /** The top-level `resources:` registry. */
     fun resourceRegistry(): Map<String, ResourceDefinition>
 

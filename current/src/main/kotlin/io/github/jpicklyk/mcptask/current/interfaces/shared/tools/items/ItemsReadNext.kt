@@ -81,6 +81,8 @@ object ItemsReadNext {
         val orderBy: OrderByWire? = null,
         @Doc("Also list items under an active claim, each with isClaimed; default false.")
         val includeClaimed: Boolean? = null,
+        @Doc("Also list parent items; default false.")
+        val includeParents: Boolean? = null,
         @Doc(ItemsReadDocs.LIMIT) val limit: Int? = null,
         @Doc(ItemsReadDocs.CURSOR) val cursor: String? = null,
         @Doc(ItemsReadDocs.FIELDS) val fields: List<String>? = null,
@@ -91,7 +93,8 @@ object ItemsReadNext {
             name = "next",
             doc =
                 "One page of the items ready to pick up, ranked (default limit 1, max 200): in the role (default queue; " +
-                    "not terminal), unclaimed, not under a claim by another agent, no unsatisfied blocker. includeClaimed lists " +
+                    "not terminal), in queue a leaf that builds (includeParents lists parents), unclaimed, " +
+                    "not under a claim by another agent, no unsatisfied blocker. includeClaimed lists " +
                     "claimed items too. Empty with reason claim_held or dependency_unmet when matches exist but none is ready. " +
                     "fields: summary, ancestors.",
             profiles = orchestration(),
@@ -156,6 +159,7 @@ object ItemsReadNext {
                         roleChangedBefore = req.roleChangedBefore,
                         orderBy = req.orderBy?.order ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY,
                         ancestorIds = ancestorId?.let { setOf(it) },
+                        includeParents = req.includeParents ?: false,
                     )
                 val includeClaimed = req.includeClaimed ?: false
                 val view = env.workViewQueries.nextView(criteria, page, includeClaimed, ctx.scope)

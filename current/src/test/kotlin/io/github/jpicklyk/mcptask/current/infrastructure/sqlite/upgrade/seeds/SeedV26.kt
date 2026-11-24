@@ -64,7 +64,9 @@ object SeedV26 : MigrationSeed(26) {
             "claim_assignment_id" to false,
             // V37 appends the typed blocked reason and its decision reference (the list is checked at the latest schema)
             "blocked_reason" to false,
-            "blocked_ref" to false
+            "blocked_ref" to false,
+            // V38 appends the pinned builds flag (the list is checked at the latest schema)
+            "builds" to false
         )
 
     private val newColumns =

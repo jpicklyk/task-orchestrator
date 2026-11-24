@@ -26,6 +26,8 @@ enum class PinLayer(
  *   taken; null when that scope had no config (no version, or a reset head).
  * - [schemaKey] / [schemaLayer]: the base schema the item resolved to; both null when it resolved schema-free.
  * - [lifecycle]: that schema's lifecycle mode; null when schema-free.
+ * - [builds]: whether that schema merged with the item's traits builds (decision 0004); null when schema-free, and on a
+ *   pin taken before V38 (read as "builds").
  * - [pinnedAt]: when the pin was taken.
  *
  * Only the application's pin writer (`SchemaPinService`) and the `pin-backfill` data step produce pins; everything else
@@ -37,13 +39,15 @@ data class SchemaPin(
     val schemaKey: String?,
     val schemaLayer: PinLayer?,
     val lifecycle: LifecycleMode?,
-    val pinnedAt: Instant
+    val pinnedAt: Instant,
+    val builds: Boolean? = null
 ) {
     /** Every invariant violation of this pin, in check order; empty when valid. */
     fun violations(): List<String> {
         val out = mutableListOf<String>()
         if ((schemaKey == null) != (schemaLayer == null)) out += "Pin schema key and schema layer must be set or null together"
         if (lifecycle != null && schemaKey == null) out += "Pin lifecycle may be set only with a schema key"
+        if (builds != null && schemaKey == null) out += "Pin builds may be set only with a schema key"
         return out
     }
 }

@@ -57,7 +57,7 @@ import kotlin.test.assertTrue
  * WRITE_CONFIG for push / rollback / reset, reset destructive, every op ToolProfile.ORCHESTRATION, so knowledge hides the whole
  * tool), decision D2, AC1 (`manage_project_config` and `query_rules` gone from the MCP tool list), AC2 (a HAPPY and a
  * SCOPE_FORBIDDEN parity scenario per op), AC4 (the removed per-root config, effective-view, discovery, rule and bare
- * `GET /config` routes answer 404; `GET /api/v1/config/schema` is unchanged and still served with an ETag under READ), the 8,000
+ * `GET /config` routes answer 404; `GET /api/v1/config/schema` is unchanged and still served with an ETag under READ), the 9,000
  * character per-tool budget of ToolSurfaceChecks and the field-documentation rule.
  */
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
@@ -175,7 +175,7 @@ class ConfigRegistrationTest {
     }
 
     @Test
-    fun `S18 the surface stays within the budget and documentation checks, and config fits its own 8000 character ceiling`() {
+    fun `S18 the surface stays within the budget and documentation checks, and config fits its own 9000 character ceiling`() {
         assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(registry))
         assertEquals(emptyList(), ToolSurfaceChecks.docViolations(registry))
         val size = assertNotNull(ToolSurfaceChecks.sizes(registry, ToolProfile.ORCHESTRATION)["config"])

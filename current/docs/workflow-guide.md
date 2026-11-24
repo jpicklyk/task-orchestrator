@@ -1054,7 +1054,7 @@ An actor holds one claim at a time: claiming a second item releases the first an
 
 The two-call pattern above has an inherent race: between `next` returning an item ID and the claim locking it, another agent can claim the same item. For high-concurrency fleets, `select` mode eliminates the **user-facing** race window by resolving the filter and claiming the best match in a single call.
 
-`items_read` `next` and the claim's `select` take the same filter shapes - `role`, `parentId`, `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before` and `orderBy` - backed by the same shared eligibility logic.
+`items_read` `next` and the claim's `select` take the same filter shapes - `role`, `parentId`, `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before`, `orderBy` and `includeParents` - backed by the same shared eligibility logic. In the `queue` role both return startable work only: a leaf (no child that has a role) whose schema and traits do not set `builds: false`. `includeParents: true` adds parents.
 
 **Select mode lifecycle:**
 
@@ -1131,7 +1131,7 @@ Multi-role fleets use `next` with a `role` to target different pipeline stages:
 
 | Agent group | Call |
 |---|---|
-| Work-group (implementation) | `{ "select": "next" }` (default `role: "queue"`) |
+| Work-group (implementation) | `{ "select": "next" }` (default `role: "queue"`: leaves that build, no parents) |
 | Review-group | `{ "select": "next", "role": "review" }` |
 | Triage-group | `{ "select": "next", "role": "blocked" }` |
 | Fleet health operator | `{ "select": "next", "includeClaimed": true }` - includes claimed items, shows the `isClaimed` boolean |
