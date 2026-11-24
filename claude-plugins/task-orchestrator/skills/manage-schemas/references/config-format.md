@@ -528,7 +528,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved bucket name `unowned` (see "The `unowned` bucket") and the name `director`, which a seat may never be named, a warning on `coordinator` (a retired name), and the seat named `orchestrator`, whose note keys a run's token may write (see "Seat transitions"). |
+| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named, and `orchestrator`, which is given a meaning: a run's token may write its note keys (see "Seat transitions"). `coordinator`, a retired name, is not reserved: it loads with a warning. |
 | `phase` | yes | string | `queue`, `work`, or `review` only - exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within one seats scope - see "Structural errors". A conflict discovered only at resolve time (per-item traits, or traits from a different config layer) is not fatal - see "Merge rules". |
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |

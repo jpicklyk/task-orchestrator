@@ -86,13 +86,13 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
   `seat_forbidden` (see [`advance`](api-reference.md#advance)).
 - **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's orchestrator token may
   write; every other seat-owned key needs that seat's own token (a human credential is exempt). It owns the notes labelled for it in any phase it is declared, not only its own phase.
-- **Reserved seat names.** Three seat names carry meaning for the server. `unowned` is refused: a schema or trait that
+- **Reserved seat names.** Three seat names are reserved. `unowned` is refused: a schema or trait that
   declares a seat of that name (exact match) is a structural error, because `unowned` is the `missingBySeat` bucket that
   holds the required notes no declared seat owns. `director` is refused the same way, because the director never fills a
-  seat or writes notes. A seat named `coordinator`, a retired name for a run's orchestrator, loads with a warning.
-  `orchestrator` is accepted and given a meaning: it is the owning seat of notes the orchestrator fills itself, and
+  seat or writes notes. `orchestrator` is accepted and given a meaning: it is the owning seat of notes the orchestrator fills itself, and
   the server lets the run's token write them inside a run (outside one they are written directly),
-  and the plugin's run planner never schedules the seat as a stage of a run, so no agent is dispatched to it.
+  and the plugin's run planner never schedules the seat as a stage of a run, so no agent is dispatched to it. `coordinator`, a retired name for a run's orchestrator, is not reserved: it loads with a
+  warning.
 
 ```yaml
 work_item_schemas:

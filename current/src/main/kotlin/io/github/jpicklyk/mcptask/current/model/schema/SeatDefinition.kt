@@ -31,10 +31,12 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  *   seat may never be named (a load-time structural error).
  * - `director`: refused the same way (a load-time structural error), since the director never fills a seat or writes
  *   notes.
- * - `coordinator`: loads, with a warning, since it is a retired word for a run's orchestrator.
- * - `orchestrator` ([ORCHESTRATOR_WRITABLE_SEAT]): the orchestrator seat, for notes the orchestrator writes itself; the
- *   plugin's run planner dispatches no agent to it (the server does not refuse an `assign`). In an open run the run token may write its keys, and it owns its labelled notes in any
- *   phase it is declared (see [OwningSeat]).
+ * - `orchestrator` ([ORCHESTRATOR_WRITABLE_SEAT]): given a meaning, not refused: the orchestrator seat, for notes the
+ *   orchestrator writes itself; the plugin's run planner dispatches no agent to it (the server does not refuse an
+ *   `assign`). In an open run the run token may write its keys, and it owns its labelled notes in any phase it is
+ *   declared (see [OwningSeat]).
+ *
+ * `coordinator`, a retired word for a run's orchestrator, is not reserved: a seat of that name loads, with a warning.
  *
  * Every other seat owns only notes of its own phase.
  *
