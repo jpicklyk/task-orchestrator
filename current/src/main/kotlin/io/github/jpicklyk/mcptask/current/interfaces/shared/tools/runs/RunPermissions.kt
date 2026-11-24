@@ -43,7 +43,7 @@ internal object RunPermissions {
 
     fun isHuman(ctx: CallContext): Boolean = isHumanCaller(ctx)
 
-    /** True when the call carries [run]'s run token. */
+    /** True when the call carries the token of [run]. */
     fun isCoordinator(
         ctx: CallContext,
         run: Run

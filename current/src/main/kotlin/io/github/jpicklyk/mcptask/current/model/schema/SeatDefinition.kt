@@ -29,8 +29,8 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  * Seat names are opaque to the server except two reserved names:
  * - `unowned`: the bucket (see [io.github.jpicklyk.mcptask.current.application.service.UNOWNED_SEAT_BUCKET]), which a
  *   seat may never be named (a load-time structural error).
- * - `orchestrator` ([ORCHESTRATOR_WRITABLE_SEAT]): the orchestrator seat, for notes the orchestrator writes itself; no
- *   agent is dispatched to it. In an open run the run token may write its keys, and it owns its labelled notes in any
+ * - `orchestrator` ([ORCHESTRATOR_WRITABLE_SEAT]): the orchestrator seat, for notes the orchestrator writes itself; the
+ *   plugin's run planner dispatches no agent to it (the server does not refuse an `assign`). In an open run the run token may write its keys, and it owns its labelled notes in any
  *   phase it is declared (see [OwningSeat]).
  *
  * Every other seat owns only notes of its own phase.

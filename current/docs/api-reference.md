@@ -17,7 +17,7 @@ tool section ends with a block between `<!-- generated:tool NAME -->` markers, a
 class `@Doc` (or the op's profile, capability or errors) and run `./gradlew :current:regenerateApiReference`;
 `ApiReferenceFreshnessTest` fails when a block is stale and names that task. The same data is served at runtime
 by a `describe: true` call on any tool. A write element also takes `op` and an optional `idempotencyKey`, and a select call takes
-`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or run token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. The orchestration profile's tool schemas declare `seatToken` as an optional top-level string, so a client that validates arguments against the schema (Code Mode) accepts it; the knowledge and director schemas do not. No call takes
+`select` and `describe`, and any call may carry a top-level `seatToken` (a seat's token or the run's own token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. The orchestration profile's tool schemas declare `seatToken` as an optional top-level string, so a client that validates arguments against the schema (Code Mode) accepts it; the knowledge and director schemas do not. No call takes
 an `actor`: the caller is the principal its transport established (the bearer credential over REST and HTTP `/mcp`,
 the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
 with no principal is `unauthenticated` before anything in it is read.
