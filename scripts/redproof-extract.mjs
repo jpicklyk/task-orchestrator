@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Red-proof extraction: a clean copy of the paths the node tests read, taken from one commit, with an
-// unmutated control run inside it. Wave-boundary red-proofs on node tests (plugin hooks and scripts)
+// unmutated control run inside it. Post-merge red-proofs on node tests (plugin hooks and scripts)
 // mutate this extraction, never the live tree; a mutation counts only after a green control here.
 //
 //   node scripts/redproof-extract.mjs <sha> <outDir> <testFile>...
