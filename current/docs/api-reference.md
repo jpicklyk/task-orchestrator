@@ -177,14 +177,14 @@ version ids) is recorded in the events table only; it is not projected onto the 
 
 #### `create_tree`
 
-Creates a root with its children, the dependencies between them and their notes as ONE write unit: everything commits
+Creates a root with its children, the dependencies among them or to existing items, and their notes as ONE write unit: everything commits
 or nothing does (zero items, notes, dependencies, links and events; a referenced plan document stays PENDING). It
 replaces the 3.x `create_work_tree` tool. Orchestration profile only; capability `write-items`. Field semantics:
 
 - `root` (required): The root. Create mode: `title` and `type` required, plus any `create` field except `parentId` (`priority`, `tags` and `traits` arrays, `summary`, `description`, `statusLabel`, `complexity`, `requiresVerification`, `metadata`, `properties`) and `noteAnchors`. Attach mode: `id` (UUID or 8+ hex prefix) names an existing item that becomes the root; no root row is written and the other root fields except `noteAnchors` are ignored.
 - `parentId`: Create mode only: the new root's parent (root depth = parent depth + 1). Not allowed with `root.id`.
 - `children`: `[{ref, title, type, parentRef?, ...}]`: `ref` is a unique local name (`root` is reserved), `parentRef` the parent's ref (default `root`), plus the same optional fields and `noteAnchors` as the root. Any order: children are written parent before child (`TopoOrder` over the `parentRef` edges, ties in request order).
-- `deps`: `[{from, to, type?, unblockAt?}]` between refs (`root` included): `type` `blocks` (default) or `relates_to`, `unblockAt` `queue`, `work`, `review` or `terminal` (not with `relates_to`).
+- `deps`: `[{from | fromId, to | toId, type?, unblockAt?}]`: each end is a ref of the tree (`from`, `to`; `root` included) or an existing item (`fromId`, `toId`: UUID or 8+ hex prefix), exactly one form per end, and at least one end is a ref (an edge between two existing items is `deps_write`'s). `type` `blocks` (default) or `relates_to`, `unblockAt` `queue`, `work`, `review` or `terminal` (not with `relates_to`).
 - `notes`: `[{itemRef, key, role, body?}]`: `role` `queue`, `work` or `review`.
 - `createNotes`: `true`: a blank note for every key of each item's resolved schema that no explicit note or anchor writes.
 - `docRef`: `{slug, rootId?}`: the PENDING plan document `noteAnchors` cut from; `rootId` defaults to (and must equal) the tree's own project root. A `rule/` slug is rejected.
@@ -198,26 +198,32 @@ document as the unit's last write.
 
 Result: `{ok, id, version, items, deps, notes}`. `id`/`version` are the root's (created or attached). `items` is
 `[{ref, id, depth}]`, the root first (ref `root`), then the children in insertion order. `deps` is
-`[{id, fromRef, toRef, type, unblockAt?}]` in request order; `notes` is `[{itemRef, key, role, id, warning?}]`.
+`[{id, fromRef | fromId, toRef | toId, type, unblockAt?}]` in request order, an existing-item end answered by its
+canonical id; `notes` is `[{itemRef, key, role, id, warning?}]`.
 Schema decorations (`schemaMatch`, `expectedNotes`) are not returned: read them with `items_read` `select: schema`.
 
 Check order, each before any write: (1) the request's shape (`invalid_request` with element pointers, all faults at
 once: `root.id` with `parentId`, a missing `root.title` / `root.type` in create mode, a reserved or repeated child
 `ref`, an unknown `parentRef`, a `parentRef` cycle on `/children`, an unknown dep or note ref, a self dependency,
-`unblockAt` with `relates_to`, `noteAnchors` without `docRef`, a `rule/` slug); (2) scope (below); (3) the plan:
+a dep end given both forms (`/deps/<i>/fromId` or `toId`) or neither (`/deps/<i>/from` or `to`), a dep with ids at both
+ends (`/deps/<i>`), `unblockAt` with `relates_to`, `noteAnchors` without `docRef`, a `rule/` slug); (2) scope (below),
+then each `fromId`/`toId` (`not_found` for an unknown one, `forbidden` under a restricted scope); (3) the plan:
 an undeclared or blank `type` (`schema_violation`, the item service's rule), a dependency cycle (`cycle_detected`, the
-path holds item ids, the message names the ref) or restatement (`duplicate`), a note policy rejection
+path holds item ids, the message names a ref; stored edges of the existing ends and an attached root count) or
+restatement (`duplicate`, a stored edge included), a lifecycle-free existing end or attached root of a `blocks` edge (`invalid_request`
+on that end's pointer), a note policy rejection
 (`schema_violation`, `payload_too_large`, `note_too_long`), a missing document (`not_found`, kind `document`), an
 already-adopted document (`duplicate`, kind `document`), an anchor miss (`invalid_request` on
 `/root/noteAnchors/<j>/anchor` or `/children/<i>/noteAnchors/<j>/anchor`), a `docRef.rootId` mismatch
 (`invalid_request` on `/docRef/rootId`); (4) the writes: a closed parent is `invalid_transition`, a vanished parent
-`not_found`.
+`not_found`, an existing end claimed by another holder `not_claim_holder`.
 
-**Scope.** The whole tree hangs under one anchor, which is the only check: `root.id` (attach) or `parentId` must be
-admitted; a top-level root create is `forbidden` under a root scope or a tag scope (unless the caller holds `admin`). Under a
+**Scope.** The whole tree hangs under one anchor: `root.id` (attach) or `parentId` must be admitted, and so must every
+`fromId`/`toId` (an unknown one is `forbidden` too, so scope is no existence oracle); a top-level root create is `forbidden` under a root scope or a tag scope (unless the caller holds `admin`). Under a
 tag scope every row the tree creates, a created root and each child, needs a listed tag in its `tags` (`forbidden`, scope
 `tag`); an attached root is an existing row and is not tag-checked again. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
-unknown id is the same `invalid_request` on `/docRef/rootId`.
+unknown id is the same `invalid_request` on `/docRef/rootId`. Under a restricted scope a `cycle_detected` path omits
+the stored items the scope does not admit, as `deps_write` does.
 
 #### `complete_tree`
 
@@ -357,9 +363,11 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `children[].noteAnchors[].noteKey` | string | yes | Note key. |
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes | Note role. |
 | `children[].noteAnchors[].anchor` | string | yes | Heading to cut. |
-| `deps` | array of object | no | Edges between refs. |
-| `deps[].from` | string | yes | From ref (blocker for blocks). |
-| `deps[].to` | string | yes | To ref (blocked for blocks). |
+| `deps` | array of object | no | Edges between refs or existing item ids. |
+| `deps[].from` | string | no | From ref (blocker for blocks). |
+| `deps[].fromId` | string | no | Existing item id instead of from (blocker). |
+| `deps[].to` | string | no | To ref (blocked for blocks). |
+| `deps[].toId` | string | no | Existing item id instead of to (blocked). |
 | `deps[].type` | string: blocks \| relates_to | no | blocks (default) or relates_to. |
 | `deps[].unblockAt` | string: queue \| work \| review \| terminal | no | Unblocks at this role; default terminal. |
 | `notes` | array of object | no | Notes; win over noteAnchors and createNotes. |
@@ -1132,7 +1140,8 @@ capability (`manage-dependencies`); `delete` is destructive.
   is `invalid_request`. The 3.x `is_blocked_by` alias is not accepted: name the blocker as `from`.
 - **Lifecycle-free endpoints.** A `blocks` edge with a lifecycle-free item at either end is `invalid_request` (the
   violation names `fromItemId` or `toItemId` with the item's id as `received`); nothing is written. `relates_to` edges
-  are allowed. The same rule applies to `items_write` `create_tree` `deps`.
+  are allowed. The same rule applies to `items_write` `create_tree` `deps`, where the violation names the request's own
+end (`/deps/<i>/from`, `fromId`, `to` or `toId`).
 - **Patterns are one element.** `linear`, `fan_out` and `fan_in` create all their edges in one unit or
   none: a duplicate edge (`duplicate`) or a cycle (`cycle_detected`, with the cycle path) anywhere in
   the pattern leaves nothing written.

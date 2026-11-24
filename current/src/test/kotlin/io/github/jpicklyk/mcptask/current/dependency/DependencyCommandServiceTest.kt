@@ -362,6 +362,39 @@ class DependencyCommandServiceTest {
         }
 
     // ------------------------------------------------------------------
+    // validateTreeEdges with stored endpoints (item 0bd6ba50)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `validateTreeEdges over stored endpoints rejects a stored pair as duplicate and a cycle through stored rows`(): Unit =
+        runBlocking {
+            service.create(listOf(dep(a, b), dep(b, c)), caller = null).ok()
+            val fresh = UUID.randomUUID()
+
+            val duplicate = service.validateTreeEdges(listOf(dep(fresh, a), dep(a, b)), setOf(a, b)).err()
+            assertEquals(ErrorCode.DUPLICATE, duplicate.code)
+
+            // c -> fresh -> a closes a -> b -> c through the stored rows
+            val cycle = service.validateTreeEdges(listOf(dep(c, fresh), dep(fresh, a)), setOf(a, c)).err()
+            assertEquals(ErrorCode.CYCLE_DETECTED, cycle.code)
+            val detail = assertIs<ErrorDetail.CycleDetected>(cycle.detail)
+            assertTrue(detail.path.containsAll(listOf(a, b, c, fresh)), "path: ${detail.path}")
+
+            val accepted = service.validateTreeEdges(listOf(dep(fresh, a), dep(c, d)), setOf(a, c, d)).ok()
+            assertEquals(2, accepted.size)
+            assertEquals(2, stored(a, b, c, d).size, "validation stores nothing")
+        }
+
+    @Test
+    fun `the pure validateTreeEdges ignores stored rows`(): Unit =
+        runBlocking {
+            service.create(listOf(dep(a, b)), caller = null).ok()
+
+            assertEquals(1, service.validateTreeEdges(listOf(dep(a, b))).ok().size, "the pure check reads no stored pair")
+            assertEquals(1, service.validateTreeEdges(listOf(dep(b, a))).ok().size, "nor a stored edge it would reverse")
+        }
+
+    // ------------------------------------------------------------------
     // deleteByRelationship
     // ------------------------------------------------------------------
 

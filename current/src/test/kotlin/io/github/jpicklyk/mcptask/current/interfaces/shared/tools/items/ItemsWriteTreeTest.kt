@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.sql.DriverManager
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
@@ -99,6 +101,22 @@ internal fun twDep(
         put("to", to)
         if (type != null) put("type", type)
         if (unblockAt != null) put("unblockAt", unblockAt)
+    }
+
+/** A `deps[]` element whose ends may name existing items; a null argument leaves that member out. */
+internal fun twDepEnds(
+    from: String? = null,
+    fromId: String? = null,
+    to: String? = null,
+    toId: String? = null,
+    type: String? = null
+): JsonObject =
+    buildJsonObject {
+        if (from != null) put("from", from)
+        if (fromId != null) put("fromId", fromId)
+        if (to != null) put("to", to)
+        if (toId != null) put("toId", toId)
+        if (type != null) put("type", type)
     }
 
 internal fun twNote(
@@ -1800,5 +1818,255 @@ class ItemsWriteTreeTest {
                     .okResult(1)
                     .str("id")
             )
+        }
+
+    // ------------------------------------------------------------------ existing-item dependency ends (item 0bd6ba50)
+
+    private fun JsonObject.singleDep(): JsonObject =
+        getValue("deps")
+            .jsonArray
+            .single()
+            .jsonObject
+
+    private fun JsonObject.fieldList(): List<String> =
+        detail()
+            .getValue("fields")
+            .jsonArray
+            .map { it.jsonObject.str("field") }
+
+    private fun JsonObject.cyclePath(): List<String> =
+        detail()
+            .getValue("path")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+
+    private suspend fun IwKit.storeDep(
+        from: UUID,
+        to: UUID
+    ) {
+        rig.raw.dependencyRepository().create(Dependency(fromItemId = from, toItemId = to, type = DependencyType.BLOCKS))
+    }
+
+    @Test
+    fun `X1 attach mode - fromId names an existing item that blocks a new child, answered by fromId and toRef`(): Unit =
+        runBlocking {
+            val k = kit()
+            val project = k.make("Project")
+            val attached = k.make("Attach root", project)
+            val outside = k.make("Outside", project)
+            val ok =
+                k
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(
+                            buildJsonObject { put("id", attached.id.toString()) },
+                            listOf(twChild("c1")),
+                            listOf(twDepEnds(fromId = outside.id.toString().take(8), to = "c1"))
+                        )
+                    ).envelope.body
+                    .okResult()
+            val c1Id = ok.refId("c1")
+            val dep = ok.singleDep()
+            assertEquals(outside.id.toString(), dep.str("fromId"), "the canonical id, whatever spelling was sent")
+            assertEquals("c1", dep.str("toRef"))
+            assertFalse("fromRef" in dep, "an existing-item end has no ref: $dep")
+            val stored = k.depsOf(c1Id).single()
+            assertEquals(Triple(outside.id, c1Id, DependencyType.BLOCKS), Triple(stored.fromItemId, stored.toItemId, stored.type))
+        }
+
+    @Test
+    fun `X2 create mode - toId names an existing item a new child blocks`(): Unit =
+        runBlocking {
+            val k = kit()
+            val outside = k.make("Outside")
+            val ok =
+                k
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("Root"), listOf(twChild("c1")), listOf(twDepEnds(from = "c1", toId = outside.id.toString())))
+                    ).envelope.body
+                    .okResult()
+            val dep = ok.singleDep()
+            assertEquals("c1", dep.str("fromRef"))
+            assertEquals(outside.id.toString(), dep.str("toId"))
+            assertFalse("toRef" in dep)
+            val stored = k.depsOf(outside.id).single()
+            assertEquals(ok.refId("c1") to outside.id, stored.fromItemId to stored.toItemId)
+        }
+
+    @Test
+    fun `X3 end-shape faults are invalid_request at their pointers, reported together, and write nothing`(): Unit =
+        runBlocking {
+            val k = kit()
+            val a = k.make("A")
+            val b = k.make("B")
+            val before = k.snapshot()
+            val counts = k.tableCounts()
+            val err =
+                k
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(
+                            twRoot("Root"),
+                            listOf(twChild("c1")),
+                            listOf(
+                                twDepEnds(fromId = a.id.toString(), toId = b.id.toString()),
+                                twDepEnds(from = "c1", fromId = a.id.toString(), to = "root"),
+                                twDepEnds(to = "c1")
+                            )
+                        )
+                    ).envelope.body
+                    .errorAt()
+            assertEquals("invalid_request", err.str("code"), "error: $err")
+            val fields = err.fieldList()
+            for (pointer in listOf("/deps/0", "/deps/1/fromId", "/deps/2/from")) {
+                assertTrue(fields.any { it.endsWith(pointer) }, "expected a fault at $pointer in $fields")
+            }
+            assertUntouched(k, before, counts)
+        }
+
+    @Test
+    fun `X4 unrestricted - an unknown prefix or a missing full id is not_found and writes nothing`(): Unit =
+        runBlocking {
+            val k = kit()
+            k.make("Seed")
+            val before = k.snapshot()
+            val counts = k.tableCounts()
+            for (id in listOf("dead0bee", "c3000000-0000-4000-8000-0000000000ee")) {
+                val err =
+                    k
+                        .callIn(
+                            ToolProfile.ORCHESTRATION,
+                            twTree(twRoot("Root"), listOf(twChild("c1")), listOf(twDepEnds(fromId = id, to = "c1")))
+                        ).envelope.body
+                        .errorAt()
+                assertEquals("not_found", err.str("code"), "id $id: $err")
+            }
+            assertUntouched(k, before, counts)
+        }
+
+    @Test
+    fun `X5 restricted scope - an out-of-scope or unknown existing end is forbidden, an in-scope one writes`(): Unit =
+        runBlocking {
+            val k = seeded()
+            val before = k.snapshot()
+            val counts = k.tableCounts()
+            val ghost = "c3000000-0000-4000-8000-0000000000ee"
+            val underC1 = { id: String ->
+                twTree(
+                    twRoot("T"),
+                    listOf(twChild("c")),
+                    listOf(twDepEnds(fromId = id, to = "c")),
+                    extra =
+                        listOf(
+                            "parentId" to jstr(c1.toString())
+                        )
+                )
+            }
+            for (id in listOf(d2.toString(), d2.toString().take(8), ghost)) {
+                assertForbidden(k.callScoped(rootScoped, underC1(id)).errorAt(), "root", r1.toString())
+            }
+            val tagTree = { id: String ->
+                twTree(
+                    twRoot("T", extra = listOf("tags" to strings("alpha"))),
+                    deps = listOf(twDepEnds(fromId = id, to = "root")),
+                    extra = listOf("parentId" to jstr(c1.toString()))
+                )
+            }
+            for (id in listOf(d2.toString(), ghost)) {
+                assertForbidden(k.callScoped(tagScoped, tagTree(id)).errorAt(), "tag", "alpha")
+            }
+            assertUntouched(k, before, counts)
+            k.callScoped(rootScoped, underC1(c2.toString())).okResult()
+            assertEquals(counts.getValue("dependencies") + 1, k.tableCounts().getValue("dependencies"), "control: an in-scope end writes")
+        }
+
+    @Test
+    fun `X6 restricted scope - a cycle through a stored hop outside the scope omits that hop from the path`(): Unit =
+        runBlocking {
+            val k = seeded()
+            val hop = k.make("H", assertNotNull(k.item(r2)), tags = "beta")
+            // stored: c2 blocks H, H blocks c1; the tree closes c1 -> n -> c2
+            k.storeDep(c2, hop.id)
+            k.storeDep(hop.id, c1)
+            val counts = k.tableCounts()
+            val tree =
+                twTree(
+                    twRoot("T"),
+                    listOf(twChild("n")),
+                    listOf(twDepEnds(fromId = c1.toString(), to = "n"), twDepEnds(from = "n", toId = c2.toString())),
+                    extra = listOf("parentId" to jstr(r1.toString()))
+                )
+            val scoped = k.callScoped(rootScoped, tree).errorAt()
+            assertEquals("cycle_detected", scoped.str("code"), "error: $scoped")
+            assertFalse(hop.id.toString() in scoped.cyclePath(), "the out-of-scope hop is omitted: ${scoped.cyclePath()}")
+            assertTrue(scoped.cyclePath().containsAll(listOf(c1.toString(), c2.toString())))
+            val open =
+                k
+                    .callIn(ToolProfile.ORCHESTRATION, tree)
+                    .envelope.body
+                    .errorAt()
+            assertTrue(hop.id.toString() in open.cyclePath(), "control: an unrestricted caller sees the hop: ${open.cyclePath()}")
+            assertEquals(counts, k.tableCounts())
+        }
+
+    @Test
+    fun `X7 an existing end claimed by another holder is not_claim_holder and the tree rolls back`(): Unit =
+        runBlocking {
+            val k = kit()
+            val claimedAt = Instant.parse("2099-01-01T00:00:00Z").minusSeconds(60)
+            val heldId = UUID.randomUUID()
+            k.rig.raw.workItemRepository().create(
+                WorkItem(
+                    title = "Held",
+                    role = Role.QUEUE,
+                    id = heldId,
+                    rootId = heldId,
+                    claimedBy = "other-agent-77",
+                    claimedAt = claimedAt,
+                    claimExpiresAt = Instant.parse("2099-01-01T00:00:00Z"),
+                    originalClaimedAt = claimedAt
+                )
+            )
+            val counts = k.tableCounts()
+            val err =
+                k
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(twRoot("Root"), listOf(twChild("c1")), listOf(twDepEnds(fromId = heldId.toString(), to = "c1")))
+                    ).envelope.body
+                    .errorAt()
+            assertEquals("not_claim_holder", err.str("code"), "error: $err")
+            assertEquals(counts, k.tableCounts(), "no tree row remains")
+            k
+                .callIn(ToolProfile.ORCHESTRATION, twTree(twRoot("Root"), listOf(twChild("c1"))))
+                .envelope.body
+                .okResult()
+            assertEquals(
+                counts.getValue("work_items") + 2,
+                k.tableCounts().getValue("work_items"),
+                "control: the same tree without the edge writes"
+            )
+        }
+
+    @Test
+    fun `X8 an id end naming the attached root restates the root ref edge and is duplicate`(): Unit =
+        runBlocking {
+            val k = kit()
+            val attached = k.make("Attach root")
+            val counts = k.tableCounts()
+            val err =
+                k
+                    .callIn(
+                        ToolProfile.ORCHESTRATION,
+                        twTree(
+                            buildJsonObject { put("id", attached.id.toString()) },
+                            listOf(twChild("c1")),
+                            listOf(twDepEnds(fromId = attached.id.toString(), to = "c1"), twDepEnds(from = "root", to = "c1"))
+                        )
+                    ).envelope.body
+                    .errorAt()
+            assertEquals("duplicate", err.str("code"), "error: $err")
+            assertEquals(counts, k.tableCounts())
         }
 }

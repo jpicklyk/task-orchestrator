@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.workTreeService
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -13,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.test.rawCount
+import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -75,6 +77,10 @@ class WorkTreeServiceTest {
         docSlug = docSlug,
         caller = null
     )
+
+    private fun ref(ref: String): TreeDepEnd = TreeDepEnd.Ref(ref)
+
+    private fun existing(id: UUID): TreeDepEnd = TreeDepEnd.Item(id)
 
     private fun count(table: String): Int = rawCount(db.jdbcUrl, "SELECT count(*) FROM $table")
 
@@ -146,7 +152,7 @@ class WorkTreeServiceTest {
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
-                            deps = listOf(TreeDepInput("a", "b"), TreeDepInput("b", "a"))
+                            deps = listOf(TreeDepInput(ref("a"), ref("b")), TreeDepInput(ref("b"), ref("a")))
                         )
                     ).err()
 
@@ -170,7 +176,7 @@ class WorkTreeServiceTest {
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
-                            deps = listOf(TreeDepInput("a", "b"), TreeDepInput("a", "b", DependencyType.BLOCKS))
+                            deps = listOf(TreeDepInput(ref("a"), ref("b")), TreeDepInput(ref("a"), ref("b"), DependencyType.BLOCKS))
                         )
                     ).err()
 
@@ -296,7 +302,7 @@ class WorkTreeServiceTest {
                     .create(
                         request(
                             children = listOf(item("a"), item("b"), item("c")),
-                            deps = listOf(TreeDepInput("b", "c"), TreeDepInput("a", "b", DependencyType.RELATES_TO))
+                            deps = listOf(TreeDepInput(ref("b"), ref("c")), TreeDepInput(ref("a"), ref("b"), DependencyType.RELATES_TO))
                         )
                     ).ok()
 
@@ -307,5 +313,145 @@ class WorkTreeServiceTest {
                     .first()
                     .dependency.id
             )
+        }
+
+    // ------------------------------------------------------------------ existing-item ends (item 0bd6ba50)
+
+    @Test
+    fun `S6 plan refuses a lifecycle-free existing end of a blocks edge at its own pointer, and accepts it on relates_to`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            // A lifecycle-free row: a NULL role paired with lifecycle 'none' (the V26 CHECK); no write path creates one.
+            val free = rig.seed("Free", project)
+            rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val blocks =
+                request(children = listOf(item("c1")), parentId = project.id, deps = listOf(TreeDepInput(ref("c1"), existing(free.id))))
+
+            val error = service.plan(blocks).err()
+
+            assertEquals(ErrorCode.INVALID_REQUEST, error.code)
+            val field = (error.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/toId", field.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, field.reason)
+            assertEquals(free.id.toString(), field.received)
+
+            val relates = blocks.copy(deps = listOf(TreeDepInput(ref("c1"), existing(free.id), DependencyType.RELATES_TO)))
+            val plan = service.plan(relates).ok()
+            assertEquals(1, plan.deps.size)
+            assertEquals(0, count("dependencies"), "plan writes nothing")
+        }
+
+    @Test
+    fun `S6 plan refuses a lifecycle-free existing end on the from side at its own pointer`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val free = rig.seed("Free", project)
+            rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+
+            val error =
+                service
+                    .plan(
+                        request(
+                            children = listOf(item("c1")),
+                            parentId = project.id,
+                            deps = listOf(TreeDepInput(existing(free.id), ref("c1")))
+                        )
+                    ).err()
+
+            assertEquals(ErrorCode.INVALID_REQUEST, error.code)
+            val field = (error.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/fromId", field.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, field.reason)
+            assertEquals(free.id.toString(), field.received)
+        }
+
+    @Test
+    fun `S6 plan refuses a lifecycle-free attached root on a ref end at the ref pointer`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val free = rig.seed("Free", project)
+            rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val root = ref(WorkTreeService.ROOT_REF)
+
+            fun attach(dep: TreeDepInput) =
+                WorkTreeRequest(root = TreeRootInput.Attach(free.id), children = listOf(item("c1")), deps = listOf(dep), caller = null)
+
+            val toEnd = service.plan(attach(TreeDepInput(ref("c1"), root))).err()
+            assertEquals(ErrorCode.INVALID_REQUEST, toEnd.code)
+            val toField = (toEnd.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/to", toField.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, toField.reason)
+
+            val fromEnd = service.plan(attach(TreeDepInput(root, ref("c1")))).err()
+            assertEquals(ErrorCode.INVALID_REQUEST, fromEnd.code)
+            val fromField = (fromEnd.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/from", fromField.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, fromField.reason)
+        }
+
+    @Test
+    fun `S7 plan finds a cycle closed through a stored edge between existing items and names a ref`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val e1 = rig.seed("E1", project)
+            val e2 = rig.seed("E2", project)
+            rig.raw.dependencyRepository().create(Dependency(fromItemId = e1.id, toItemId = e2.id, type = DependencyType.BLOCKS))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+
+            val error =
+                service
+                    .plan(
+                        request(
+                            children = listOf(item("c1")),
+                            parentId = project.id,
+                            deps = listOf(TreeDepInput(existing(e2.id), ref("c1")), TreeDepInput(ref("c1"), existing(e1.id)))
+                        )
+                    ).err()
+
+            assertEquals(ErrorCode.CYCLE_DETECTED, error.code)
+            assertTrue(error.message.contains("'c1'"), error.message)
+            assertTrue((error.detail as ErrorDetail.CycleDetected).path.containsAll(listOf(e1.id, e2.id)))
+            assertEquals(1, count("dependencies"))
+        }
+
+    @Test
+    fun `S8 plan refuses an edge from the attached root that is already stored as duplicate`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val x = rig.seed("X", project)
+            val e = rig.seed("E", project)
+            rig.raw.dependencyRepository().create(Dependency(fromItemId = x.id, toItemId = e.id, type = DependencyType.BLOCKS))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+
+            val error =
+                service
+                    .plan(
+                        WorkTreeRequest(
+                            root = TreeRootInput.Attach(x.id),
+                            deps = listOf(TreeDepInput(ref(WorkTreeService.ROOT_REF), existing(e.id))),
+                            caller = null
+                        )
+                    ).err()
+
+            assertEquals(ErrorCode.DUPLICATE, error.code)
+            assertEquals(1, count("dependencies"))
         }
 }

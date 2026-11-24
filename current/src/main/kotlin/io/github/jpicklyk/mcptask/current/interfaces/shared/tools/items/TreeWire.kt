@@ -18,9 +18,11 @@ internal object TreeDocs {
     const val CHILD_TYPE = "Declared item type."
     const val PARENT_REF = "Parent ref; default root."
     const val CHILDREN = "Child items, any order; nest with parentRef."
-    const val DEPS = "Edges between refs."
+    const val DEPS = "Edges between refs or existing item ids."
     const val DEP_FROM = "From ref (blocker for blocks)."
+    const val DEP_FROM_ID = "Existing item id instead of from (blocker)."
     const val DEP_TO = "To ref (blocked for blocks)."
+    const val DEP_TO_ID = "Existing item id instead of to (blocked)."
     const val DEP_TYPE = "blocks (default) or relates_to."
     const val DEP_UNBLOCK_AT = "Unblocks at this role; default terminal."
     const val NOTES = "Notes; win over noteAnchors and createNotes."
@@ -114,11 +116,16 @@ data class TreeChildSpec(
     @Doc(TreeDocs.NOTE_ANCHORS) val noteAnchors: List<TreeNoteAnchor> = emptyList()
 )
 
-/** One dependency of a `create_tree`, between two refs. */
+/**
+ * One dependency of a `create_tree`. Each end is a ref of this tree ([from], [to]) or an existing item ([fromId],
+ * [toId]), exactly one form per end, and at least one end is a ref.
+ */
 @Serializable
 data class TreeDepSpec(
-    @Doc(TreeDocs.DEP_FROM) val from: String,
-    @Doc(TreeDocs.DEP_TO) val to: String,
+    @Doc(TreeDocs.DEP_FROM) val from: String? = null,
+    @Doc(TreeDocs.DEP_FROM_ID) val fromId: IdRef? = null,
+    @Doc(TreeDocs.DEP_TO) val to: String? = null,
+    @Doc(TreeDocs.DEP_TO_ID) val toId: IdRef? = null,
     @Doc(TreeDocs.DEP_TYPE) val type: DepType? = null,
     @Doc(TreeDocs.DEP_UNBLOCK_AT) val unblockAt: UnblockAt? = null
 )

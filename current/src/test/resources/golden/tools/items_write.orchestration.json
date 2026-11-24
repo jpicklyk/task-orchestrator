@@ -324,7 +324,7 @@
             },
             "deps": {
               "type": "array",
-              "description": "Edges between refs. [ops: create_tree]",
+              "description": "Edges between refs or existing item ids. [ops: create_tree]",
               "items": {
                 "type": "object",
                 "properties": {
@@ -332,9 +332,17 @@
                     "type": "string",
                     "description": "From ref (blocker for blocks)."
                   },
+                  "fromId": {
+                    "type": "string",
+                    "description": "Existing item id instead of from (blocker)."
+                  },
                   "to": {
                     "type": "string",
                     "description": "To ref (blocked for blocks)."
+                  },
+                  "toId": {
+                    "type": "string",
+                    "description": "Existing item id instead of to (blocked)."
                   },
                   "type": {
                     "type": "string",
@@ -354,11 +362,7 @@
                       "terminal"
                     ]
                   }
-                },
-                "required": [
-                  "from",
-                  "to"
-                ]
+                }
               }
             },
             "notes": {

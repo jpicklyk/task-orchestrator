@@ -59,10 +59,23 @@ data class TreeItemInput(
     val anchors: List<TreeAnchorInput> = emptyList()
 )
 
-/** One dependency between two refs of a work tree. */
+/** One end of a work-tree dependency: a [Ref] of the tree, or an existing [Item] outside it (or the attached root). */
+sealed interface TreeDepEnd {
+    /** A ref of the tree ([WorkTreeService.ROOT_REF] or a child ref). */
+    data class Ref(
+        val ref: String
+    ) : TreeDepEnd
+
+    /** An existing item, already resolved and scope-checked by the caller. */
+    data class Item(
+        val id: UUID
+    ) : TreeDepEnd
+}
+
+/** One dependency of a work tree; at least one end is a [TreeDepEnd.Ref]. */
 data class TreeDepInput(
-    val fromRef: String,
-    val toRef: String,
+    val from: TreeDepEnd,
+    val to: TreeDepEnd,
     val type: DependencyType = DependencyType.BLOCKS,
     val unblockAt: String? = null
 )
@@ -121,11 +134,11 @@ data class TreeItemResult(
     val depth: Int
 )
 
-/** One stored dependency of a tree, with the refs the request named it by. */
+/** One stored dependency of a tree, with the refs the request named it by; a ref is null for an existing-item end. */
 data class TreeDepResult(
     val dependency: Dependency,
-    val fromRef: String,
-    val toRef: String
+    val fromRef: String?,
+    val toRef: String?
 )
 
 /** One stored note of a tree, with its item's ref and any soft-limit [warning]. */
@@ -191,7 +204,9 @@ internal data class TreeAdoption(
  * plan document, or schema blanks) and the adoption of that document, all in ONE write unit.
  *
  * [plan] reads and validates (no write): the anchor rows, the edge policy over the new edges
- * ([DependencyCommandService.validateTreeEdges]), the note write policy ([NoteCommandService.prepare]) and the document.
+ * ([DependencyCommandService.validateTreeEdges]; with an existing-item end or an attached root also the stored edges:
+ * lifecycle-free endpoints, stored duplicates and cycles), the note write policy ([NoteCommandService.prepare]) and the
+ * document.
  * [write] writes, joining the caller's unit: items root first through [ItemCommandService.createInUnit] (each
  * placement is read from the parent row inside the unit), the dependencies, the notes, the `derived_from` links of the
  * anchored notes and, LAST, the adoption. Any [Outcome.Err] returned from it must roll the caller's unit back; nothing
@@ -345,7 +360,7 @@ class WorkTreeService(
         }
 
         val deps =
-            when (val checked = planDeps(request.deps, refToId)) {
+            when (val checked = planDeps(request.deps, refToId, (request.root as? TreeRootInput.Attach)?.itemId)) {
                 is Outcome.Err -> return checked
                 is Outcome.Ok -> checked.value
             }
@@ -530,18 +545,35 @@ class WorkTreeService(
         }
 
     /**
-     * The tree's dependencies through the edge policy for unstored items: normalized, a restated pair `duplicate`, a
-     * cycle `cycle_detected` (path: ids; the message names the first ref on it). Request order is kept.
+     * The tree's dependencies through the edge policy: normalized, a restated pair `duplicate`, a cycle `cycle_detected`
+     * (path: ids; the message names the first ref on it). When an end names an existing item, or the root is the
+     * attached [attachedRootId], the stored edges are checked too ([DependencyCommandService.validateTreeEdges] over the
+     * stored endpoints): a lifecycle-free endpoint is `invalid_request` at the request's own pointer, a stored pair
+     * `duplicate`, a cycle through stored edges `cycle_detected`. Request order is kept.
      */
-    private fun planDeps(
+    private suspend fun planDeps(
         specs: List<TreeDepInput>,
-        refToId: Map<String, UUID>
+        refToId: Map<String, UUID>,
+        attachedRootId: UUID?
     ): Outcome<List<TreeDepResult>> {
         if (specs.isEmpty()) return Outcome.Ok(emptyList())
         val deps = ArrayList<Dependency>(specs.size)
+        val external = LinkedHashSet<UUID>()
         for ((index, spec) in specs.withIndex()) {
-            val from = refToId[spec.fromRef] ?: return Outcome.Err(invalid("/deps/$index/from", "is not a ref of this tree", spec.fromRef))
-            val to = refToId[spec.toRef] ?: return Outcome.Err(invalid("/deps/$index/to", "is not a ref of this tree", spec.toRef))
+            val from =
+                when (val end = spec.from) {
+                    is TreeDepEnd.Ref ->
+                        refToId[end.ref]
+                            ?: return Outcome.Err(invalid("/deps/$index/from", "is not a ref of this tree", end.ref))
+                    is TreeDepEnd.Item -> end.id.also { external += it }
+                }
+            val to =
+                when (val end = spec.to) {
+                    is TreeDepEnd.Ref ->
+                        refToId[end.ref]
+                            ?: return Outcome.Err(invalid("/deps/$index/to", "is not a ref of this tree", end.ref))
+                    is TreeDepEnd.Item -> end.id.also { external += it }
+                }
             deps +=
                 try {
                     Dependency(fromItemId = from, toItemId = to, type = spec.type, unblockAt = spec.unblockAt)
@@ -550,26 +582,64 @@ class WorkTreeService(
                 }
         }
         val idToRef = refToId.entries.associate { (ref, id) -> id to ref }
+        val storedEndpoints = if (attachedRootId == null) external else external + attachedRootId
+        val checked =
+            if (storedEndpoints.isEmpty()) {
+                dependencyCommandService.validateTreeEdges(deps)
+            } else {
+                dependencyCommandService.validateTreeEdges(deps, storedEndpoints)
+            }
 
         fun withRefs(message: String): String = idToRef.entries.fold(message) { text, (id, ref) -> text.replace(id.toString(), "'$ref'") }
-        return when (val checked = dependencyCommandService.validateTreeEdges(deps)) {
+
+        fun refOf(end: TreeDepEnd): String? = (end as? TreeDepEnd.Ref)?.ref
+        return when (checked) {
             is Outcome.Ok ->
-                Outcome.Ok(
-                    checked.value.map { dep -> TreeDepResult(dep, idToRef.getValue(dep.fromItemId), idToRef.getValue(dep.toItemId)) }
-                )
+                // Tree edge types (blocks, relates_to) are never swapped by normalization, so request order maps 1:1.
+                Outcome.Ok(checked.value.mapIndexed { index, dep -> TreeDepResult(dep, refOf(specs[index].from), refOf(specs[index].to)) })
             is Outcome.Err -> {
                 val error = checked.error
-                val message =
-                    when (val detail = error.detail) {
-                        is ErrorDetail.CycleDetected -> {
-                            val ref = idToRef[detail.path.first()] ?: "unknown"
-                            "Circular dependency detected involving ref '$ref'"
-                        }
-                        else -> withRefs(error.message)
+                val detail = error.detail
+                when {
+                    detail is ErrorDetail.CycleDetected -> {
+                        // Every cycle has a tree edge, so a ref is on the path; "unknown" only keeps the message total.
+                        val ref = detail.path.firstNotNullOfOrNull { idToRef[it] } ?: "unknown"
+                        Outcome.Err(error.copy(message = "Circular dependency detected involving ref '$ref'"))
                     }
-                Outcome.Err(error.copy(message = message))
+                    detail is ErrorDetail.InvalidRequest && detail.fields.any { it.reason == Dependency.LIFECYCLE_FREE_ENDPOINT_REASON } ->
+                        Outcome.Err(lifecycleFreeAtPointer(error, detail, specs, deps, withRefs(error.message)))
+                    else -> Outcome.Err(error.copy(message = withRefs(error.message)))
+                }
             }
         }
+    }
+
+    /**
+     * Re-points a lifecycle-free endpoint violation (which names `fromItemId` or `toItemId`) at the request's own end,
+     * `/deps/<i>/from|fromId|to|toId`. The first blocking edge naming the id is the one the policy judged: it scans in
+     * request order, from end first.
+     */
+    private fun lifecycleFreeAtPointer(
+        error: DomainError,
+        detail: ErrorDetail.InvalidRequest,
+        specs: List<TreeDepInput>,
+        deps: List<Dependency>,
+        message: String
+    ): DomainError {
+        val violation = detail.fields.first { it.reason == Dependency.LIFECYCLE_FREE_ENDPOINT_REASON }
+        val index =
+            deps.indexOfFirst { dep ->
+                dep.type == DependencyType.BLOCKS &&
+                    violation.received in setOf(dep.fromItemId.toString(), dep.toItemId.toString())
+            }
+        if (index < 0) return error.copy(message = message)
+        val atFrom = deps[index].fromItemId.toString() == violation.received
+        val end = if (atFrom) specs[index].from else specs[index].to
+        val field = (if (atFrom) "from" else "to") + (if (end is TreeDepEnd.Item) "Id" else "")
+        return error.copy(
+            message = message,
+            detail = ErrorDetail.InvalidRequest(listOf(FieldViolation("/deps/$index/$field", violation.reason, violation.received)))
+        )
     }
 
     /** Explicit notes, then document-cut notes, then `createNotes` blanks, each through the note write policy. */

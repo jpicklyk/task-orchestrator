@@ -568,7 +568,7 @@ await tools['mcp__mcp-task-orchestrator__items_write']({ops: [{op: 'create_tree'
 
 Optional: `parentId`, `children`, `deps`, `notes`, `createNotes`, `docRef`, `idempotencyKey`.
 
-Required nested: `children[].ref`, `children[].title`, `children[].type`, `deps[].from`, `deps[].to`, `notes[].itemRef`, `notes[].key`, `notes[].role`, `docRef.slug`.
+Required nested: `children[].ref`, `children[].title`, `children[].type`, `notes[].itemRef`, `notes[].key`, `notes[].role`, `docRef.slug`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#items_write-create_tree).
 

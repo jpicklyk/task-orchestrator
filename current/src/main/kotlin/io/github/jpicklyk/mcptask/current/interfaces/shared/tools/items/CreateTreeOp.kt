@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
+import io.github.jpicklyk.mcptask.current.application.service.TreeDepEnd
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepInput
 import io.github.jpicklyk.mcptask.current.application.service.TreeItemInput
 import io.github.jpicklyk.mcptask.current.application.service.TreeNoteInput
@@ -13,7 +15,9 @@ import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.dependency.DepType
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -37,10 +41,13 @@ internal object CreateTreeOp {
 }
 
 /**
- * `items_write` `create_tree`: a root (created, or attached with `root.id`), its children, the dependencies between
- * them and their notes, written as ONE unit through [WorkTreeService]. Check order: the request's shape
- * (`invalid_request`), then scope on the one anchor (`parentId`, `root.id`, or a new top-level root), then the plan,
- * then the writes. Every rejection precedes any write; a failed write rolls the whole tree back.
+ * `items_write` `create_tree`: a root (created, or attached with `root.id`), its children, the dependencies among
+ * them or to existing items (`deps[].fromId`/`toId`) and their notes, written as ONE unit through [WorkTreeService].
+ * Check order: the request's shape (`invalid_request`), then scope on the one anchor (`parentId`, `root.id`, or a new
+ * top-level root), then scope and existence of every existing-item dependency end, then the plan (which also checks
+ * those ends' stored edges), then the writes. Every rejection precedes any write, except a fence on an existing end
+ * (`not_claim_holder`, judged in the write unit); a failed write rolls the whole tree back. Under a restricted scope a
+ * `cycle_detected` path omits the stored items the scope does not admit.
  */
 internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
@@ -100,6 +107,23 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
             if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
     }
+    // Existing-item dependency ends: each in scope (a restricted miss is forbidden), then every one must exist.
+    val endIds = HashMap<Pair<Int, Boolean>, UUID>()
+    for ((i, dep) in req.deps.withIndex()) {
+        for ((isFrom, ref) in listOf(true to dep.fromId, false to dep.toId)) {
+            ref ?: continue
+            endIds[i to isFrom] =
+                when (val r = resolveInScope(env, ctx, ref, "/deps/$i/" + if (isFrom) "fromId" else "toId")) {
+                    is Outcome.Err -> return r
+                    is Outcome.Ok -> r.value
+                }
+        }
+    }
+    if (endIds.isNotEmpty()) {
+        val ordered = req.deps.indices.flatMap { i -> listOfNotNull(endIds[i to true], endIds[i to false]) }
+        val found = env.workItemRepository().findByIds(ordered.toSet()).mapTo(HashSet()) { it.id }
+        ordered.firstOrNull { it !in found }?.let { return Outcome.Err(ItemCommandErrors.itemNotFound(it)) }
+    }
     // Every row the tree creates must stay inside the tag scope; an Attach root is an existing row, scope-checked above.
     if (attachId == null) {
         (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(req.root.tags)) as? Outcome.Err)?.let { return it }
@@ -117,7 +141,15 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
                     TreeRootInput.Create(rootInput(req.root), parentId)
                 },
             children = req.children.map(::childInput),
-            deps = req.deps.map { TreeDepInput(it.from, it.to, (it.type ?: DepType.BLOCKS).domain, it.unblockAt?.wire) },
+            deps =
+                req.deps.mapIndexed { i, dep ->
+                    TreeDepInput(
+                        endIds[i to true]?.let { TreeDepEnd.Item(it) } ?: TreeDepEnd.Ref(dep.from.orEmpty()),
+                        endIds[i to false]?.let { TreeDepEnd.Item(it) } ?: TreeDepEnd.Ref(dep.to.orEmpty()),
+                        (dep.type ?: DepType.BLOCKS).domain,
+                        dep.unblockAt?.wire
+                    )
+                },
             notes = req.notes.map { TreeNoteInput(it.itemRef, it.key, it.role.wire, it.body) },
             createNotes = req.createNotes,
             docSlug = req.docRef?.slug,
@@ -130,15 +162,39 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
             seatCaller = SeatCaller.of(ctx)
         )
     val service = workTreeService(env)
+    val named = endIds.values.toSet() + listOfNotNull(attachId)
     val plan =
         when (val planned = service.plan(request)) {
-            is Outcome.Err -> return planned
+            is Outcome.Err -> return Outcome.Err(redactCyclePath(env, ctx, planned.error, named))
             is Outcome.Ok -> planned.value
         }
     return when (val written = service.write(plan)) {
-        is Outcome.Err -> written
+        is Outcome.Err -> Outcome.Err(redactCyclePath(env, ctx, written.error, named))
         is Outcome.Ok -> Outcome.Ok(result(written.value))
     }
+}
+
+/**
+ * Under a restricted scope, a `cycle_detected` path keeps only the ids the caller may see, in path order: the [named]
+ * ids (existing ends and the attached root, admitted already), the ids the scope admits, and ids with no row (the
+ * tree's own new items). A stored hop outside the scope is omitted, as `deps_write` does. Any other error, or an
+ * unrestricted caller, is returned unchanged.
+ */
+private suspend fun redactCyclePath(
+    env: WorkflowToolServices,
+    ctx: CallContext,
+    error: DomainError,
+    named: Set<UUID>
+): DomainError {
+    val detail = error.detail as? ErrorDetail.CycleDetected ?: return error
+    if (ctx.scope.isUnrestricted) return error
+    val others = detail.path.filterTo(LinkedHashSet()) { it !in named }
+    val items = env.workItemRepository()
+    val stored = items.findByIds(others).mapTo(HashSet()) { it.id }
+    val admitted = ScopeGuard.admitted(ctx.scope, stored, items)
+    val visible = detail.path.filter { it in named || it !in stored || it in admitted }
+    // the path always holds a tree edge, whose new end has no row, so visible is never empty; the fallback keeps the detail valid
+    return error.copy(detail = ErrorDetail.CycleDetected(visible.ifEmpty { detail.path.take(1) }))
 }
 
 /** Resolves [ref] (under a restricted scope a miss is `forbidden`) and checks the scope admits it. */
@@ -205,9 +261,17 @@ private fun shapeViolations(req: CreateTreeRequest): List<FieldViolation> {
     }
 
     for ((i, dep) in req.deps.withIndex()) {
-        if (dep.from !in known) out += FieldViolation("/deps/$i/from", "is not a ref of this tree", dep.from)
-        if (dep.to !in known) out += FieldViolation("/deps/$i/to", "is not a ref of this tree", dep.to)
-        if (dep.from == dep.to) out += FieldViolation("/deps/$i/to", "must differ from from", dep.to)
+        for ((name, ref, id) in listOf(Triple("from", dep.from, dep.fromId), Triple("to", dep.to, dep.toId))) {
+            when {
+                ref != null && id != null -> out += FieldViolation("/deps/$i/${name}Id", "cannot be given with $name")
+                ref == null && id == null -> out += FieldViolation("/deps/$i/$name", "is required without ${name}Id")
+                ref != null && ref !in known -> out += FieldViolation("/deps/$i/$name", "is not a ref of this tree", ref)
+            }
+        }
+        if (dep.from == null && dep.to == null && dep.fromId != null && dep.toId != null) {
+            out += FieldViolation("/deps/$i", "needs a ref of this tree at one end")
+        }
+        if (dep.from != null && dep.from == dep.to) out += FieldViolation("/deps/$i/to", "must differ from from", dep.to)
         if (dep.type == DepType.RELATES_TO && dep.unblockAt != null) {
             out += FieldViolation("/deps/$i/unblockAt", "is not allowed with relates_to", dep.unblockAt.wire)
         }
@@ -294,8 +358,11 @@ private fun result(tree: WorkTreeResult): ItemWriteResult =
                             val dep = it.dependency
                             buildJsonObject {
                                 put("id", dep.id.toString())
-                                put("fromRef", it.fromRef)
-                                put("toRef", it.toRef)
+                                // An existing-item end reports its id instead of a ref.
+                                val fromRef = it.fromRef
+                                if (fromRef != null) put("fromRef", fromRef) else put("fromId", dep.fromItemId.toString())
+                                val toRef = it.toRef
+                                if (toRef != null) put("toRef", toRef) else put("toId", dep.toItemId.toString())
                                 put("type", (DepType.of(dep.type) ?: DepType.BLOCKS).wire)
                                 dep.unblockAt?.let { at -> put("unblockAt", at.lowercase()) }
                             }
