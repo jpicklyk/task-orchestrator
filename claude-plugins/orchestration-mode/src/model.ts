@@ -291,7 +291,8 @@ export function runFromList(item: Obj): BoardRun | null {
     inFlight: num(item.activeSeats),
     waiting: 0,
     stalled: num(item.stalledSeats),
-    coordinatorStalled: item.coordinatorStalled === true,
+    // orchestratorStalled since 4.1; a 4.0.x server sends only its deprecated alias coordinatorStalled.
+    coordinatorStalled: (item.orchestratorStalled ?? item.coordinatorStalled) === true,
     workflowLaunched: hints.method === 'A' && hints.phase === 'launched',
     scopeId: str(item.scopeId) || undefined,
     rootId: str(item.rootId) || undefined,
@@ -1241,8 +1242,8 @@ const opsOf = (input: Obj): Obj[] => (Array.isArray(input.ops) ? input.ops.map(o
 
 /**
  * The run this session became the orchestrator of: the first `open` op of a `runs_write` call whose
- * result element is ok and carries a `coordinatorToken` (the token itself is never kept). Null when
- * the call opened no run.
+ * result element is ok and carries an `orchestratorToken` (`coordinatorToken` from a server before 4.1; the
+ * token itself is never kept). Null when the call opened no run.
  */
 export function orchestratorFromOpen(input: Obj, envelope: Obj | undefined, since: string): OrchestratorState {
   const ops = opsOf(input)
@@ -1251,7 +1252,8 @@ export function orchestratorFromOpen(input: Obj, envelope: Obj | undefined, sinc
     const op = ops[i]
     const result = results[i]
     if (op?.op !== 'open' || !isObj(result) || result.ok !== true) continue
-    if (typeof result.coordinatorToken !== 'string' || typeof result.runId !== 'string') continue
+    const token = result.orchestratorToken ?? result.coordinatorToken
+    if (typeof token !== 'string' || typeof result.runId !== 'string') continue
     const label = str(result.label) || str(op.label) || str(result.title) || str(op.title) || result.runId.slice(0, 8)
 
     return { runId: result.runId, label, since, source: 'tool' }

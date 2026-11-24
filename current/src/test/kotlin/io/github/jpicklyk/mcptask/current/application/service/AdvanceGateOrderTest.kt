@@ -1267,7 +1267,8 @@ class SeatEnforcementTokenPathTest {
 
             val first = w.ops("runs_write", element)
             assertTrue(first.ok(), first.toString())
-            val token = assertNotNull(first.find("coordinatorToken"), "the first call returns the token: $first")
+            val token = assertNotNull(first.find("orchestratorToken"), "the first call returns the token: $first")
+            assertEquals(token, first.find("coordinatorToken"), "the deprecated alias carries the same token: $first")
             assertTrue(tokenShape.matches(token), "fixture: the issued token has the 43-character shape")
             assertNull(first.find("tokenRedacted"), "the first call has no tokenRedacted key: $first")
 
@@ -1275,7 +1276,8 @@ class SeatEnforcementTokenPathTest {
             assertTrue(replay.ok(), replay.toString())
             assertEquals("true", replay.find("replayed"), "fixture: the second call is a replay: $replay")
             assertEquals(first.find("runId"), replay.find("runId"), "the stored result is returned")
-            assertNull(replay.find("coordinatorToken"), "a replay carries no coordinator token: $replay")
+            assertNull(replay.find("orchestratorToken"), "a replay carries no run token: $replay")
+            assertNull(replay.find("coordinatorToken"), "nor its deprecated alias: $replay")
             assertEquals("true", replay.find("tokenRedacted"), "a replay says the token was redacted: $replay")
             assertFalse(token in replay.toString(), "the token string appears nowhere in the replay")
 

@@ -228,7 +228,7 @@ if (cfg.dryRun) {
 // Every known token value is masked on everything this process writes, child output included.
 const knownTokens = [];
 function scrub(text) {
-    return redactTokens(text, knownTokens).replace(/\bseatToken\b/g, "seat token").replace(/\bcoordinatorToken\b/g, "run token");
+    return redactTokens(text, knownTokens).replace(/\bseatToken\b/g, "seat token").replace(/\b(?:orchestrator|coordinator)Token\b/g, "run token");
 }
 function say(line = "") {
     process.stdout.write(scrub(line) + "\n");
@@ -339,7 +339,8 @@ await warnOpenRalphRuns();
         process.exit(2);
     }
     run.runId = r.value?.runId;
-    run.coordinatorToken = r.value?.coordinatorToken;
+    // orchestratorToken since 4.1; a 4.0.x server answers only its deprecated alias coordinatorToken.
+    run.coordinatorToken = r.value?.orchestratorToken ?? r.value?.coordinatorToken;
     if (typeof run.coordinatorToken === "string") knownTokens.push(run.coordinatorToken);
     if (!run.runId || !run.coordinatorToken) {
         warn("error: runs_write open answered without a run id or a run token");

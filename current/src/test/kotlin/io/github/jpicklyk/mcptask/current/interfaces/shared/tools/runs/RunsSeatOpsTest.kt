@@ -379,7 +379,7 @@ internal class SeatWorld private constructor(
         assertTrue(reply.ok(), "open must succeed: $reply")
         return Opened(
             runId = assertNotNull(reply.find("runId"), "open returns the run: $reply"),
-            coordinatorToken = assertNotNull(reply.find("coordinatorToken"), "open returns the coordinator token: $reply"),
+            coordinatorToken = assertNotNull(reply.find("orchestratorToken"), "open returns the run token: $reply"),
             reply = reply
         )
     }
@@ -712,7 +712,7 @@ class RunsSeatOpsTest {
         }
 
     private val token43 = Regex("^[A-Za-z0-9_-]{43}$")
-    private val tokenKeys = setOf("token", "seatToken", "coordinatorToken", "tokenHash", "token_hash")
+    private val tokenKeys = setOf("token", "seatToken", "orchestratorToken", "coordinatorToken", "tokenHash", "token_hash")
     private val uuidText = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
     private fun assertForbiddenKind(

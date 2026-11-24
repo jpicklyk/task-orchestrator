@@ -512,7 +512,8 @@ class RunsToolsSurfaceTest {
         assertTrue("\"openedByKind\":\"agent\"" in anonymous.structured.toString(), anonymous.structured.toString())
     }
 
-    private fun coordinatorTokenOf(text: String): String = Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(text)!!.groupValues[1]
+    private fun coordinatorTokenOf(text: String): String =
+        Regex("\"orchestratorToken\":\"([A-Za-z0-9_-]{43})\"").find(text)!!.groupValues[1]
 
     @Test
     fun `D-coord on MCP the coordinator is the token open returned - the opener without it, and another actor with it, are refused`() {

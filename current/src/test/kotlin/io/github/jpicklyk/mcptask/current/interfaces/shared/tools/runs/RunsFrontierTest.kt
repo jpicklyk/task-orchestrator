@@ -338,7 +338,7 @@ class RunsFrontierTest {
             val front = w.frontier(run)
             val view = w.getRun(run)
             assertTrue(front.flag("stalled"), "the coordinator was last seen 121 s ago")
-            assertEquals(front.flag("stalled"), view.flag("coordinatorStalled"))
+            assertEquals(front.flag("stalled"), view.flag("orchestratorStalled"))
             val stalledNow = front.list("inFlight").filter { it.flag("stalled") }
             assertEquals(listOf(short(b2)), stalledNow.map { it.text("id") }, "B2 never touched, assigned 121 s ago; B1 just touched")
             assertEquals(1, view.num("stalledSeats"), "the stalled coordinator row is not counted")
@@ -350,7 +350,7 @@ class RunsFrontierTest {
             val front2 = w.frontier(run)
             val view2 = w.getRun(run)
             assertFalse(front2.flag("stalled"))
-            assertEquals(front2.flag("stalled"), view2.flag("coordinatorStalled"))
+            assertEquals(front2.flag("stalled"), view2.flag("orchestratorStalled"))
             assertEquals(3, front2.list("inFlight").size)
             assertEquals(front2.list("inFlight").count { it.flag("stalled") }, view2.num("stalledSeats"))
             assertEquals(1, view2.num("stalledSeats"))
@@ -374,6 +374,35 @@ class RunsFrontierTest {
             val closed = w.close(run, "cancelled", run.coordinatorToken)
             assertTrue(closed.ok(), closed.toString())
             assertNotNull(closed.find("stalledSeats"), "the close result carries the run view with stalledSeats: $closed")
+        }
+
+    @Test
+    fun `T3 get, list and the update result carry the orchestrator liveness keys beside their deprecated aliases`(): Unit =
+        world { w ->
+            val b1 = w.item("B1")
+            val run = w.open(listOf(b1), extra = stall(120))
+
+            fun assertPairs(
+                view: JsonObject,
+                where: String
+            ) {
+                assertEquals(view.getValue("orchestratorStalled"), view.getValue("coordinatorStalled"), "$where, stalled: $view")
+                assertEquals(view.getValue("orchestratorSeenAt"), view.getValue("coordinatorSeenAt"), "$where, seen: $view")
+            }
+            assertPairs(w.getRun(run), "get")
+            clock.advanceSeconds(121)
+            val stalled = w.getRun(run)
+            assertTrue(stalled.flag("orchestratorStalled"), "fixture: the orchestrator was last seen 121 s ago: $stalled")
+            assertPairs(stalled, "get, stalled")
+
+            val list = w.select("list")
+            assertTrue(list.ok(), list.toString())
+            assertPairs(objectsWithKey(assertNotNull(list.data), "orchestratorStalled").single { it.text("runId") == run.runId }, "list")
+
+            val update = w.ops("runs_write", """{"op":"update","runId":"${run.runId}","hints":{"k":"v"}}""", token = run.coordinatorToken)
+            assertTrue(update.ok(), update.toString())
+            val updated = objectsWithKey(update.results().single(), "orchestratorStalled").single()
+            assertPairs(updated, "update")
         }
 
     // ------------------------------------------------------------------ S4 active seats
@@ -678,7 +707,7 @@ class RunsFrontierTest {
             val t = clock.now()
             assertEquals(t, w.stamp(runRow(w, run)["coordinator_seen_at"]), "fixture: the coordinator wrote at t")
 
-            suspend fun both(): Pair<Boolean, Boolean> = w.frontier(run).flag("stalled") to w.getRun(run).flag("coordinatorStalled")
+            suspend fun both(): Pair<Boolean, Boolean> = w.frontier(run).flag("stalled") to w.getRun(run).flag("orchestratorStalled")
 
             clock.set(t.plusSeconds(120))
             assertEquals(false to false, both(), "exactly 120 s")
@@ -720,7 +749,7 @@ class RunsFrontierTest {
             assertTrue(data.list("ready").isEmpty(), "always empty on a closed run")
             assertTrue(data.list("inFlight").isEmpty(), "the close ended every seat")
             assertEquals(mapOf("queue" to 2, "work" to 1, "review" to 0, "blocked" to 1, "terminal" to 1), data.counts())
-            assertFalse(w.getRun(m.run).flag("coordinatorStalled"), "and the run view agrees")
+            assertFalse(w.getRun(m.run).flag("orchestratorStalled"), "and the run view agrees")
         }
 
     @Test
@@ -807,6 +836,7 @@ class RunsFrontierTest {
                 "body",
                 "token",
                 "seatToken",
+                "orchestratorToken",
                 "coordinatorToken",
                 "tokenHash",
                 "principal",

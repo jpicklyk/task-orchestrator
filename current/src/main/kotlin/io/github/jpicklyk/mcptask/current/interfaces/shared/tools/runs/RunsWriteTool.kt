@@ -10,15 +10,16 @@ import kotlinx.serialization.json.JsonPrimitive
 const val RUNS_WRITE = "runs_write"
 
 /**
- * The runs_write idempotency codec. A token is shown once: [encode] drops a `coordinatorToken` (open) or `seatToken`
- * (assign) from the result before it is stored and marks it `tokenRedacted: true`, so the idempotency store never
+ * The runs_write idempotency codec. A token is shown once: [encode] drops the run token (open: `orchestratorToken` and its
+ * deprecated alias) or `seatToken` (assign) from the result before it is stored and marks it `tokenRedacted: true`, so the idempotency store never
  * holds a credential and a keyed replay returns the result without the token. Recovery: re-assign the seat (it
  * supersedes the assignment and issues a fresh token) or, for the run token, close the run and open a new one.
  * The first, live response is not encoded and carries the token.
  */
 internal object RunsWriteCodec : IdempotencyCodec<JsonObject> {
     /** The result keys that carry a token. */
-    val TOKEN_KEYS: Set<String> = setOf("coordinatorToken", "seatToken")
+    val TOKEN_KEYS: Set<String> =
+        setOf(RunWireKeys.ORCHESTRATOR_TOKEN, RunWireKeys.DEPRECATED_ALIASES.getValue(RunWireKeys.ORCHESTRATOR_TOKEN), "seatToken")
 
     const val TOKEN_REDACTED = "tokenRedacted"
 
@@ -27,7 +28,8 @@ internal object RunsWriteCodec : IdempotencyCodec<JsonObject> {
         return JsonObject(value.filterKeys { it !in TOKEN_KEYS } + (TOKEN_REDACTED to JsonPrimitive(true)))
     }
 
-    override fun decode(json: JsonElement): JsonObject = json as JsonObject
+    /** A result a 4.0.x server stored carries only the deprecated keys: [RunWireKeys.withCanonical] adds the canonical ones. */
+    override fun decode(json: JsonElement): JsonObject = RunWireKeys.withCanonical(json as JsonObject)
 }
 
 /**

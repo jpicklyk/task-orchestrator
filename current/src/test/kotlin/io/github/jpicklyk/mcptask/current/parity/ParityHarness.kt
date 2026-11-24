@@ -227,7 +227,7 @@ class ParitySeeder(
                         id = UUID.nameUUIDFromBytes("parity-coordinator:$id".toByteArray()),
                         runId = id,
                         itemId = null,
-                        seat = RunSeat.COORDINATOR,
+                        seat = RunSeat.ORCHESTRATOR,
                         attempt = 1,
                         principalId = checkNotNull(openedBy) { "a coordinator seat needs the opener's identity" },
                         tokenHash = sha256Hex(coordinatorToken.toByteArray(Charsets.UTF_8)),
@@ -898,8 +898,8 @@ class ParityHarness(
         /** The served profile that the provenance of an answer records. */
         private val PROFILE = Regex("\"profile\":\"(?:director|rest|orchestration|knowledge)\"")
 
-        /** A seat token the server issued: `"seatToken"` / `"coordinatorToken"` and exactly 43 base64url characters. */
-        private val SEAT_TOKEN = Regex("\"(seatToken|coordinatorToken)\":\"[A-Za-z0-9_-]{43}\"")
+        /** A seat token the server issued: `"seatToken"` / `"orchestratorToken"` / `"coordinatorToken"` and exactly 43 base64url characters. */
+        private val SEAT_TOKEN = Regex("\"(seatToken|orchestratorToken|coordinatorToken)\":\"[A-Za-z0-9_-]{43}\"")
 
         /**
          * The comparable content of every table: generated ids (all `id` columns except work_items, whose ids are seeded),

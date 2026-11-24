@@ -77,7 +77,7 @@ data class Run(
     val openedAt: Instant,
     val closedBy: String? = null,
     val closedAt: Instant? = null,
-    val coordinatorSeenAt: Instant? = null,
+    val orchestratorSeenAt: Instant? = null,
     val stallAfterSeconds: Int,
     val budget: RunBudget? = null,
     val observedTokens: Long = 0,

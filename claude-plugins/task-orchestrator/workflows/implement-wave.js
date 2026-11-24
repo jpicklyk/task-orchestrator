@@ -1057,7 +1057,8 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
 
 /**
  * stripTokens(value, knownTokens = []) -> structurally equal copy of value with (a) every
- * property named exactly seatToken or coordinatorToken removed at any depth, and (b) every
+ * property named exactly seatToken, orchestratorToken or coordinatorToken (its alias before 5.0)
+ * removed at any depth, and (b) every
  * occurrence of each known token (longest first) replaced by '[redacted-token]' in string
  * values and object keys; every key, including __proto__, is copied as an own data property.
  * Non-string/empty tokens are ignored; input is never mutated.
@@ -1092,7 +1093,7 @@ function stripTokens(value, knownTokens = []) {
     if (v && typeof v === 'object') {
       const out = {}
       for (const k of Object.keys(v)) {
-        if (k === 'seatToken' || k === 'coordinatorToken') continue
+        if (k === 'seatToken' || k === 'orchestratorToken' || k === 'coordinatorToken') continue
         Object.defineProperty(out, redact(k), {
           value: walk(v[k]),
           enumerable: true,

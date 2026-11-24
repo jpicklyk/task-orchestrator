@@ -58,7 +58,7 @@ object NoteSeatRule {
     ): Boolean {
         val seat = caller.seat ?: return false
         if (caller.runId == null || caller.runId != openRunId) return false
-        if (seat == RunSeat.COORDINATOR) return owner == SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT
+        if (seat == RunSeat.ORCHESTRATOR) return owner == SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT
         return caller.itemId == itemId && seat == owner
     }
 }

@@ -514,8 +514,9 @@ internal object RunsParityScenarios {
                         "\"version\":1",
                         "\"openedBy\":\"api:rw-coord\"",
                         "\"openedByKind\":\"service\"",
-                        // R22 D7: the coordinator token is returned once, as 43 base64url characters (the harness masks the value)
-                        "\"coordinatorToken\":\"<TOKEN>\""
+                        // R22 D7: the run token is returned once, as 43 base64url characters (the harness masks the value),
+                        // under orchestratorToken and then its deprecated alias coordinatorToken (decision 0005)
+                        "\"orchestratorToken\":\"<TOKEN>\",\"coordinatorToken\":\"<TOKEN>\""
                     ),
                 seed = tree
             ),
@@ -1661,7 +1662,17 @@ internal object RunsParityScenarios {
                 reader,
                 seats(ra),
                 contains = listOf("\"seat\":\"coordinator\"", "\"seat\":\"implementer\"", "\"status\":\"active\""),
-                absent = listOf(seatTokenC1, coordToken(ra), "seatToken", "coordinatorToken", "tokenHash", "token_hash", "principalId"),
+                absent =
+                    listOf(
+                        seatTokenC1,
+                        coordToken(ra),
+                        "seatToken",
+                        "orchestratorToken",
+                        "coordinatorToken",
+                        "tokenHash",
+                        "token_hash",
+                        "principalId"
+                    ),
                 seed = seedSeatOnC1
             ),
             read(
@@ -1690,7 +1701,7 @@ internal object RunsParityScenarios {
                 ParityKind.HAPPY,
                 reader,
                 seats(ra),
-                absent = listOf("seatToken", "coordinatorToken", "tokenHash", "token_hash"),
+                absent = listOf("seatToken", "orchestratorToken", "coordinatorToken", "tokenHash", "token_hash"),
                 seed = seedOpenAB
             ),
             read(
@@ -1723,7 +1734,17 @@ internal object RunsParityScenarios {
                         "\"inFlight\":[]",
                         "\"waiting\":[]"
                     ),
-                absent = listOf("seatToken", "coordinatorToken", "tokenHash", "token_hash", "principalId", "assignmentId", ":null"),
+                absent =
+                    listOf(
+                        "seatToken",
+                        "orchestratorToken",
+                        "coordinatorToken",
+                        "tokenHash",
+                        "token_hash",
+                        "principalId",
+                        "assignmentId",
+                        ":null"
+                    ),
                 seed = seedOpenAB
             ),
             read(

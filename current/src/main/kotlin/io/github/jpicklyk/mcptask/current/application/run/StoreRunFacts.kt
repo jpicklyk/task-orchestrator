@@ -111,14 +111,14 @@ class StoreRunFacts(
         val now = clock.now().truncatedTo(ChronoUnit.MILLIS)
         return unitOfWork.read {
             val run = stores.runStore().getById(runId) ?: return@read null
-            stalledOf(run, stores.runSeatStore().list(runId).filter { it.isActive && !it.isCoordinator }, now, limit)
+            stalledOf(run, stores.runSeatStore().list(runId).filter { it.isActive && !it.isOrchestrator }, now, limit)
         }
     }
 
     /** Every member-seat assignment of the run, ended ones included (the `coordinator` pseudo-seat excluded), and the highest attempt. */
     override suspend fun attempts(runId: UUID): AttemptCounts =
         unitOfWork.read {
-            val rows = stores.runSeatStore().list(runId, includeEnded = true).filter { !it.isCoordinator }
+            val rows = stores.runSeatStore().list(runId, includeEnded = true).filter { !it.isOrchestrator }
             AttemptCounts(total = rows.size, max = rows.maxOfOrNull { it.attempt } ?: 0)
         }
 
@@ -141,7 +141,7 @@ class StoreRunFacts(
                 if (refs.isEmpty()) emptyMap() else stores.decisionRequestStore().findByIds(refs).associateBy { it.id }
             val allDecisions = stores.decisionRequestStore().list(runId = run.id)
             val open = allDecisions.filter { it.status in PENDING }
-            val allSeats = stores.runSeatStore().list(run.id, includeEnded = true).filter { !it.isCoordinator }
+            val allSeats = stores.runSeatStore().list(run.id, includeEnded = true).filter { !it.isOrchestrator }
             val active = allSeats.filter { it.isActive }
             RunFactsSnapshot(
                 header =

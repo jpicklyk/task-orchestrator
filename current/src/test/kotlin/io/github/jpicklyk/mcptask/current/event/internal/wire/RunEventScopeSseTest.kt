@@ -147,7 +147,7 @@ class RunEventScopeSseTest {
                 val runId = Regex("\"runId\":\"([0-9a-f-]{36})\"").find(opened.structured.toString())!!.groupValues[1]
                 // R22 D3: updating a run is the coordinator TOKEN `open` returned, presented as the top-level seatToken.
                 val coordinatorToken =
-                    Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(opened.structured.toString())!!.groupValues[1]
+                    Regex("\"orchestratorToken\":\"([A-Za-z0-9_-]{43})\"").find(opened.structured.toString())!!.groupValues[1]
                 val updated =
                     callMcp(
                         f.rig.composition.toolContext,

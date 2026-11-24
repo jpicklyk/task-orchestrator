@@ -381,7 +381,7 @@ class SeatTokenLiftTest {
                     w.orch
                 )
             assertEquals(200, opened.status, opened.toString())
-            val run = Opened(assertNotNull(opened.find("runId")), assertNotNull(opened.find("coordinatorToken")), opened)
+            val run = Opened(assertNotNull(opened.find("runId")), assertNotNull(opened.find("orchestratorToken")), opened)
 
             val assign =
                 client.send(
@@ -470,7 +470,7 @@ class SeatTokenLiftTest {
                 )
             assertEquals(200, opened.status, opened.toString())
             val runId = assertNotNull(opened.find("runId"))
-            val token = assertNotNull(opened.find("coordinatorToken"))
+            val token = assertNotNull(opened.find("orchestratorToken"))
             val pause = """{"op":"pause","runId":"$runId"}"""
 
             val underToken = client.send("/api/v1/ops/runs_write", """{"seatToken":"$token","ops":[$pause]}""", w.human)

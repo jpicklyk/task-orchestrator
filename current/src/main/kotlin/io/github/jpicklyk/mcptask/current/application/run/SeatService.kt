@@ -63,7 +63,7 @@ data class SeatEndResult(
  *
  * ## Run token
  *
- * `open` creates the run-scoped `coordinator` pseudo-seat ([openCoordinator]); its token is the run token, the only
+ * `open` creates the run-scoped `coordinator` pseudo-seat ([openOrchestrator]); its token is the run token, the only
  * credential of its kind. It is not a member seat: [activeCount] does not count it and a close's in-flight list never names it.
  *
  * Also the [RunSeatPort] the run close uses (delegated to the store).
@@ -95,18 +95,18 @@ class SeatService(
     // -------------------------------------------------------------------------
 
     /** Creates the `coordinator` pseudo-seat of the just-opened [run] for [principalId] (the opener) and returns its token. */
-    suspend fun openCoordinator(
+    suspend fun openOrchestrator(
         run: Run,
         principalId: String
     ): Outcome<IssuedSeat> =
-        unitOfWork.write(OP_OPEN_COORDINATOR) {
+        unitOfWork.write(OP_OPEN_ORCHESTRATOR) {
             val token = newToken()
             val stored =
                 store.create(
                     RunSeat(
                         runId = run.id,
                         itemId = null,
-                        seat = RunSeat.COORDINATOR,
+                        seat = RunSeat.ORCHESTRATOR,
                         attempt = 1,
                         principalId = principalId,
                         tokenHash = hash(token),
@@ -143,7 +143,7 @@ class SeatService(
             val run = runs.getById(command.runId) ?: return@write err(runNotFound(command.runId))
             if (run.status == RunStatus.CLOSED) return@write err(RunService.runClosed(run))
             if (run.status == RunStatus.PAUSED) return@write err(RunService.runPaused(run))
-            if (command.seat == RunSeat.COORDINATOR) {
+            if (command.seat == RunSeat.ORCHESTRATOR) {
                 return@write err(invalid(FIELD_SEAT, "coordinator is not an item seat", command.seat))
             }
             if (command.itemId !in runs.members(run.id)) {
@@ -255,7 +255,7 @@ class SeatService(
             val current = store.getById(seat.id)
             if (current == null || !current.isActive || isFresh(current.lastSeenAt, now)) return@write Outcome.Ok(Unit)
             store.touch(current.id, now)
-            if (current.isCoordinator) stores.runStore().touchCoordinator(current.runId, now)
+            if (current.isOrchestrator) stores.runStore().touchOrchestrator(current.runId, now)
             Outcome.Ok(Unit)
         }
     }
@@ -297,7 +297,7 @@ class SeatService(
     private fun <T> err(error: DomainError): Outcome<T> = Outcome.Err(error)
 
     companion object {
-        private const val OP_OPEN_COORDINATOR = "SeatService.openCoordinator"
+        private const val OP_OPEN_ORCHESTRATOR = "SeatService.openOrchestrator"
         private const val OP_ASSIGN = "SeatService.assign"
         private const val OP_END = "SeatService.endSeat"
         private const val OP_TOUCH = "SeatService.touch"

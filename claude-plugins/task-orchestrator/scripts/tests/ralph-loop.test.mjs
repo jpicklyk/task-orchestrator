@@ -300,9 +300,25 @@ describe('S7 token hygiene', () => {
     assert.ok(secrets.every(Boolean) && secrets.length >= 4)
     for (const sec of secrets) assert.equal(s.res.out.includes(sec), false, 'a credential value reached the driver output')
     assert.equal(s.res.out.includes('seatToken'), false)
+    assert.equal(s.res.out.includes('orchestratorToken'), false)
     assert.equal(s.res.out.includes('coordinatorToken'), false)
     assert.deepEqual(filesContaining([s.cwd, s.scratch], secrets), [], 'a credential value was persisted to disk')
   })
+
+  for (const runTokenKeys of ['old', 'both']) {
+    test(`AC5 (4.1 rename): open answering the run token under ${runTokenKeys === 'old' ? 'coordinatorToken only (a 4.0.x server)' : 'orchestratorToken and coordinatorToken'}: the driver finds it and prints neither key word`, async () => {
+      const s = await scenario({ items: [A], apiOpts: { runTokenKeys } })
+      assert.equal(s.res.timedOut, false, tail(s))
+      assert.equal(s.res.code, 0, 'exit code' + tail(s))
+      const closes = opsNamed(s, 'close')
+      assert.equal(closes.length, 1, 'exactly one close' + tail(s))
+      assert.ok(s.api.coordinatorToken, 'fixture: the fake issued a run token')
+      assert.equal(closes[0].seatToken, s.api.coordinatorToken, 'the close carries the run token read from the open result')
+      assert.equal(s.res.out.includes(s.api.coordinatorToken), false, 'the run token value is not printed')
+      assert.equal(s.res.out.includes('orchestratorToken'), false)
+      assert.equal(s.res.out.includes('coordinatorToken'), false)
+    })
+  }
 
   test('AC5: an iteration that echoes its token in its result text and on stderr is masked as [redacted-token] in the driver output', async () => {
     const s = await scenario({ items: [A], plan: ['echo'] })
