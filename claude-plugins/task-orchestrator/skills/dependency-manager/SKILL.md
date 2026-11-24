@@ -127,7 +127,7 @@ For an explicit block, act on the `reason`:
 
 | `reason` | Needed |
 |---|---|
-| `awaiting_decision`, `resumable: false` | the decision must be answered (director board); do not resume |
+| `awaiting_decision`, `resumable: false` | the decision must be answered (the board's decision inbox); do not resume |
 | `awaiting_decision`, `resumable: true` | answered or withdrawn: resume per [decisions.md](../status-progression/references/decisions.md) |
 | `resource` | lease contention: read `context` `resourceLeases`, retry later |
 | `manual` | `resume` via `/status-progression` |

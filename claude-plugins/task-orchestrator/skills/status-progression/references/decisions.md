@@ -1,7 +1,7 @@
 # Decisions: raise, answer, resume
 
 The decision loop has five steps: **raise** (a seat or orchestrator asks), **declare** (the class
-exists in config), **see** (the director board shows it), **answer** (a director or human rules),
+exists in config), **see** (the board shows it), **answer** (a director or human rules),
 **resume** (the orchestrator, or the run's orchestrator for a run member, unblocks the item and re-dispatches). This page is the
 orchestrator side (the orchestration connection). The director side is in
 `/task-orchestrator:director`.
@@ -67,7 +67,7 @@ Reasons `manual` and `resource` are not decisions; see `/dependency-manager`.
 The agent that raised is gone; the ruling must reach the next one. After the resume, upsert an
 orchestrator-owned `fix-decisions-<n>` note on the item (role = the `newRole` the resume answered).
 Put in it the decision id, the chosen option key (from `context` `decisions[]`), and the label, text
-and rationale when a director connection can read `runs_read` `decision`. A withdrawn decision means
+and rationale when a director-profile connection can read `runs_read` `decision`. A withdrawn decision means
 "proceed per the queue notes". Then re-dispatch the phase owner. `agents/implementer.md` already
 treats `fix-decisions-*` as binding.
 

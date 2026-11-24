@@ -164,7 +164,7 @@ export function backdropSvg(width = BACKDROP_WIDTH, height = BACKDROP_HEIGHT): s
   )
 }
 
-export const BACKDROP_ALT = 'Director mode: this session runs the board and delegates every read or edit'
+export const BACKDROP_ALT = 'Director mode: this session decides on the board and delegates every read or edit'
 
 // ---------------------------------------------------------------------------------------------
 // The band: the graph this session drives. The mode row, then one row per open or paused run, or,

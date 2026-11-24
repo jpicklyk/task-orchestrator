@@ -105,7 +105,7 @@ Omit a line when its field is empty.
 
 - `items_read` `get` and `context` show `blockedReason` and `decisionId` for a blocked item.
 - `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, and an `awaiting_decision` entry adds `decisionId` and `resumable` (true once the decision is answered, withdrawn or missing).
-- **Answering a decision never resumes the item.** Resume only when the entry is `resumable: true` (or `context` `decisions[]` shows the `decisionId` answered, or no longer lists it: withdrawn decisions are left out); while the decision is open or acknowledged, the next step is to have it answered (the director board), not a `resume`. `resume` clears the reason. The full rule, and how to carry the ruling to the next dispatch, is in [references/decisions.md](references/decisions.md).
+- **Answering a decision never resumes the item.** Resume only when the entry is `resumable: true` (or `context` `decisions[]` shows the `decisionId` answered, or no longer lists it: withdrawn decisions are left out); while the decision is open or acknowledged, the next step is to have it answered (the board's decision inbox), not a `resume`. `resume` clears the reason. The full rule, and how to carry the ruling to the next dispatch, is in [references/decisions.md](references/decisions.md).
 - Decisions are listed on the item in `context` `decisions[]`; `runs_read` `decisions` is director-only.
 - Errors to recognize (on `data.results[0].error`): `invalid_request` with `detail.fields[].field` `/decisionId` (required with `awaiting_decision`, names no decision, belongs to another item, or is already answered or withdrawn). `decision_closed` is a `runs_write` `ack`/`answer`/`withdraw` error, never an `advance` error. `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
 
@@ -115,7 +115,7 @@ Omit a line when its field is empty.
 
 **`seat_forbidden`.** The item is a member of an open or paused run whose schema declares seats, and the caller may not send that trigger. `detail.allowedSeats` names who may (it always starts with `coordinator`). The run's orchestrator resends with its run token as top-level `seatToken`; otherwise leave the transition to the run, and never retry it token-less. This also covers `resume` of a decision-blocked run member: the orchestrator sends it with its token, and a member seat may resume only if its seat `transitions:` list `resume`. Or close the run first.
 
-**`run_paused`.** A `start` under a token of a run paused on its attempt limit or by a manual pause. Read `detail.pauseReason` and `detail.pauseDecisionId` (absent on a manual pause); the answer comes through the director board. Do not retry.
+**`run_paused`.** A `start` under a token of a run paused on its attempt limit or by a manual pause. Read `detail.pauseReason` and `detail.pauseDecisionId` (absent on a manual pause); the answer comes from the user or the director, through the board's decision inbox. Do not retry.
 
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 

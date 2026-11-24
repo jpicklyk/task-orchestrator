@@ -15,7 +15,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -95,14 +95,14 @@ skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestra
 guard-coverage.md. Use the hardened entry (below)
 when enforcement matters.
 
-If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
+If the director profile's tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
 `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
 tool. Decisions cannot be shown or answered until init runs. Still never call `notes_read`.
 
 ## Dashboard
 
-Run these in order and render the board. Every call below uses the director profile.
+Run these in order and render one compact board. Every call below uses the director profile.
 
 1. Open runs, then paused runs (the list takes one `status` per call):
 
@@ -286,6 +286,6 @@ bodies. Each fires once per decision, scope or run per session.
 
 ## Hardened entry
 
-`claude --agent director` starts a session whose tool list is already limited to the director
-budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1, 2 and 2b need director mode entered via this skill in a normal session. It still invokes this skill first, so the marker and
+`claude --agent director` starts a session whose tool list is already limited to the director-mode
+tool budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1, 2 and 2b need director mode in a normal session. It still invokes this skill first, so the marker and
 the guard apply too.
