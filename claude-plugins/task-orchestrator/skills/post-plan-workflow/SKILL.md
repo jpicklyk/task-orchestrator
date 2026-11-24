@@ -30,6 +30,8 @@ A plan with no `adoptedBy` is still pending. `docs_read` `get` with `kind: "plan
 
    **Holding a later tree.** A `blocks` edge into the later parent would not hold its children: an item's readiness counts only the `blocks` edges into that item itself, and an ancestor passes down claims only. So each earlier parent blocks every entry item of the next tree, the items with no blocker inside their own tree; items below the entry items are held by their in-tree edges. These edges join two trees and `create_tree` `deps` refs are tree-local, so wire them with `deps_write` `fan_out` once the later tree's `items[]` gives its ids, from the earlier parent to the entry items, leaving a lifecycle-free entry item out of the `fan_out` `toIds` (`fan_out` is all-or-nothing, and a `blocks` edge with a lifecycle-free endpoint is refused). Each cross-tree edge takes the `Depends on <short>: <reason>` line on its entry item's spec note, carrying the boundary reason. Keep the default `unblockAt` (terminal), because the earlier parent completes after its PR merges.
 
+   **Existing items.** An item the plan covers that already exists is moved under the new parent with `items_write` `update` (`id`, `parentId`) and left out of the `create_tree` children, never recreated. A queue note it already holds is amended with `notes_write` `upsert` under `expectedVersion` (its version from `notes_read` `list`) and never overwritten; an unfilled required note is filled as in step 3. Its edges to the new tree's items go through `deps_write` once `items[]` gives the ids, since `create_tree` `deps` refs are tree-local.
+
 ```to-call
 {"tool": "deps_write", "op": "fan_out", "args": {"from": "9f3a1c22", "toIds": ["4b7d0e19", "6e21c0aa"], "type": "blocks"}}
 ```

@@ -753,8 +753,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    pathspec = the union of the children's owned files (the reviewer also runs `git diff --stat
    <range>` over the WHOLE range, without the pathspec, and flags any off-scope change; this
    whole-range check applies in shared mode, while in per-item mode compare each child PR's merged
-   diff instead, since the base merges in between are not the feature's changes): shared mode
-   `git -C <feature-worktree> diff <base>...HEAD -- <paths>`; per-item mode the same pathspec over
+   diff instead, since the base merges in between are not the feature's changes): shared mode, after `git -C <feature-worktree> fetch origin`,
+   `git -C <feature-worktree> diff origin/main...HEAD -- <paths>` (three dots measure from the merge-base, so base commits merged between waves drop out, where a recorded base SHA reads them as the feature's); per-item mode the same pathspec over
    the base-branch range from the SHA before the first child merged to the merged tip, so unrelated
    base merges stay out. Input: the verdict line of each child's findings register (its
    `review-checklist`, or the first review-role note its reviewer filled when the schema declares
