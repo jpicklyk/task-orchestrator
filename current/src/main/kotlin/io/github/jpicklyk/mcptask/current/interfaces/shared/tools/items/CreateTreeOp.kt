@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.dependency.DepType
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -42,10 +43,11 @@ internal object CreateTreeOp {
 
 /**
  * `items_write` `create_tree`: a root (created, or attached with `root.id`), its children, the dependencies among
- * them or to existing items (`deps[].fromId`/`toId`) and their notes, written as ONE unit through [WorkTreeService].
- * Check order: the request's shape (`invalid_request`), then scope on the one anchor (`parentId`, `root.id`, or a new
- * top-level root), then scope and existence of every existing-item dependency end, then the plan (which also checks
- * those ends' stored edges), then the writes. Every rejection precedes any write, except a fence on an existing end
+ * them or to existing items (`deps[].fromId`/`toId`), their notes and the children's declared sources (`links`),
+ * written as ONE unit through [WorkTreeService]. Check order: the request's shape (`invalid_request`, links parsed),
+ * then scope on the one anchor (`parentId`, `root.id`, or a new top-level root), then scope and existence of every
+ * existing-item dependency end, then scope of every link's note item, then the plan (which also checks those ends'
+ * stored edges and resolves the links), then the writes. Every rejection precedes any write, except a fence on an existing end
  * (`not_claim_holder`, judged in the write unit); a failed write rolls the whole tree back. Under a restricted scope a
  * `cycle_detected` path omits the stored items the scope does not admit.
  */
@@ -124,6 +126,20 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
         val found = env.workItemRepository().findByIds(ordered.toSet()).mapTo(HashSet()) { it.id }
         ordered.firstOrNull { it !in found }?.let { return Outcome.Err(ItemCommandErrors.itemNotFound(it)) }
     }
+    // Each child's declared sources: every note item resolved in scope (a restricted miss is forbidden).
+    val childLinks = ArrayList<List<ItemDerivedFromTarget>>(req.children.size)
+    for ((c, child) in req.children.withIndex()) {
+        childLinks +=
+            if (child.links.isEmpty()) {
+                emptyList()
+            } else {
+                val refs = parseItemLinks(child.links, "/children/$c/links").first
+                when (val r = linkTargetsInScope(env, ctx, refs, "/children/$c/links")) {
+                    is Outcome.Err -> return r
+                    is Outcome.Ok -> r.value
+                }
+            }
+    }
     // Every row the tree creates must stay inside the tag scope; an Attach root is an existing row, scope-checked above.
     if (attachId == null) {
         (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(req.root.tags)) as? Outcome.Err)?.let { return it }
@@ -140,7 +156,7 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
                 } else {
                     TreeRootInput.Create(rootInput(req.root), parentId)
                 },
-            children = req.children.map(::childInput),
+            children = req.children.mapIndexed { c, child -> childInput(child, childLinks[c]) },
             deps =
                 req.deps.mapIndexed { i, dep ->
                     TreeDepInput(
@@ -279,6 +295,9 @@ private fun shapeViolations(req: CreateTreeRequest): List<FieldViolation> {
     for ((i, note) in req.notes.withIndex()) {
         if (note.itemRef !in known) out += FieldViolation("/notes/$i/itemRef", "is not a ref of this tree", note.itemRef)
     }
+    for ((c, child) in req.children.withIndex()) {
+        if (child.links.isNotEmpty()) out += parseItemLinks(child.links, "/children/$c/links").second
+    }
 
     val docRef = req.docRef
     val anchored = req.root.noteAnchors.isNotEmpty() || req.children.any { it.noteAnchors.isNotEmpty() }
@@ -313,7 +332,10 @@ private fun rootInput(root: TreeRootSpec): TreeItemInput =
         anchors = anchors(root.noteAnchors)
     )
 
-private fun childInput(child: TreeChildSpec): TreeItemInput =
+private fun childInput(
+    child: TreeChildSpec,
+    links: List<ItemDerivedFromTarget>
+): TreeItemInput =
     TreeItemInput(
         ref = child.ref,
         parentRef = child.parentRef,
@@ -329,7 +351,8 @@ private fun childInput(child: TreeChildSpec): TreeItemInput =
         requiresVerification = child.requiresVerification,
         metadata = child.metadata,
         properties = child.properties?.toString(),
-        anchors = anchors(child.noteAnchors)
+        anchors = anchors(child.noteAnchors),
+        links = links
     )
 
 /** The element: the root's id and version, then `items`, `deps` and `notes`. */

@@ -5,9 +5,11 @@ import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.dependency.internal.domain.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.ResolvedItemDerivedFrom
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -39,7 +41,8 @@ data class TreeAnchorInput(
 
 /**
  * One item of a work tree. [ref] names it inside the request ([WorkTreeService.ROOT_REF] for the root); [parentRef] is
- * the ref of its parent (null for the root). The fields mirror [ItemCreateCommand].
+ * the ref of its parent (null for the root). The fields mirror [ItemCreateCommand]; [links] are the item's declared
+ * sources (note items already scope-checked by the caller), stored as `derived_from` links from the new item.
  */
 data class TreeItemInput(
     val ref: String,
@@ -56,7 +59,8 @@ data class TreeItemInput(
     val requiresVerification: Boolean = false,
     val metadata: String? = null,
     val properties: String? = null,
-    val anchors: List<TreeAnchorInput> = emptyList()
+    val anchors: List<TreeAnchorInput> = emptyList(),
+    val links: List<ItemDerivedFromTarget> = emptyList()
 )
 
 /** One end of a work-tree dependency: a [Ref] of the tree, or an existing [Item] outside it (or the attached root). */
@@ -162,8 +166,8 @@ data class WorkTreeResult(
 
 /**
  * Everything a tree will write, decided before the first write: the create commands root first (create mode) and the
- * children in parent-before-child order, the normalized dependencies in request order, the prepared notes and the
- * document adoption.
+ * children in parent-before-child order, the resolved item sources, the normalized dependencies in request order, the
+ * prepared notes and the document adoption.
  */
 class WorkTreePlan internal constructor(
     internal val rootId: UUID,
@@ -177,7 +181,15 @@ class WorkTreePlan internal constructor(
     internal val verification: VerificationResult?,
     internal val caller: ClaimHolder?,
     internal val callerSeat: String? = null,
-    internal val seatCaller: SeatCaller = SeatCaller.NONE
+    internal val seatCaller: SeatCaller = SeatCaller.NONE,
+    internal val itemLinks: List<PlannedItemLinks> = emptyList()
+)
+
+/** The resolved sources of one new item [itemId], stamped with the tree's root [rootId]. */
+internal data class PlannedItemLinks(
+    val itemId: UUID,
+    val rootId: UUID,
+    val links: List<ResolvedItemDerivedFrom>
 )
 
 /** A note that passed the write policy, ready to upsert. [derivedFrom] is the anchor its body was cut at, if any. */
@@ -205,12 +217,12 @@ internal data class TreeAdoption(
  *
  * [plan] reads and validates (no write): the anchor rows, the edge policy over the new edges
  * ([DependencyCommandService.validateTreeEdges]; with an existing-item end or an attached root also the stored edges:
- * lifecycle-free endpoints, stored duplicates and cycles), the note write policy ([NoteCommandService.prepare]) and the
- * document.
+ * lifecycle-free endpoints, stored duplicates and cycles), the note write policy ([NoteCommandService.prepare]), the
+ * document and the children's declared sources ([LinkService.resolveItemDerivedFrom]).
  * [write] writes, joining the caller's unit: items root first through [ItemCommandService.createInUnit] (each
- * placement is read from the parent row inside the unit), the dependencies, the notes, the `derived_from` links of the
- * anchored notes and, LAST, the adoption. Any [Outcome.Err] returned from it must roll the caller's unit back; nothing
- * of the tree then remains and the document stays PENDING.
+ * placement is read from the parent row inside the unit), the children's `derived_from` links, the dependencies, the
+ * notes, the `derived_from` links of the anchored notes and, LAST, the adoption. Any [Outcome.Err] returned from it
+ * must roll the caller's unit back; nothing of the tree then remains and the document stays PENDING.
  *
  * Note precedence on `(ref, key)`: explicit notes win over anchors, anchors over `createNotes` blanks; among explicit
  * notes (and among anchors) the last one wins. A [PerRootConfigUnavailableException] propagates.
@@ -394,6 +406,24 @@ class WorkTreeService(
                 is Outcome.Ok -> planned.value
             }
 
+        // The children's declared sources, resolved in the tree's root (pointers in request order).
+        val itemLinks = ArrayList<PlannedItemLinks>()
+        for ((index, child) in request.children.withIndex()) {
+            if (child.links.isEmpty()) continue
+            val resolved =
+                when (
+                    val r =
+                        LinkService(
+                            repositoryProvider,
+                            unitOfWork
+                        ).resolveItemDerivedFrom(effectiveRootId, child.links, "/children/$index/links")
+                ) {
+                    is Outcome.Err -> return r
+                    is Outcome.Ok -> r.value
+                }
+            itemLinks += PlannedItemLinks(childIds.getValue(child.ref), effectiveRootId, resolved)
+        }
+
         return Outcome.Ok(
             WorkTreePlan(
                 rootId = rootId,
@@ -407,14 +437,16 @@ class WorkTreeService(
                 verification = request.verification,
                 caller = request.caller,
                 callerSeat = request.callerSeat,
-                seatCaller = request.seatCaller
+                seatCaller = request.seatCaller,
+                itemLinks = itemLinks
             )
         )
     }
 
     /**
-     * Writes [plan] in ONE write unit, joining the caller's: items root first, then the dependencies, the notes, the
-     * `derived_from` links and, last, the adoption. The first failure is returned; the caller's unit must roll back.
+     * Writes [plan] in ONE write unit, joining the caller's: items root first, then the items' `derived_from` links,
+     * the dependencies, the notes, the notes' `derived_from` links and, last, the adoption. The first failure is
+     * returned; the caller's unit must roll back.
      */
     suspend fun write(plan: WorkTreePlan): Outcome<WorkTreeResult> =
         unitOfWork.write("WorkTreeService.write") {
@@ -430,6 +462,10 @@ class WorkTreeService(
                     is Outcome.Err -> return@write created
                     is Outcome.Ok -> written += TreeItemResult(idToRef.getValue(created.value.id), created.value.id, created.value.depth)
                 }
+            }
+            if (plan.itemLinks.isNotEmpty()) {
+                val links = LinkService(repositoryProvider, unitOfWork)
+                for (planned in plan.itemLinks) links.recordItemDerivedFrom(planned.itemId, planned.rootId, planned.links, now)
             }
 
             val storedDeps =

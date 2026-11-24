@@ -1825,6 +1825,18 @@
             "properties": {
               "type": "object",
               "required": false
+            },
+            "links": {
+              "type": "array of object",
+              "required": false
+            },
+            "links[].to": {
+              "type": "string",
+              "required": true
+            },
+            "links[].relation": {
+              "type": "string: derived_from",
+              "required": false
             }
           },
           "errors": [
@@ -2130,6 +2142,18 @@
             "children[].noteAnchors[].anchor": {
               "type": "string",
               "required": true
+            },
+            "children[].links": {
+              "type": "array of object",
+              "required": false
+            },
+            "children[].links[].to": {
+              "type": "string",
+              "required": true
+            },
+            "children[].links[].relation": {
+              "type": "string: derived_from",
+              "required": false
             },
             "deps": {
               "type": "array of object",

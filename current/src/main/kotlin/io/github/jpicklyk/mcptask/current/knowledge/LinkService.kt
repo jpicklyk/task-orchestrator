@@ -34,10 +34,10 @@ import java.util.UUID
  * Only [attach] and [detach] open a unit of their own.
  *
  * Relations: `[[...]]` references parsed from a body are [LinkRelation.REFERENCES] (a re-parse replaces only those),
- * an explicit document-to-item attachment is [LinkRelation.ATTACHED], and a note cut from a plan document is
- * [LinkRelation.DERIVED_FROM]. A target resolves only within the source's root; a bare slug resolves PAGE, then PLAN,
- * then RULE. An unresolved document reference is stored dangling (`to_id` NULL, text in `to_ref`) and resolved when
- * the document is created; an unresolved item reference is not stored.
+ * an explicit document-to-item attachment is [LinkRelation.ATTACHED], and a note cut from a plan document, or a new
+ * item's declared source (a note or a document), is [LinkRelation.DERIVED_FROM]. A target resolves only within the
+ * source's root; a bare slug resolves PAGE, then PLAN, then RULE. An unresolved document reference is stored dangling
+ * (`to_id` NULL, text in `to_ref`) and resolved when the document is created; an unresolved item reference is not stored.
  */
 class LinkService(
     private val repositoryProvider: KnowledgeStoreProvider,
@@ -179,6 +179,113 @@ class LinkService(
                 createdAt = now
             )
         )
+    }
+
+    /**
+     * Resolves the sources a new item of root [rootId] derives from, in [targets] order; reads only. The pointer of
+     * target `i` is `<pointerPrefix>/<i>/to`. A document resolves in [rootId] by kind (a bare slug PAGE, then PLAN,
+     * then RULE; archived documents count): none is `not_found`, an anchor that is not a heading slug of its current
+     * body `invalid_request`. A note's item must exist (`not_found`), lie under [rootId] (`invalid_request`) and carry
+     * the key (`not_found`). Two targets that resolve to one entity are `invalid_request`, since an item keeps one link
+     * per target. For a new root item, [rootId] is its own id, so every target fails: no document or note lies under it.
+     */
+    suspend fun resolveItemDerivedFrom(
+        rootId: UUID,
+        targets: List<ItemDerivedFromTarget>,
+        pointerPrefix: String,
+    ): Outcome<List<ResolvedItemDerivedFrom>> {
+        if (targets.isEmpty()) return Outcome.Ok(emptyList())
+        val documents =
+            resolveDocuments(
+                rootId,
+                targets.filterIsInstance<ItemDerivedFromTarget.Document>().map { DocumentTarget(it.kind, it.slug, it.anchor) },
+            )
+        val out = ArrayList<ResolvedItemDerivedFrom>(targets.size)
+        val seen = HashMap<EntityRef, Int>()
+        for ((i, target) in targets.withIndex()) {
+            val pointer = "$pointerPrefix/$i/to"
+            val resolved =
+                when (target) {
+                    is ItemDerivedFromTarget.Document -> {
+                        val asWritten = DocumentTarget(target.kind, target.slug, target.anchor)
+                        val hit =
+                            documents[asWritten]
+                                ?: return Outcome.Err(
+                                    notFound(EntityKind.DOCUMENT, asWritten.toRef, "Document '${asWritten.toRef}' not found")
+                                )
+                        val anchor = target.anchor
+                        if (anchor != null) {
+                            val body =
+                                repositoryProvider
+                                    .documentStore()
+                                    .getById(hit.id)
+                                    ?.body
+                                    .orEmpty()
+                            if (anchor !in MarkdownSectionSplitter.anchors(body)) {
+                                return Outcome.Err(invalidRequest(pointer, "is not a heading of the document", anchor))
+                            }
+                        }
+                        ResolvedItemDerivedFrom(EntityRef(RefKind.DOCUMENT, hit.id), "${hit.kind.toDbValue()}:${hit.slug}", anchor)
+                    }
+                    is ItemDerivedFromTarget.Note -> {
+                        val item =
+                            repositoryProvider.itemStore().getById(target.itemId)
+                                ?: return Outcome.Err(
+                                    notFound(EntityKind.ITEM, target.itemId.toString(), "WorkItem '${target.itemId}' not found")
+                                )
+                        if (eventRootOf(item, repositoryProvider.hierarchyStore()) != rootId) {
+                            return Outcome.Err(
+                                invalidRequest(pointer, "the note's item is not under this item's root", target.itemId.toString())
+                            )
+                        }
+                        val noteId =
+                            repositoryProvider.noteItems().noteIdOf(target.itemId, target.key)
+                                ?: return Outcome.Err(
+                                    notFound(
+                                        EntityKind.NOTE,
+                                        "${target.itemId}#${target.key}",
+                                        "Note '${target.key}' not found on item ${target.itemId}"
+                                    ),
+                                )
+                        ResolvedItemDerivedFrom(EntityRef(RefKind.NOTE, noteId), null, null)
+                    }
+                }
+            seen[resolved.to]?.let { first ->
+                return Outcome.Err(invalidRequest(pointer, "repeats the source of $pointerPrefix/$first", null))
+            }
+            seen[resolved.to] = i
+            out += resolved
+        }
+        return Outcome.Ok(out)
+    }
+
+    /**
+     * Stores one `derived_from` link item [itemId] -> each of [resolved] (from [resolveItemDerivedFrom]), stamped with
+     * [rootId]. Joins the ambient unit; records no event.
+     */
+    suspend fun recordItemDerivedFrom(
+        itemId: UUID,
+        rootId: UUID,
+        resolved: List<ResolvedItemDerivedFrom>,
+        now: Instant,
+    ) {
+        if (resolved.isEmpty()) return
+        val links = repositoryProvider.linkStore()
+        val source = EntityRef(RefKind.ITEM, itemId)
+        for (target in resolved) {
+            links.insert(
+                Link(
+                    id = UUID.randomUUID(),
+                    rootItemId = rootId,
+                    from = source,
+                    to = target.to,
+                    toRef = target.toRef,
+                    relation = LinkRelation.DERIVED_FROM,
+                    anchor = target.anchor,
+                    createdAt = now,
+                ),
+            )
+        }
     }
 
     /**
