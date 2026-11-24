@@ -528,7 +528,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved bucket name `unowned` (see "The `unowned` bucket"), which a seat may never be named, and the seat named `orchestrator`, whose note keys a run's coordinator token may write (see "Seat transitions"). |
+| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved bucket name `unowned` (see "The `unowned` bucket"), which a seat may never be named, and the seat named `orchestrator`, whose note keys a run's token may write (see "Seat transitions"). |
 | `phase` | yes | string | `queue`, `work`, or `review` only - exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within one seats scope - see "Structural errors". A conflict discovered only at resolve time (per-item traits, or traits from a different config layer) is not fatal - see "Merge rules". |
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |
@@ -549,7 +549,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 A seat token sends `start` only into the phase of a seat that sets `enters: true`; every other trigger
 it sends must be in its `transitions:` list (default `block`, `hold`). An entering seat that lists
 `complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
-item. A seat named `orchestrator` is the one seat whose note keys a run's coordinator token may write; every other
+item. A seat named `orchestrator` is the one seat whose note keys a run's token may write; every other
 seat-owned key needs that seat's own token (a human credential is exempt). Enforcement applies only to
 an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other` with `detail.ownerSeat`; outside a
 run the seats stay a signal. The full rules, and the interaction with run membership, are in
@@ -1071,7 +1071,7 @@ The top-level `runs:` block (server file or per-root document, resolved per fiel
 
 | Key | Type | Meaning |
 |---|---|---|
-| `stall_after` | integer seconds, 1 or more | How long a seat or coordinator may go unseen before it reads as stalled (default 600) |
+| `stall_after` | integer seconds, 1 or more | How long a seat or orchestrator may go unseen before it reads as stalled (default 600) |
 | `budgets.attempts_per_seat` | integer, 1 or more | Ceiling on attempts one seat may make on one item |
 | `budgets.max_active_seats` | integer, 1 or more | Ceiling on seats active at once |
 

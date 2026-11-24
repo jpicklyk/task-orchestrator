@@ -138,7 +138,7 @@ Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it
 
 Add to the plan, per MOVE root: its open or paused runs, its config head (version), its document count and its pending-decision blocks. Then apply these rules before the confirmation:
 
-- **Open or paused runs: HOLD.** A MOVE root with any open or paused run is reclassified HOLD and is not moved until those runs are closed (by a coordinator, director or human). A run belongs to the root it opened under and `runs_write` `open` refuses a non-root, so moving the root would strand the run; the server also refuses that move with `invalid_request`. The plan says so, per root.
+- **Open or paused runs: HOLD.** A MOVE root with any open or paused run is reclassified HOLD and is not moved until those runs are closed (by an orchestrator, director or human). A run belongs to the root it opened under and `runs_write` `open` refuses a non-root, so moving the root would strand the run; the server also refuses that move with `invalid_request`. The plan says so, per root.
 - **Pending decisions.** Recommend answering them first. A decision stays keyed to the old root id after a move (it is not restamped), so a director's `runs_read` `decisions` with the anchor as `rootId` will not show it.
 - **Config head.** Either merge it into the workspace `config.yaml` before the move or accept losing it: a per-root config on a root that is no longer a root stops applying.
 - **Credential warning (always printed).** List every MOVE root id and state: any token-file `scope.root_ids`, or JWT `to_scope.root_ids`, that names one of these ids must be re-scoped to the anchor before the next server restart. A token file fails startup on a non-root id; a JWT is refused with `401`.

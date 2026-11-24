@@ -5,9 +5,9 @@ Method B's own loop reaches `next → {complete: true}`. This is the same sequen
 methods; the only difference is what triggers entry into it (see the main `SKILL.md` Step 7).
 
 Each step below records the phase before it ends (`run-ops --phase update --run-phase <phase>`
-under the coordinator token, and the local `state.json`), per the turn-boundary protocol in
+under the run token, and the local `state.json`), per the turn-boundary protocol in
 `SKILL.md` — resume (F7 / the Resume matrix) re-enters at the first step not yet recorded. Every
-coordinator call below carries the coordinator token as the top-level `seatToken`; read every
+orchestrator call below carries the run token as the top-level `seatToken`; read every
 write's answer per element (`data.results[i]`, see RESULTS in `SKILL.md`).
 
 ---
@@ -49,8 +49,8 @@ needs no new seat continues, and the run closes as usual.
 `<scratchpad>/run-wave/<runId>/seats.json`. Then `node "<helper>" run-ops --plan <plan> --phase
 end-seats --seats <seats.json> --result <result.json>` renders one `end_seat` element per still-active
 member seat (outcome `done` for a done stage, `failed` for a stopped one, `abandoned` otherwise; the
-coordinator row and ended seats are skipped) with the aligned `tokenFiles`. Send each element in a
-call of its own under the token read from its `tokenFiles[i]` (the coordinator token is refused on
+orchestrator row and ended seats are skipped) with the aligned `tokenFiles`. Send each element in a
+call of its own under the token read from its `tokenFiles[i]` (the run token is refused on
 `end_seat`). An `unauthenticated` element means that seat was superseded or ended in the meantime:
 record it and go on. A seat that ended itself is not listed. `close` with reason `completed` is
 refused while a seat is active, so this sweep always runs before Step 7.
@@ -199,12 +199,12 @@ was never written is **not** `missing` and does not fail the item. In a seat-les
 
 ## Step 3 — Orchestrator notes
 
-Two notes, written by you with `notes_write` `upsert` (body inline) under the coordinator token
-(top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
+Two notes, written by you with `notes_write` `upsert` (body inline) under the run token
+(top-level `seatToken`): the run token may write the `orchestrator`-seat keys of run members,
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
-filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
+filled after Steps 1–2 have concrete results to report. A note created under the run token is
 owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line (in `run-pointers`; `session-tracking` for a feature started before that note existed or a schema without the key), the cumulative
-`delegation-metadata` re-upsert and the `session-tracking` closure rewrite after a fix cycle (Step 5 "Fallback", step 5) are the only re-edits, each under the coordinator token of an open run
+`delegation-metadata` re-upsert and the `session-tracking` closure rewrite after a fix cycle (Step 5 "Fallback", step 5) are the only re-edits, each under the run token of an open run
 over the item. Inside an open run a human credential may also write it; once the run
 is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
 `detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
@@ -262,11 +262,11 @@ run report instead.
    `modelReported` and the assigned effort. `--meta-dir <dir>` still accepts hand-made `*.meta.json`
    files of the same `{label, model, effort?, usage?}` shape. A bound plan appends `server-run=<uuid>` after the fixed
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
-   do not hand-write it, and do not reorder its fields. An item whose resolved schema declares no `delegation-metadata` key gets its line only in the Step 7 report, never in an undeclared key. A coordinator whose report is the report helper's block (which never carries a provenance line) leaves that line in `<scratchpad>/run-wave/<runId>/provenance.json`; the session retrospective then records the delegation metadata as not recorded. The block format is unchanged.
+   do not hand-write it, and do not reorder its fields. An item whose resolved schema declares no `delegation-metadata` key gets its line only in the Step 7 report, never in an undeclared key. An orchestrator whose report is the report helper's block (which never carries a provenance line) leaves that line in `<scratchpad>/run-wave/<runId>/provenance.json`; the session retrospective then records the delegation metadata as not recorded. The block format is unchanged.
 
    **Layer meters (once per run).** The same `provenance` call also meters the two layers above the
    seats when you pass their flags: `--coordinator <label>` (tier 2 only: the exact dispatch label the
-   director dispatched this coordinator under; a `-a<n>` variant or a prefix is not matched; the meta walk
+   director dispatched this orchestrator under; a `-a<n>` variant or a prefix is not matched; the meta walk
    uses the same `--session-dir`/`--projects-dir` roots as `dispatch-meta`), and
    `--session-transcript <path>` (the launching session's own transcript, never guessed: read the
    `transcript` field of any seat entry in this run's `dispatch-meta` document,
@@ -299,7 +299,7 @@ is absent, read the item's spec note's State matrix the same way; no line and no
 entry means no hold. A live-owed item whose only open entry needs a refreshed plugin cache is the case
 the Step 7b post-merge steps handle once the PR merges.
 
-**One** `advance` call, under the coordinator token, with one `transition` element per item that
+**One** `advance` call, under the run token, with one `transition` element per item that
 passed Steps 1–2 and is not held: `trigger: "start"` for an item whose schema has a review phase,
 `trigger: "complete"` for one that doesn't ("final for this run" means "no review phase to enter",
 not "this is the item's last ever transition"). An item that failed Step 1 or Step 2 is
@@ -312,8 +312,8 @@ gateBlocked, reviewPending, gateMissing}` (item ids):
 
 - `unblocked` — these feed Step 9 of the main skill (they join the next frontier automatically).
 - `seatBlocked` — a cascade into a parent stopped `blocked: seat`: the parent is a member of
-  ANOTHER run that is not closed, and your coordinator token does not cover it. Do not re-send; report
-  it. That run's coordinator or a human advances the parent.
+  ANOTHER run that is not closed, and your run token does not cover it. Do not re-send; report
+  it. That run's orchestrator or a human advances the parent.
 - `gateBlocked` — a cascade stopped at a parent missing required notes (`gateMissing[<id>]`): tell
   the user which ancestor and which notes; it is not a silent no-op.
 - `reviewPending` — a terminal cascade into a parent in review is always suppressed: the parent
@@ -343,7 +343,7 @@ step the project names and do not dispatch the generic reviewer yourself: hand o
 `meta.review.skill` names, at `meta.review.step` when it is set (without one, the project's own review step
 in that skill). In order:
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
-phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
+phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the run token, its
 `seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
 (its reviewers carry the label `reviewer:<short>`, see the Label rule). The hand-off returns once the project's review
 step has a verdict for every advanced item; the advance named below is that project's
@@ -351,15 +351,15 @@ own advance, not a second one. After the hand-off returns: run Step 0b's
 sweep, re-run `dispatch-meta` and `provenance --item <short> --extra-seats reviewer:<model>` (`provenance` reads
 the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`; a consolidated reviewer over several
 children is one agent labelled for the first child in plan order, so its `reviewer:<model>` row goes on that child only), and re-upsert the item's
-`delegation-metadata` under the coordinator token; write each `orchestrator-confirmation` and advance under the
-coordinator token while the run is open; then run Step 7 to close. The costs, stated plainly: the root has an open
+`delegation-metadata` under the run token; write each `orchestrator-confirmation` and advance under the
+run token while the run is open; then run Step 7 to close. The costs, stated plainly: the root has an open
 run for the whole length of the review; one wave runs per root, so a new run-wave on that root resumes this run
 (`SKILL.md` Step 0 F7) until the close; and a Fail waiting on a human keeps the run open. The project's review step
 owns merge arming; do not arm auto-merge from post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
 reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
-<short> --seat reviewer`, sent under the coordinator token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
+<short> --seat reviewer`, sent under the run token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
 token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
 --result <scratchpad>/run-wave/<runId>/result.json` — **always pass `--result`**; without it the
@@ -386,7 +386,7 @@ turn. On the notification, take the item verdict from the verdict lanes (a findi
 (a feature-level review; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
 `start` from work with no review phase lands terminal. Role `work` and `gateStatus.canAdvance` →
-`advance` `transition` `start` (work→review) under the coordinator token first, then dispatch. Role
+`advance` `transition` `start` (work→review) under the run token first, then dispatch. Role
 `work`, not `canAdvance` → fill the orchestrator's own missing work notes or surface the seat-owned
 ones; never dispatch a reviewer at a work-role parent. Role `queue` → run the `SKILL.md` Step 5
 parent check first. Already `review` → dispatch. On 4.0 a review-role parent is never moved by a
@@ -405,7 +405,7 @@ A2 for the next); the seat suffix is the cycle number.
 
 - **Mechanical.** Every blocking finding states the exact fix and changes no scope, no oracle and no
   design decision (a path, a wording, an off-by-one the finding already pins to `file:line`). No
-  amending planner runs and no amendment is written; the coordinator writes no planner-owned note.
+  amending planner runs and no amendment is written; the orchestrator writes no planner-owned note.
   The review register (`review-checklist`, or the first review note) is the ruling. One fresh seat
   owns the touched files: `implementer-a<n>`, or `test-author-a<n>` for test files (which still
   needs declarations, see `reseat` below). Render it with `reseat ... --cause review --findings
@@ -469,7 +469,7 @@ observation fix seat returns any other occurrence of the claim it fixed as `file
 orchestrator gives each one an owner before the next dispatch.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it, under the coordinator token while the run is open
+write the child's `orchestrator-confirmation` before advancing it, under the run token while the run is open
 (the note belongs to the orchestrator seat, so a token-less write in an open run is refused `note_owned_by_other`): one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review) as
 `fixed <sha>`, `follow-up <item-id>` (the item created first) or `accepted: <reason>`, ending
@@ -497,13 +497,13 @@ cannot be resumed after it ends; there, and for any seat that cannot be resumed,
 seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage) and the
 same scope, so the audit trail distinguishes the cycle. The server knows only schema seats,
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
-the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
+the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, run token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
 file. A `meta.review.mode` `handoff` fix cycle takes this still-open-run branch: the item is still a member of
 the open run, and a second `open` over it is refused (an item must be in no other open run). After that re-assign,
 reseat each fix-cycle seat with the run's own `plan.json` (`reseat --plan plan.json`, the command below), and after the
 re-review verdict do step 5 below (the `session-tracking` and Outcome rewrite, then the `delegation-metadata` re-upsert)
-under this run's coordinator token. A Fail's `a<n+1>` stays on this run too, and Step 7 closes it, not step 6.
+under this run's token. A Fail's `a<n+1>` stays on this run too, and Step 7 closes it, not step 6.
 Steps 1-6 are for a run already closed (the Otherwise mode of Step 5, where Step 7 closes the run once the review is
 dispatched, or a cycle after a handoff run's Step 7): the cycle gets its own run over that one item, `<runId>-a<n>`.
 Follow these steps in order:
@@ -518,17 +518,17 @@ Follow these steps in order:
 
 2. Bind a copy of the plan to the new run: `bind-run --in plan.json --server-run <uuid>`, written to
    `plan-a<n>.json`.
-3. Re-`assign` the base seat under this run's coordinator token (`run-ops --phase assign --plan plan-a<n>.json`:
+3. Re-`assign` the base seat under this run's token (`run-ops --phase assign --plan plan-a<n>.json`:
    run-ops reads the runId from the bound plan, and `plan.json` still targets the closed run) and write its
    `seatToken` to the base seat's token file.
 4. Reseat each fix-cycle seat with `reseat --plan plan-a<n>.json` (the command below).
-5. After the re-review verdict, rewrite the item's `session-tracking` under this run's coordinator
+5. After the re-review verdict, rewrite the item's `session-tracking` under this run's
    token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> (mechanical|ruling) -
    <review-note key>` (`mechanical` for a cycle with no amending planner, `ruling` for the four-seat
    cycle) and the Outcome line becomes `Outcome: implemented, review <verdict> after A<n>` (final on a Pass;
    a Fail opens cycle `a<n+1>` with its own run). In the same step, before the close, re-upsert
    `delegation-metadata` per "Recording out-of-run seats".
-6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, coordinator
+6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, run
    token). `completed` is refused while a seat is active, so every seat of this run, a re-review seat included, has ended its seat first.
 
 Render the seat's prompt with the helper's `reseat` command instead of writing it by hand:
@@ -577,7 +577,7 @@ fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running `dispatch-
 in the file) and then
 `node "<helper>" provenance ... --item <short> --meta <dispatch-meta.json> [--extra-seats <seat>:<model>[:unknown:<effort>:<cause>],...]` - with the
 same flags as Step 3 — and
-re-upserting that item's `delegation-metadata` (orchestrator-owned) under the coordinator token of
+re-upserting that item's `delegation-metadata` (orchestrator-owned) under the run token of
 the run holding the item (the still-open run, or the fix-cycle run before it closes; with no open run the
 write is refused, so report it) with the two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far.
@@ -593,7 +593,7 @@ not restate it.
 | Item reviewer, feature reviewer | `reviewer:<short>` (the parent's short id for the feature) | seat |
 | Post-merge step runner | `<step>:<parent-short>` | red-proofs when the step is named so |
 | Retrospective agent | `retrospective:<run8>` (first 8 hex of the server run id) | retrospective |
-| Tier 2 or 2b coordinator | `coordinator:<target-short>` | coordinator |
+| Tier 2 or 2b orchestrator | `coordinator:<target-short>` | orchestrator |
 | Research, audit, mining | `research:<topic>` | research |
 
 Any other description, or none, is class unlabelled. `<short>` is the item's 8-hex short id. A fix-cycle seat is
@@ -629,13 +629,13 @@ process requires:
 - Under `meta.review.onFail` `stop`, a review Fail waits here for a human ruling on its class; the
   fix-cycle recipe of Step 5 runs only after it.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
-  run is answered by a human or a director, never by the coordinator. Each one is reported with a
-  `decision` report (a decision the coordinator raises itself is reported the same way).
+  run is answered by a human or a director, never by the orchestrator. Each one is reported with a
+  `decision` report (a decision the orchestrator raises itself is reported the same way).
   For each item stopped `awaiting_decision`, read `items_read(select:"get")`. With no `decisionId`
-  (a token-less seat could not raise), the coordinator raises under the coordinator token with
+  (a token-less seat could not raise), the orchestrator raises under the run token with
   `block: true`, building the question and options from the seat's `## Deviations requested`
   (see status-progression/references/decisions.md). When it is `resumable` before the run closes,
-  resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
+  resume it under the run token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job.
 - A merge round that conflicts on an `appendOnlyFiles` file in Keep a Changelog form is resolved with
@@ -671,7 +671,7 @@ following it; a step in `skipped` did not apply and is reported with its reason.
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
-2). Send it under the coordinator token. Close through the `runs_write` tool, not REST: the retrospective trigger watches the tool call. `invalid_run_state` on a `completed` close means a seat is
+2). Send it under the run token. Close through the `runs_write` tool, not REST: the retrospective trigger watches the tool call. `invalid_run_state` on a `completed` close means a seat is
 still active: run Step 0b's sweep, then close again. The answer's `snapshot` carries `openDecisions`,
 the number of decisions still open (a close withdraws none): save the close answer as `close.json`, then send the `closed` report
 (`report --event closed --result <result.json> --close <close.json>`).

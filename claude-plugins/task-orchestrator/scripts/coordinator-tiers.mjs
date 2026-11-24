@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// coordinator-tiers.mjs - the director's coordinator tiers and their launch profiles. Pure at
+// coordinator-tiers.mjs - the director's orchestrator placements and their launch profiles. Pure at
 // import; the CLI runs only when this file is the entry point.
 //
 //   node coordinator-tiers.mjs profile --tier N|2b [--budget-usd X] [--scope S] [--target T] [--model M] [--effort E] [--prompt-file F]
@@ -12,17 +12,17 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { forClass } from './lib/dispatch-policy.mjs';
 
-/** Tiers 1, 2, 2b, 3 and 4 in preference order: what each needs and where its coordinator runs. */
+/** Tiers 1, 2, 2b, 3 and 4 in preference order: what each needs and where its orchestrator runs. */
 export const TIERS = Object.freeze([
   Object.freeze({ tier: 1, needs: Object.freeze(['start_session', 'SendMessage|send_message']), coordinator: 'desktop session' }),
   Object.freeze({ tier: 2, needs: Object.freeze(['Workflow']), coordinator: 'background agent plus Workflow in the director session' }),
-  Object.freeze({ tier: '2b', needs: Object.freeze(['REPL', 'Agent']), coordinator: 'Code Mode coordinator subagent running Method B' }),
+  Object.freeze({ tier: '2b', needs: Object.freeze(['REPL', 'Agent']), coordinator: 'Code Mode orchestrator subagent running Method B' }),
   Object.freeze({ tier: 3, needs: Object.freeze(['claude CLI']), coordinator: 'headless claude -p process' }),
   Object.freeze({ tier: 4, needs: Object.freeze([]), coordinator: 'inline in the director session' }),
 ]);
 
 const TIER4_WARNING =
-  'No coordinator tier is available: the run executes inline in the director session, which breaks the altitude rule (the director reads and dispatches seats itself). Keep the run small, or make the Workflow tool or the claude CLI available.';
+  'No orchestrator placement is available: the run executes inline in the director session, which breaks the altitude rule (the director reads and dispatches seats itself). Keep the run small, or make the Workflow tool or the claude CLI available.';
 
 const REPROBE_WARNING =
   'Only REPL and Poll were probed: in Code Mode, list the tools a script can call and probe again.';
@@ -63,14 +63,14 @@ export function selectTier({ tools = [], claudeCli = false } = {}) {
   return { tier: 4, warning: TIER4_WARNING };
 }
 
-/** The tier-2b coordinator brief: 11 lines, pinned verbatim in skills/director/references/coordinator-tiers.md. */
+/** The tier-2b orchestrator brief: 11 lines, pinned verbatim in skills/director/references/coordinator-tiers.md. */
 function tier2bPrompt(scope, target) {
   return [
-    `Run /task-orchestrator:run-wave ${scope} --method B as a tier-2b coordinator.`,
-    'You are a tier-2b coordinator: a Code Mode subagent. Run every step that skills/run-wave/references/code-mode.md covers through its recipe; you have no Workflow tool.',
+    `Run /task-orchestrator:run-wave ${scope} --method B as a tier-2b orchestrator.`,
+    'You are a tier-2b orchestrator: a Code Mode subagent. Run every step that skills/run-wave/references/code-mode.md covers through its recipe; you have no Workflow tool.',
     'Report to "main" with SendMessage, only the output of the report helper (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.',
     'Run each round as a short script, always well under the ~600 s REPL script limit (it binds a subagent whatever its $ timeout), and never wait inside a script.',
-    "Between rounds, wait on Poll with no script running: an idle coordinator is woken by its seats' task notifications.",
+    "Between rounds, wait on Poll with no script running: an idle orchestrator is woken by its seats' task notifications.",
     "Take each seat's envelope from its task-notification result text, never from the task .output file, which stays empty.",
     'Never use a standalone sleep: a shell guard blocks it.',
     "After decision or paused, wait for the director's message; never answer a decision yourself. Stop on a director close and report closed.",
@@ -151,7 +151,7 @@ export function launchProfile(tier, opts = {}) {
     case 4:
       return { tier: 4, inline: true, warning: TIER4_WARNING };
     default:
-      throw new Error(`unknown coordinator tier: ${tier} (expected 1, 2, 2b, 3 or 4)`);
+      throw new Error(`unknown orchestrator placement: ${tier} (expected 1, 2, 2b, 3 or 4)`);
   }
 }
 

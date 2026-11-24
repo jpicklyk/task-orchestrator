@@ -323,7 +323,7 @@ test('2b launchProfile: the shape is the frozen Agent call and has no background
 test('2b launchProfile: the prompt is 11 lines carrying the Code Mode rules and the launch gate', () => {
   const prompt = launchProfile('2b', { scope: 'S1', target: 'T1' }).agent.prompt
   assert.equal(prompt.split(NL).length, 11)
-  assert.equal(prompt.split(NL)[0], 'Run /task-orchestrator:run-wave S1 --method B as a tier-2b coordinator.')
+  assert.equal(prompt.split(NL)[0], 'Run /task-orchestrator:run-wave S1 --method B as a tier-2b orchestrator.')
   assert.equal(prompt.includes('--altitude-safe'), false)
   assert.ok(prompt.includes("After a planned report whose needs: line is not nothing, wait for the director's message before the first dispatch round: approved launches, stop closes the run cancelled and reports closed."))
   assert.equal(prompt.includes(String.fromCharCode(96)), false)
@@ -386,7 +386,7 @@ test('2b doc sync: every prompt line appears verbatim in coordinator-tiers.md; t
 })
 
 test('2b launch gate: the director skill and run-wave SKILL.md state the bootstrap line and the approved or stop answers', () => {
-  const line1 = 'Run /task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.'
+  const line1 = 'Run /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.'
   const director = readFileSync(DIRECTOR_SKILL, 'utf8')
   assert.ok(director.includes(line1), 'director skill row 2b names the one-line Agent prompt')
   assert.ok(/Tier 2b: on that `planned`[^.]*`approved` or `stop`/.test(director), 'Waking up names approved and stop')

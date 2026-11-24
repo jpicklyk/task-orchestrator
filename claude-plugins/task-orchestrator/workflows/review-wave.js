@@ -556,7 +556,7 @@ function mcpServerKey(plan) {
 /**
  * Part 4: seat token, a lane of a bound server run only. Names the token FILE, never the token.
  * Lanes that share a seat share one assignment and one token file, so a lane never ends its seat:
- * the coordinator's post-run sweep does.
+ * the run's orchestrator's post-run sweep does.
  */
 function promptSeatToken(plan, stage) {
   if (!plan.serverRunId || !stage.tokenFile) return ''
@@ -565,7 +565,7 @@ function promptSeatToken(plan, stage) {
       'Read it with your file tool, trim it, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included.',
     'Never print, quote, echo, log or commit the token or the file content, and never copy it into a note or your final message.',
     'A call refused unauthenticated ("The seat token is not accepted.") means the seat was superseded or ended: stop and return ' +
-      'status "stopped", reason "seat-token-rejected". Never end the seat yourself: sibling lanes may share it, and the coordinator ends it.',
+      'status "stopped", reason "seat-token-rejected". Never end the seat yourself: sibling lanes may share it, and the orchestrator of the run ends it.',
   ].join('\n')
 }
 
