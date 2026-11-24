@@ -200,8 +200,8 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   `docs_write` `archive`, which drops it from knowledge search, keeps its body and history, still
   serves it as rule text, and is undone with `unarchive`. A copy at any other hash, or a key the
   workspace provides, is never archived. Nothing is deleted. When such a root later declares a type
-  with a lifecycle, each archived bundled copy at a listed hash is unarchived, then brought to the
-  current body when it held an older one. In user scope the pushed config is
+  with a lifecycle and the server holds that config, each archived bundled copy at a listed hash is
+  unarchived, then brought to the current body when it held an older one. In user scope the pushed config is
   reported as "user config".
 - **Shared deadline.** Config and rule requests share one budget measured from hook start (about 8 s on
   SessionStart, about 3.5 s on FileChanged). Work not finished in time is reported as

@@ -286,7 +286,7 @@ Project mode: run from the workspace directory. `--user` mode: prefix `AGENT_CON
 {"tool": "docs_read", "select": "list", "args": {"rootId": "<root-uuid>", "kind": "rule", "includeArchived": true}}
 ```
 
-Leave a key listed with `archivedAt` alone: an upsert to an archived document fails, and the SessionStart hook restores it. Then, per remaining manifest key, apply the same policy as `hooks/config-sync.mjs`:
+Leave a key listed with `archivedAt` alone: an upsert to an archived document fails. On this path nothing restores it, and it stays archived. Only the SessionStart config-sync with an API URL restores an archived copy, and only one at a hash the manifest lists, once the server holds a config that declares a type with a lifecycle. Then, per remaining manifest key, apply the same policy as `hooks/config-sync.mjs`:
 
 - server `contentHash` equals the manifest's current hash: in sync.
 - key absent, or the server hash is one of the manifest's older hashes: upsert it.
