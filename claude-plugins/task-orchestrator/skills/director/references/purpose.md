@@ -1,4 +1,4 @@
-# Why the director exists
+# Why the director layer exists
 
 ## The problem
 
@@ -14,7 +14,7 @@ cost stays proportional to the work, and the server (not a prompt) holds state a
 | Seat | One agent on one phase of one item (planner, implementer, test author, reviewer) | Its seat's notes; the entry seat also makes the one phase entry | One dispatch, fresh context |
 | Orchestrator (default) | The user's own session | Planning, sizing, dispatching seats, every later transition; when it opens a run it is also that run's orchestrator | The session |
 | Run's orchestrator | Whoever presents a run's token | One run: assign seats, advance members, post-run, report | One run, disposable; resumes from the run view and its run files, never from conversation |
-| Director (opt-in) | A session in director mode | The board across runs, answering decisions, staying free to talk to the user | The session; rebuilds its board from the server |
+| Director (opt-in) | The layer a session plays in director mode | Answering decisions across runs and acting on the board at the user's instruction (the board is the user's view in both session modes), staying free to talk to the user | The session; rebuilds its view from the server |
 
 ## Why add a director
 
