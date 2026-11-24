@@ -208,7 +208,7 @@ You are reviewing MCP item <full UUID> (<short>) on its working branch.
 
 - Checkout: <absolute path of the main checkout or the item's worktree>
 - Branch: <branch-name>
-- Your review scope: git -C <checkout> diff <base>...HEAD
+- Your review scope: git -C <checkout> diff origin/main...HEAD
 - Build state: the `Verified:` line of the item's session-tracking note (command, result,
   SHA). Run no gradle.
 
@@ -274,7 +274,7 @@ from. Automatically retrying hides these signals.
    <verdict summary>
 
    ## Docs
-   <every changed doc path from `git diff --name-only <base>...HEAD`>
+   <every changed doc path from `git diff --name-only origin/main...HEAD`>
 
    ## Changelog
    <the [Unreleased] bullet text, or none (<why>)>

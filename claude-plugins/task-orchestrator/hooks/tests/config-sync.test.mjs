@@ -1921,3 +1921,29 @@ test('legacy nudge: no config file prints nothing', async () => {
   assert.equal(res.status, 0, res.stderr);
   assert.equal(res.stdout.trim(), '');
 });
+
+// a877f204 T8 (specification D6): a lifecycle-free config (every declared type `lifecycle: none`) gets no
+// bundled rules on SessionStart, while its workspace rules still sync; a config that mixes role-bearing and
+// lifecycle-free types gets every bundled key as before. Nothing on the server is seeded, so every key it
+// would sync is an upsert.
+test('a877f204 T8: lifecycle-free config with one workspace rule -> exactly one upsert, the workspace rule', async () => {
+  const rootId = 'root-kb';
+  const p = makeProject(rootId, { extra: 'work_item_schemas:\n  page:\n    lifecycle: none\n  topic:\n    lifecycle: none\n' });
+  writeRuleFile(p.dir, 'house-style.md', 'Write plainly.\n');
+  await withStub({ config: { version: 1, fingerprint: p.fp }, seedBundled: false }, async (stub) => {
+    const res = await runHook(p.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.upserts().map(putKeyOf), ['house-style']);
+  });
+});
+
+test('a877f204 T8: mixed config (one none, one auto) -> every bundled key plus the workspace rule', async () => {
+  const rootId = 'root-mixed';
+  const p = makeProject(rootId, { extra: 'work_item_schemas:\n  page:\n    lifecycle: none\n  bug:\n    lifecycle: auto\n' });
+  writeRuleFile(p.dir, 'house-style.md', 'Write plainly.\n');
+  await withStub({ config: { version: 1, fingerprint: p.fp }, seedBundled: false }, async (stub) => {
+    const res = await runHook(p.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(new Set(stub.upserts().map(putKeyOf)), new Set(['house-style', ...BUNDLED_KEYS]));
+  });
+});

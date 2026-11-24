@@ -4,7 +4,9 @@
 // over the REST API, so a shared HTTP-transport server picks up its schemas/traits without a
 // restart (config get, validate, then push with expectedVersion). Then syncs the rules/*.md next to
 // that config and, on SessionStart only, the plugin's bundled rules (bundled-rules/, governed by
-// bundled-rules/manifest.json) as rule documents (docs_write upsert kind rule).
+// bundled-rules/manifest.json) as rule documents (docs_write upsert kind rule). A lifecycle-free root
+// config (every declared type `lifecycle: none`, lib/session-profile.mjs) gets no bundled rules: they
+// are build-process rules for seats such a root never has. Nothing already pushed is deleted.
 //
 // All calls share ONE deadline measured from hook start (SESSION_START_BUDGET_MS /
 // FILE_CHANGED_BUDGET_MS, kept below the hooks-config.json timeouts); each call's own timeout is
@@ -37,6 +39,7 @@ import { apiBaseUrl, callOp } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitContext, emitSystemMessage } from './lib/emit.mjs';
 import { locateConfig, isValidRootId } from './config-locator.mjs';
+import { isLifecycleFreeConfig } from './lib/session-profile.mjs';
 
 // Mirrors RuleService.KEY_PATTERN (current/.../config/RuleService.kt) exactly - a rule
 // key must match this server-side grammar or the upsert would be rejected anyway; validated client-side
@@ -663,7 +666,8 @@ async function main() {
   //    rejection too.
   let rulesSummary;
   try {
-    rulesSummary = await syncRules({ rulesDir, rootId, deadline, includeBundled: !isFileChanged, rootConfirmed });
+    const includeBundled = !isFileChanged && !isLifecycleFreeConfig(found.text);
+    rulesSummary = await syncRules({ rulesDir, rootId, deadline, includeBundled, rootConfirmed });
   } catch (err) {
     rulesSummary = `sync failed - ${err?.message ?? err}`;
   }
