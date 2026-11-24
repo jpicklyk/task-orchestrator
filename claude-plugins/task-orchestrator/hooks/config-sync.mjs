@@ -6,7 +6,10 @@
 // that config and, on SessionStart only, the plugin's bundled rules (bundled-rules/, governed by
 // bundled-rules/manifest.json) as rule documents (docs_write upsert kind rule). A lifecycle-free root
 // config (every declared type `lifecycle: none`, lib/session-profile.mjs) gets no bundled rules: they
-// are build-process rules for seats such a root never has. Nothing already pushed is deleted.
+// are build-process rules for seats such a root never has. On SessionStart, once the server holds that
+// config, each bundled copy still live there at a hash the plugin shipped is archived (docs_write
+// archive, undone by unarchive); a customised copy is kept and named. When a root regains a lifecycle
+// type, an archived copy at a shipped hash is unarchived and brought current. Nothing is deleted.
 //
 // All calls share ONE deadline measured from hook start (SESSION_START_BUDGET_MS /
 // FILE_CHANGED_BUDGET_MS, kept below the hooks-config.json timeouts); each call's own timeout is
@@ -267,31 +270,75 @@ export function planRuleSync(localRules, serverVersions) {
  * - server hash is a non-current hash listed in manifest[key] (an older version this plugin
  *   shipped) -> push, reason 'known-old';
  * - anything else (unknown hash, null, empty string, non-string) -> untouched, never pushed.
+ * `archivedVersions` (optional `Map<key, contentHash>`) holds the keys listed archived; those are
+ * absent from `serverVersions`. An archived bundled key whose hash is in manifest[key] is restored:
+ * listed in `toUnarchive` with `upsert` true when that hash is not the current one. Any other
+ * archived hash is untouched.
  *
- * Returns `{ toPush: [{key, bytes, reason}], inSync: [key], untouched: [key] }`.
+ * Returns `{ toPush: [{key, bytes, reason}], inSync: [key], untouched: [key],
+ * toUnarchive: [{key, bytes, upsert}] }`.
  */
-export function planBundledSync({ bundled, manifest, serverVersions, workspaceKeys }) {
+export function planBundledSync({ bundled, manifest, serverVersions, workspaceKeys, archivedVersions = new Map() }) {
   const toPush = [];
   const inSync = [];
   const untouched = [];
+  const toUnarchive = [];
   for (const rule of bundled) {
     if (workspaceKeys.has(rule.key)) continue;
+    if (archivedVersions.has(rule.key)) {
+      const archivedHash = archivedVersions.get(rule.key);
+      if (isShippedHash(manifest, rule.key, archivedHash)) {
+        const current = createHash('sha256').update(rule.bytes).digest('hex');
+        toUnarchive.push({ key: rule.key, bytes: rule.bytes, upsert: archivedHash !== current });
+      } else {
+        untouched.push(rule.key);
+      }
+      continue;
+    }
     if (!serverVersions.has(rule.key)) {
       toPush.push({ key: rule.key, bytes: rule.bytes, reason: 'absent' });
       continue;
     }
     const serverHash = serverVersions.get(rule.key);
     const current = createHash('sha256').update(rule.bytes).digest('hex');
-    const shipped = Array.isArray(manifest?.[rule.key]) ? manifest[rule.key] : [];
     if (serverHash === current) {
       inSync.push(rule.key);
-    } else if (typeof serverHash === 'string' && serverHash !== '' && shipped.includes(serverHash)) {
+    } else if (isShippedHash(manifest, rule.key, serverHash)) {
       toPush.push({ key: rule.key, bytes: rule.bytes, reason: 'known-old' });
     } else {
       untouched.push(rule.key);
     }
   }
-  return { toPush, inSync, untouched };
+  return { toPush, inSync, untouched, toUnarchive };
+}
+
+/** True when `hash` is a non-empty string listed in manifest[key] (exact, case-sensitive). */
+function isShippedHash(manifest, key, hash) {
+  const shipped = Array.isArray(manifest?.[key]) ? manifest[key] : [];
+  return typeof hash === 'string' && hash !== '' && shipped.includes(hash);
+}
+
+/**
+ * Pure archive policy for a lifecycle-free root. For each manifest key K (valid by `isValidRuleKey`),
+ * in manifest order: skipped when K is in `workspaceKeys` (the workspace rule owns it), in
+ * `archivedKeys`, or absent from `serverVersions` (the live documents only); archived when the live
+ * copy's hash is a non-empty string in manifest[K] (any shipped hash); otherwise untouched (a
+ * customised copy: unknown hash, null, empty or non-string). Needs only the manifest, so a key whose
+ * body file is missing can still be archived.
+ *
+ * Returns `{ toArchive: [key], untouched: [key] }`.
+ */
+export function planBundledArchive({ manifest, serverVersions, archivedKeys, workspaceKeys }) {
+  const toArchive = [];
+  const untouched = [];
+  const keys = manifest && typeof manifest === 'object' && !Array.isArray(manifest) ? Object.keys(manifest) : [];
+  for (const key of keys) {
+    if (!isValidRuleKey(key)) continue;
+    if (workspaceKeys.has(key) || archivedKeys.has(key) || !serverVersions.has(key)) continue;
+    if (isShippedHash(manifest, key, serverVersions.get(key))) toArchive.push(key);
+    else untouched.push(key);
+  }
+  return { toArchive, untouched };
 }
 
 /**
@@ -325,6 +372,7 @@ function loadBundledRules(dir = BUNDLED_RULES_DIR) {
  * rule 6 in the spec). `pushedKeys` and `failed`/`skipped` are listed in the order they were
  * processed (the upsert queue order). Optional `deferredCount` (default 0) counts upserts not sent, or
  * aborted, because the shared deadline expired; when > 0 it adds `N deferred to next session`.
+ * Optional `archivedKeys` and `unarchivedKeys` (default []) follow the base clause, in that order.
  */
 export function formatRuleSyncSummary({
   pushedKeys,
@@ -334,12 +382,20 @@ export function formatRuleSyncSummary({
   deferredCount = 0,
   untouchedKeys = [],
   bundledListingUnusable = false,
+  archivedKeys = [],
+  unarchivedKeys = [],
 }) {
   const base =
     pushedKeys.length > 0
       ? `pushed ${pushedKeys.length} (${pushedKeys.join(', ')}); ${unchangedCount} in sync.`
       : `${unchangedCount} in sync.`;
   const clauses = [base];
+  if (archivedKeys.length > 0) {
+    clauses.push(`archived bundled build rules: ${archivedKeys.join(', ')}`);
+  }
+  if (unarchivedKeys.length > 0) {
+    clauses.push(`unarchived: ${unarchivedKeys.join(', ')}`);
+  }
   if (skipped.length > 0) {
     clauses.push(`skipped: ${skipped.map((s) => `${s.key} (${s.reason})`).join(', ')}`);
   }
@@ -423,55 +479,75 @@ function skipReason(out, res, capability) {
 }
 
 /**
- * Lists every rule document of the root (docs_read list kind rule, following page.next). Resolves
- * `{serverVersions: Map<key, contentHash>, docVersions: Map<key, version>, unusable}` or
- * `{deferred: true}` / `{failed: outcome}`. An ok answer whose items are not a list, or a later
- * page that fails, is `unusable` (never guess which keys are absent).
+ * Lists every rule document of the root, archived ones included (docs_read list kind rule
+ * includeArchived, following page.next). Resolves `{serverVersions: Map<key, contentHash>,
+ * docVersions: Map<key, version>, archivedVersions: Map<key, contentHash>, unusable}` or
+ * `{deferred: true}` / `{failed: outcome}`. `serverVersions` holds the live documents only; a
+ * document whose `archivedAt` is a non-empty string goes to `archivedVersions` instead, while
+ * `docVersions` holds every listed version. An ok answer whose items are not a list, or a later page
+ * that fails, is `unusable` (never guess which keys are absent).
  */
 async function listRules({ rootId, deadline }) {
   const serverVersions = new Map();
   const docVersions = new Map();
+  const archivedVersions = new Map();
+  const result = (unusable) => ({ serverVersions, docVersions, archivedVersions, unusable });
   let cursor;
   for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-    const body = { select: 'list', rootId, kind: 'rule', limit: 200 };
+    const body = { select: 'list', rootId, kind: 'rule', limit: 200, includeArchived: true };
     if (cursor !== undefined) body.cursor = cursor;
     const res = await deadline.call('docs_read', body);
     if (deadline.isDeadlineResult(res)) return { deferred: true };
     const out = outcomeOf(res);
     if (out === null) return { failed: { ok: false, code: 'client_error', reason: 'no REST API configured' } };
-    if (!out.ok) return page === 0 ? { failed: out } : { serverVersions, docVersions, unusable: true };
+    if (!out.ok) return page === 0 ? { failed: out } : result(true);
     const data = res.data && typeof res.data === 'object' ? res.data : {};
-    if (!Array.isArray(data.items)) return { serverVersions, docVersions, unusable: true };
+    if (!Array.isArray(data.items)) return result(true);
     for (const item of data.items) {
       if (item && typeof item === 'object' && typeof item.slug === 'string') {
-        serverVersions.set(item.slug, item.contentHash);
+        if (typeof item.archivedAt === 'string' && item.archivedAt !== '') {
+          archivedVersions.set(item.slug, item.contentHash);
+          serverVersions.delete(item.slug);
+        } else {
+          serverVersions.set(item.slug, item.contentHash);
+          archivedVersions.delete(item.slug);
+        }
         docVersions.set(item.slug, item.version);
       }
     }
     const next = data.page && typeof data.page === 'object' ? data.page.next : undefined;
-    if (typeof next !== 'string' || next === '') return { serverVersions, docVersions, unusable: false };
+    if (typeof next !== 'string' || next === '') return result(false);
     cursor = next;
   }
-  return { serverVersions, docVersions, unusable: true };
+  return result(true);
 }
 
 /**
- * Syncs the `rules/*.md` next to the located config and, when `includeBundled` (SessionStart), the
- * plugin's bundled rules into the per-root rule store (docs_write upsert kind rule). Returns `null`
- * when there is nothing to consider (no workspace rule files and no bundled sync) — the caller then
- * emits the config line unchanged. Otherwise returns the summary text that follows `Rules: `.
+ * Syncs the `rules/*.md` next to the located config and the plugin's bundled rules into the per-root
+ * rule store. `bundledMode` picks what happens to the bundled rules:
+ * - `off` (FileChanged, or a lifecycle-free config the server does not hold yet): workspace rules only;
+ * - `sync` (SessionStart, a config with lifecycle types): upsert by `planBundledSync`, and restore an
+ *   archived copy at a shipped hash (unarchive, then upsert when that hash is not the current one);
+ * - `archive` (SessionStart, a lifecycle-free config the server holds): archive each live bundled copy
+ *   `planBundledArchive` proves is a plugin copy; no bundled upsert.
+ * Returns `null` when there is nothing to report (no workspace rule files and no bundled rules to
+ * consider, or archive mode with nothing archived, kept, failed or deferred) — the caller then emits
+ * the config line unchanged. Otherwise returns the summary text that follows `Rules: `.
  *
- * Upsert queue order: every `protocol.`-prefixed key first, then the remaining workspace keys, then
- * the remaining bundled keys. Upserts are sequential, one in flight, each carrying expectedVersion:
- * the listed version, or 0 when the rule is absent. An upsert not sent, or timed out under a
- * deadline cap, counts as deferred; any other failure is reported under `failed` as `(<code>)`.
+ * Write order: every `protocol.`-prefixed key first, then the remaining workspace keys, then the
+ * remaining bundled keys. Writes are sequential, one in flight, one op each, each carrying
+ * expectedVersion: the listed version, or 0 when the rule is absent (an archived workspace rule
+ * counts as absent). A write not sent, or timed out under a deadline cap, counts as deferred; any
+ * other failure is reported under `failed` as `(<code>)` and not retried in this run.
  */
-async function syncRules({ rulesDir, rootId, deadline, includeBundled, rootConfirmed = false }) {
+async function syncRules({ rulesDir, rootId, deadline, bundledMode = 'off', rootConfirmed = false }) {
   const ruleFiles = listRuleFiles(rulesDir);
-  const loaded = includeBundled ? loadBundledRules() : { bundled: [], manifest: {} };
+  const loaded = bundledMode === 'off' ? { bundled: [], manifest: {} } : loadBundledRules();
   let { bundled } = loaded;
   const { manifest } = loaded;
-  if (ruleFiles.length === 0 && bundled.length === 0) return null;
+  const archiveMode = bundledMode === 'archive';
+  const bundledToConsider = archiveMode ? Object.keys(manifest).filter(isValidRuleKey).length : bundled.length;
+  if (ruleFiles.length === 0 && bundledToConsider === 0) return null;
 
   const localRules = ruleFiles.map(({ key, filePath }) => ({
     key,
@@ -487,58 +563,81 @@ async function syncRules({ rulesDir, rootId, deadline, includeBundled, rootConfi
     }
     return `sync skipped - listing rules failed (${failedReason(out, 'read')})`;
   }
-  const { serverVersions, docVersions } = listing;
+  const { serverVersions, docVersions, archivedVersions } = listing;
   const bundledListingUnusable = listing.unusable;
-  if (bundledListingUnusable) bundled = [];
+  if (bundledListingUnusable || archiveMode) bundled = [];
 
+  const workspaceKeys = new Set(localRules.map((rule) => rule.key));
   const plan = planRuleSync(localRules, serverVersions);
-  const bundledPlan = planBundledSync({
-    bundled,
-    manifest,
-    serverVersions,
-    workspaceKeys: new Set(localRules.map((rule) => rule.key)),
-  });
+  const bundledPlan = planBundledSync({ bundled, manifest, serverVersions, workspaceKeys, archivedVersions });
+  const archivePlan = archiveMode && !bundledListingUnusable
+    ? planBundledArchive({ manifest, serverVersions, archivedKeys: new Set(archivedVersions.keys()), workspaceKeys })
+    : { toArchive: [], untouched: [] };
 
-  const isProtocol = (rule) => rule.key.startsWith('protocol.');
-  const candidates = [...plan.toPush, ...bundledPlan.toPush];
-  const queue = [...candidates.filter(isProtocol), ...candidates.filter((rule) => !isProtocol(rule))];
+  const isProtocol = (task) => task.key.startsWith('protocol.');
+  const candidates = [
+    ...plan.toPush.map((rule) => ({ ...rule, action: 'upsert' })),
+    ...bundledPlan.toPush.map((rule) => ({ ...rule, action: 'upsert' })),
+    ...bundledPlan.toUnarchive.map((rule) => ({ ...rule, action: 'restore' })),
+    ...archivePlan.toArchive.map((key) => ({ key, action: 'archive' })),
+  ];
+  const queue = [...candidates.filter(isProtocol), ...candidates.filter((task) => !isProtocol(task))];
 
   const pushed = [];
+  const archived = [];
+  const unarchived = [];
   const failed = [];
   let deferredCount = 0;
-  // Upserted sequentially (not Promise.all) — parallel writes against the same root race the
-  // server's SQLite writer. One rule at a time keeps this hook converging in a single run.
-  for (const rule of queue) {
-    const expectedVersion = serverVersions.has(rule.key) ? docVersions.get(rule.key) : 0;
-    const res = await deadline.call('docs_write', {
-      ops: [
-        {
-          op: 'upsert',
-          rootId,
-          kind: 'rule',
-          slug: rule.key,
-          body: rule.bytes.toString('utf8'),
-          expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : 0,
-        },
-      ],
-    });
+  const listedVersion = (key) => {
+    const v = docVersions.get(key);
+    return Number.isInteger(v) ? v : 0;
+  };
+  // One write: true when it succeeded, false when it was deferred or failed (already counted).
+  const write = async (key, op) => {
+    const res = await deadline.call('docs_write', { ops: [{ rootId, kind: 'rule', slug: key, ...op }] });
     if (deadline.isDeadlineResult(res)) {
       deferredCount += 1;
-      continue;
+      return false;
     }
     const out = outcomeOf(res);
-    if (out && out.ok) pushed.push(rule.key);
-    else failed.push({ key: rule.key, reason: out ? failedReason(out, 'write-docs') : 'no REST API configured' });
+    if (out && out.ok) return true;
+    failed.push({ key, reason: out ? failedReason(out, 'write-docs') : 'no REST API configured' });
+    return false;
+  };
+  const upsertOp = (rule, expectedVersion) => ({ op: 'upsert', body: rule.bytes.toString('utf8'), expectedVersion });
+  // Sequential (not Promise.all) — parallel writes against the same root race the server's SQLite
+  // writer. One write at a time keeps this hook converging in a single run.
+  for (const task of queue) {
+    if (task.action === 'archive') {
+      if (await write(task.key, { op: 'archive', expectedVersion: listedVersion(task.key) })) archived.push(task.key);
+    } else if (task.action === 'restore') {
+      if (!(await write(task.key, { op: 'unarchive', expectedVersion: listedVersion(task.key) }))) continue;
+      unarchived.push(task.key);
+      // archive and unarchive leave the version alone, so the upsert expects the listed version.
+      if (task.upsert && (await write(task.key, upsertOp(task, listedVersion(task.key))))) pushed.push(task.key);
+    } else {
+      const expectedVersion = serverVersions.has(task.key) ? listedVersion(task.key) : 0;
+      if (await write(task.key, upsertOp(task, expectedVersion))) pushed.push(task.key);
+    }
   }
 
+  const untouchedKeys = [...bundledPlan.untouched, ...archivePlan.untouched];
+  if (
+    archiveMode && localRules.length === 0 && !bundledListingUnusable &&
+    archived.length === 0 && untouchedKeys.length === 0 && failed.length === 0 && deferredCount === 0
+  ) {
+    return null;
+  }
   return formatRuleSyncSummary({
     pushedKeys: pushed,
     unchangedCount: plan.unchangedCount + bundledPlan.inSync.length,
     skipped: plan.skipped,
     failed,
     deferredCount,
-    untouchedKeys: bundledPlan.untouched,
+    untouchedKeys,
     bundledListingUnusable,
+    archivedKeys: archived,
+    unarchivedKeys: unarchived,
   });
 }
 
@@ -580,6 +679,7 @@ async function main() {
   let rejected = false;
   let rootConfirmed = false; // the server has this root (config get ok, or not_found kind config)
   let headVersion = null;
+  let serverHoldsLocal = false; // the server's head is this config (relation current, or a push answered ok)
 
   // 1) get decides: the head's relation to our fingerprint (fast-forward guard).
   const getRes = await deadline.call('config', { ops: [{ op: 'get', rootId, fingerprint: localFingerprint }] });
@@ -593,6 +693,7 @@ async function main() {
     // relation is the sole authority when the server provides it; without it, compare fingerprints.
     const current = relation !== undefined ? relation === 'current' : head.fingerprint === localFingerprint;
     if (current) {
+      serverHoldsLocal = true;
       configLine = `Task Orchestrator: ${configNoun} already in sync for root ${rootId}.`;
     } else if (relation === 'superseded') {
       const where = found.scope === 'user' ? 'user-level config.yaml' : "checkout's config.yaml";
@@ -637,6 +738,7 @@ async function main() {
       if (push === null) return;
       if (push.ok) {
         rootConfirmed = true;
+        serverHoldsLocal = true;
         if (push.data.appended === false) {
           configLine = `Task Orchestrator: ${configNoun} already in sync for root ${rootId}.`;
         } else {
@@ -661,13 +763,16 @@ async function main() {
   }
 
   // 3) Push the git-tracked rule files (rules/*.md next to the config) and, on SessionStart only,
-  //    the plugin's bundled rules. Fail-open: any exception here is swallowed into a "sync failed"
+  //    the plugin's bundled rules (archived instead for a lifecycle-free config the server holds;
+  //    left alone for one it does not hold yet). Fail-open: any exception here is swallowed into a "sync failed"
   //    line rather than affecting the config line above or the process exit code. Runs after a
   //    rejection too.
   let rulesSummary;
   try {
-    const includeBundled = !isFileChanged && !isLifecycleFreeConfig(found.text);
-    rulesSummary = await syncRules({ rulesDir, rootId, deadline, includeBundled, rootConfirmed });
+    let bundledMode = 'sync';
+    if (isFileChanged) bundledMode = 'off';
+    else if (isLifecycleFreeConfig(found.text)) bundledMode = serverHoldsLocal ? 'archive' : 'off';
+    rulesSummary = await syncRules({ rulesDir, rootId, deadline, bundledMode, rootConfirmed });
   } catch (err) {
     rulesSummary = `sync failed - ${err?.message ?? err}`;
   }
