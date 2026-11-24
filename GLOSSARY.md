@@ -13,7 +13,7 @@ In code: `LifecycleMode.NONE` (a NULL `role`).
 
 ### Link
 
-A recorded pointer from an item, note or document to another that orders nothing: a `[[...]]` reference parsed from a body, an attachment, an adoption, or a note's `derived_from` plan.
+A recorded pointer from an item, note or document to another that orders nothing: a `[[...]]` reference parsed from a body, an attachment, an adoption, a note's `derived_from` plan, or an item's `derived_from` source (a note or a document, declared on create).
 
 Distinct from: a dependency edge (`blocks` or `relates_to`), which `deps_write` records between items. A `relates_to` edge is a dependency edge, not a link.
 In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derived_from`).

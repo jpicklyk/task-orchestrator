@@ -102,7 +102,8 @@ object LinkParser {
             is ItemTarget -> "i:${target.id.replace("-", "").lowercase()}"
         }
 
-    private fun parseTarget(text: String): LinkTarget? {
+    /** One target as written inside `[[...]]` (already trimmed), or null when it is no link. */
+    fun parseTarget(text: String): LinkTarget? {
         if (text.isEmpty()) return null
         val hash = text.indexOf('#')
         val head = if (hash < 0) text else text.substring(0, hash)

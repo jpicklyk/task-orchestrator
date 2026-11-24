@@ -527,7 +527,9 @@ Profiles: knowledge, orchestration.
 await tools['mcp__mcp-task-orchestrator__items_write']({ops: [{op: 'create', title, type}]});
 ```
 
-Optional: `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `idempotencyKey`.
+Optional: `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `links`, `idempotencyKey`.
+
+Required nested: `links[].to`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#items_write-create).
 

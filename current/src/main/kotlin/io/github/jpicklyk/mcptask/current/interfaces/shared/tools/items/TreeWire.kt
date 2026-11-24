@@ -113,7 +113,8 @@ data class TreeChildSpec(
     @Doc(ItemDocs.REQUIRES_VERIFICATION) val requiresVerification: Boolean = false,
     @Doc(ItemDocs.METADATA) val metadata: String? = null,
     @Doc(ItemDocs.PROPERTIES) val properties: JsonObject? = null,
-    @Doc(TreeDocs.NOTE_ANCHORS) val noteAnchors: List<TreeNoteAnchor> = emptyList()
+    @Doc(TreeDocs.NOTE_ANCHORS) val noteAnchors: List<TreeNoteAnchor> = emptyList(),
+    @Doc(ItemLinkDocs.LINKS) val links: List<ItemLinkSpec> = emptyList()
 )
 
 /**

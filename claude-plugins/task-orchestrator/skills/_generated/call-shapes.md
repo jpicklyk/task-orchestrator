@@ -654,6 +654,9 @@ Profiles: knowledge, orchestration; capability `write-items`.
 | `tags` | array of string | no |
 | `traits` | array of string | no |
 | `properties` | object | no |
+| `links` | array of object | no |
+| `links[].to` | string | yes |
+| `links[].relation` | string: derived_from | no |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `partial_failure`, `schema_violation`, `unavailable`, `unknown_parameter`
 
@@ -741,6 +744,9 @@ Profiles: orchestration; capability `write-items`.
 | `children[].noteAnchors[].noteKey` | string | yes |
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes |
 | `children[].noteAnchors[].anchor` | string | yes |
+| `children[].links` | array of object | no |
+| `children[].links[].to` | string | yes |
+| `children[].links[].relation` | string: derived_from | no |
 | `deps` | array of object | no |
 | `deps[].from` | string | no |
 | `deps[].fromId` | string | no |

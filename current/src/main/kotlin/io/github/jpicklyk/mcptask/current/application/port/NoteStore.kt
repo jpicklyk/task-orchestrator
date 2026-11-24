@@ -74,6 +74,12 @@ interface NoteStore : NoteItems {
     /** The ids of the notes on [itemId], in [findRefsByItemIds] order. */
     override suspend fun noteIdsOn(itemId: UUID): List<UUID> = findRefsByItemIds(setOf(itemId))[itemId].orEmpty().map { it.id }
 
+    /** The id of the note [key] on [itemId], through [findByItemIdAndKey]. */
+    override suspend fun noteIdOf(
+        itemId: UUID,
+        key: String
+    ): UUID? = findByItemIdAndKey(itemId, key)?.id
+
     /**
      * The identity of every note on [itemIds] (id, item, key, role), grouped by item, WITHOUT the bodies: what a
      * cascade audit needs before a bulk delete. The default derives it from [findByItemIds]; the SQLite store

@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.knowledge.LinkService
+import io.github.jpicklyk.mcptask.current.knowledge.ResolvedItemDerivedFrom
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -11,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -32,7 +36,8 @@ data class CreateItemRequest(
     @Doc(ItemDocs.METADATA) val metadata: String? = null,
     @Doc(ItemDocs.TAGS) val tags: List<String> = emptyList(),
     @Doc(ItemDocs.TRAITS) val traits: List<String> = emptyList(),
-    @Doc(ItemDocs.PROPERTIES) val properties: JsonObject? = null
+    @Doc(ItemDocs.PROPERTIES) val properties: JsonObject? = null,
+    @Doc(ItemLinkDocs.LINKS) val links: List<ItemLinkSpec> = emptyList()
 )
 
 /** The wire name of the $(Create create[1]) op. */
@@ -88,9 +93,36 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createItem(
     // The new row's tags must stay inside the tag scope (and carry a listed tag, or its creator could not read it).
     (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(req.tags)) as? Outcome.Err)?.let { return it }
 
+    // Declared sources: parsed, their note items scope-checked, then resolved in the new item's root, before any write.
+    val id = UUID.randomUUID()
+    var linkRootId = id
+    var resolvedLinks = emptyList<ResolvedItemDerivedFrom>()
+    if (req.links.isNotEmpty()) {
+        val (refs, violations) = parseItemLinks(req.links, "/links")
+        if (violations.isNotEmpty()) return Outcome.Err(invalidFields(violations))
+        val targets =
+            when (val r = linkTargetsInScope(env, ctx, refs, "/links")) {
+                is Outcome.Err -> return r
+                is Outcome.Ok -> r.value
+            }
+        if (parentId != null) {
+            linkRootId =
+                env.stores
+                    .hierarchyStore()
+                    .resolveChildPlacement(parentId)
+                    ?.rootId
+                    ?: return Outcome.Err(ItemCommandErrors.parentNotFound(parentId))
+        }
+        resolvedLinks =
+            when (val r = LinkService(env.stores, env.unitOfWork).resolveItemDerivedFrom(linkRootId, targets, "/links")) {
+                is Outcome.Err -> return r
+                is Outcome.Ok -> r.value
+            }
+    }
+
     val command =
         ItemCreateCommand(
-            id = UUID.randomUUID(),
+            id = id,
             parentId = parentId,
             title = req.title,
             description = req.description,
@@ -107,6 +139,9 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createItem(
         )
     return when (val created = env.itemCommandService.create(command)) {
         is Outcome.Err -> created
-        is Outcome.Ok -> Outcome.Ok(ItemWriteResult(id = created.value.id, version = created.value.version))
+        is Outcome.Ok -> {
+            LinkService(env.stores, env.unitOfWork).recordItemDerivedFrom(created.value.id, linkRootId, resolvedLinks, now)
+            Outcome.Ok(ItemWriteResult(id = created.value.id, version = created.value.version))
+        }
     }
 }
