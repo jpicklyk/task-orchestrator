@@ -482,6 +482,22 @@ test('00f1dd53: alias off still silences the hook but the deprecation line is sh
   assert.deepEqual(exec(fx, { session_id: 'sess-alias-off' }), {});
 });
 
+test('00f1dd53: alias off in the inline form and in uppercase still silences the hook', () => {
+  const inline = run(`${BASE}extensions:
+  claude-code:
+    orchestration: { mode: off }
+`, { session_id: 'sess-alias-inline' });
+  assert.equal(inline.hookSpecificOutput, undefined);
+  assert.match(inline.systemMessage, DEPRECATION);
+  const upper = run(`${BASE}extensions:
+  claude-code:
+    orchestration:
+      mode: OFF
+`, { session_id: 'sess-alias-upper' });
+  assert.equal(upper.hookSpecificOutput, undefined);
+  assert.match(upper.systemMessage, DEPRECATION);
+});
+
 test('00f1dd53: steering only - selects the mode and prints no deprecation line', () => {
   const out = run(ext('schema'), { session_id: 'sess-new' });
   assert.match(ctxOf(out), /task-orchestrator:schema-workflow/);

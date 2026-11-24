@@ -187,9 +187,9 @@ So the config-sync and other hooks can reach the REST API without an environment
 
 Run **Rule seeding** below, then advise committing `.taskorchestrator/config.yaml` (and `.taskorchestrator/rules/` if present). Never commit `client.json`.
 
-Close with one line on the orchestration mode, because a located config turns the plugin's orchestration hooks on by default. The setting is `extensions.claude-code.steering` in the config just written (an absent key means `workflow`). Say:
+Close with one line on the steering setting, because a located config turns the plugin's orchestration hooks on by default. The setting is `extensions.claude-code.steering` in the config just written (an absent key means `workflow`). Say:
 
-> Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.steering` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
+> Steering: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.steering` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
 
 Do not write the `extensions:` block yourself in project mode. An absent `steering` key already means `workflow`, and init touches this file surgically.
 
@@ -229,13 +229,13 @@ If the user-level config already sets `extensions.claude-code.steering` (or the 
 
 ```
 AskUserQuestion(questions: [{
-  question: "A personal root applies Task Orchestrator's orchestration hooks in every directory without its own project config. Which mode should those directories get?",
-  header: "Orchestration",
+  question: "A personal root applies Task Orchestrator's orchestration hooks in every directory without its own project config. Which steering should those directories get?",
+  header: "Steering",
   multiSelect: false,
   options: [
     { label: "Workflow everywhere (default)", description: "Leave the key out. Tier-aware orchestration core, model guard and dispatch hint are active in every unconfigured directory." },
-    { label: "Schema everywhere", description: "Write orchestration mode schema. No tiers or model table; the model guard and dispatch hint stay active." },
-    { label: "Off outside projects", description: "Write orchestration mode off. All three hooks stay silent in directories that have no project config. The personal root still anchors items and syncs config." }
+    { label: "Schema everywhere", description: "Write steering schema. No tiers or model table; the model guard and dispatch hint stay active." },
+    { label: "Off outside projects", description: "Write steering off. All three hooks stay silent in directories that have no project config. The personal root still anchors items and syncs config." }
   ]
 }])
 ```

@@ -40,7 +40,7 @@ extensions:
     steering: workflow   # workflow (default) | schema | off
 ```
 
-The old `extensions.claude-code.orchestration.mode` is still read as a deprecated alias when `steering` is absent; `steering` wins when both are set, and a session start prints one deprecation line while the old key is present.
+The old `extensions.claude-code.orchestration.mode` is still read as a deprecated alias when `steering` is absent or invalid; `steering` wins when both are set, and a session start prints one deprecation line while the old key is present.
 
 A top-level `orchestration:` block is ignored by the hooks (they read only `extensions.claude-code`), `session-start` prints a `## Config Shape` line naming it, and a 4.0 server rejects it on push. Until you move it, the hooks run in `workflow` mode.
 

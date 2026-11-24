@@ -56,7 +56,7 @@ The REST base URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, a project
 
 Plugin keys live under `extensions.claude-code` in `.taskorchestrator/config.yaml` (for example
 `extensions.claude-code.steering`; the old `extensions.claude-code.orchestration.mode` is still read as a deprecated alias
-when `steering` is absent, and `orchestration-context.mjs` prints one deprecation line per session while it is present).
+when `steering` is absent or invalid, and `orchestration-context.mjs` prints one deprecation line per session while it is present).
 Top-level 3.x keys such as `orchestration:` are ignored; a 4.0 server
 rejects them on push, and `session-start` prints a `## Config Shape` line when it finds one.
 

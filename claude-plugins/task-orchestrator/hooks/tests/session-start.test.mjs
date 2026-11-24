@@ -1514,7 +1514,7 @@ test('S7 a top-level orchestration: section -> exactly one Config Shape line say
     assert.equal(body.length, 1, 'exactly one line: ' + blocks[0]);
     assert.match(body[0], /orchestration/);
     assert.match(body[0], /ignored/i);
-    assert.match(body[0], /extensions\.claude-code/);
+    assert.match(body[0], /extensions\.claude-code\.steering/);
   }
 });
 
