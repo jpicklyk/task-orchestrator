@@ -44,14 +44,14 @@ Use the result to inform the plan. Each planned task should:
 - produce content that maps onto that type's required note keys;
 - list its dependencies by reason, so post-plan can wire only the semantic ones (see post-plan-workflow, "Dependencies").
 
-**Load note-bound skills.** Once the plan's parent type is known (it may not be at plan-mode entry; resolve it when the tier and shape are clear), look at each required queue note of that type in `schemas`. For every note that carries `skill` or `skillPointer`, load the bound skill before writing the part of the plan that note will hold: a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is invoked as a skill (the convention in schema-workflow).
+**Load note-bound skills.** Once the plan's parent type is known (it may not be at plan-mode entry; resolve it when the tier and shape are clear), look at each required queue note of that type in `schemas`. For every note that carries `skill` (a string or a list; a list is loaded in order), load each bound skill before writing the part of the plan that note will hold: a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is invoked as a skill (the convention in schema-workflow).
 
 ## Step 3: Plan with MCP awareness
 
 Structure the plan knowing it will be materialized after approval:
 
-- cut the work as the skill bound to the parent type's notes directs (see Step 2), including where it splits into more than one pull request;
-- when no note binds a skill, each task maps to one work item with clear boundaries.
+- cut the work as each skill bound to the parent type's notes directs, in note order (see Step 2), including where it splits into more than one pull request;
+- when no note binds a skill, each task maps to one work item with clear boundaries, ordered by real dependency, not by file overlap.
 
 ## Continue with plan mode
 
