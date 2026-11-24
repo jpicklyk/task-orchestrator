@@ -1,5 +1,7 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.take

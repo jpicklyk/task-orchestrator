@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal

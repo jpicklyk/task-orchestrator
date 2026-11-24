@@ -16,6 +16,9 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEvent
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.CredentialResolver
 import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
@@ -26,9 +29,6 @@ import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.KeySetUnavailableException
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthHttpFixture
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit

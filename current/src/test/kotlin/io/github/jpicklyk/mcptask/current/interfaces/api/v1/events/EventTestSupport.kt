@@ -4,6 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEvent
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DeleteCause

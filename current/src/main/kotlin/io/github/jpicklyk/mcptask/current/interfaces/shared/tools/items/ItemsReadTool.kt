@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
+import io.github.jpicklyk.mcptask.current.event.EventTools
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -82,7 +83,7 @@ object ItemsReadTool {
                     ItemsReadContext.select,
                     ItemsReadNext.select,
                     ItemsReadBlocked.select,
-                    ItemsReadHistory.select,
+                    EventTools.itemsReadHistory,
                 )
         )
 }

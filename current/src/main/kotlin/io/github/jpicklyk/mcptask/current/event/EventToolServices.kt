@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.event
 
 import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository

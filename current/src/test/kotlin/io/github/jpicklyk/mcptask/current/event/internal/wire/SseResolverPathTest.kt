@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
@@ -14,7 +14,8 @@ import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksResult
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get

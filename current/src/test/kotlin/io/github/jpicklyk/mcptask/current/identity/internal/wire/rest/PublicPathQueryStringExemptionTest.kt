@@ -43,7 +43,7 @@ import org.junit.jupiter.api.Test
  *
  * This suite stands up `ApiBearerAuth` directly (no SSE route, no full server wiring) against
  * plain probe routes, so the path-matching mechanism is exercised in isolation from
- * [SseAuthFullWiringTest][io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SseAuthFullWiringTest],
+ * [SseAuthFullWiringTest][io.github.jpicklyk.mcptask.current.event.internal.wire.SseAuthFullWiringTest],
  * which proves the same fix through the full production wiring.
  *
  * Oracle: `AuthenticationPlugin.kt`'s own documented contract (KDoc on `publicPaths`/`publicPrefixes`

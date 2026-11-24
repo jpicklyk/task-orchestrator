@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
@@ -30,7 +31,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Sqlit
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventSink

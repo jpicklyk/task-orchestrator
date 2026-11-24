@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
@@ -12,9 +12,6 @@ import io.github.jpicklyk.mcptask.current.identity.extractBearerToken
 import io.github.jpicklyk.mcptask.current.identity.isDirectorOnly
 import io.github.jpicklyk.mcptask.current.identity.keySetUnavailable
 import io.github.jpicklyk.mcptask.current.identity.unauthenticated
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -363,7 +360,7 @@ private val sseInlineAuthPlugin =
  * older than the replay window (`API_SSE_BUFFER_SIZE`), above the newest seq, below the seq
  * floor (every id the pre-4.0 in-memory ring buffer issued; the floor itself is a valid cursor), or present but unparsable -- the bus
  * emits a `sync.lost` event carrying a
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SyncLostReason] as the first frame
+ * [io.github.jpicklyk.mcptask.current.event.internal.wire.SyncLostReason] as the first frame
  * of the connection, before any replayed event. A blank header counts as no resume attempt.
  *
  * ## Event-ID namespace separation

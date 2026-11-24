@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.identity.internal.wire.rest
 
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
+import io.github.jpicklyk.mcptask.current.event.internal.wire.eventRoutes
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.ApiTokenVerdict
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.identity.VerifiedApiToken
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal

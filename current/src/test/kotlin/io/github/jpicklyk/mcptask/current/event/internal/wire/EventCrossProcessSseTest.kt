@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent

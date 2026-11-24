@@ -1,8 +1,11 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
+package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventFeed
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.awaitUntil
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource

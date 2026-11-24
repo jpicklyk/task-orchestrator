@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
