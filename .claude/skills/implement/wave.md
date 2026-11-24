@@ -263,9 +263,9 @@ orchestrator's verdict handling is the downstream filter, not your own judgment.
 ```
 
 In per-item mode, the same template names the item's own worktree and branch, and the scope is
-`git -C <item worktree> diff <BASE_SHA>..HEAD -- <owned files>`. `<BASE_SHA>` is the wave's
-pre-dispatch worktree HEAD, taken after any base merge (shared mode uses the feature worktree head,
-`run-planner-lib.mjs`), so main's commits are not in it.
+`git -C <item worktree> diff <BASE_SHA>..HEAD -- <owned files>`. `<BASE_SHA>` is the run
+snapshot's origin/main in per-item mode; shared mode uses the feature worktree's pre-dispatch head,
+taken after any base merge, so main's commits are not in it (`run-planner-lib.mjs`).
 
 **Label and seat parts.** Dispatch every reviewer with the Agent `description` `reviewer:<short>` (the label
 table is the "Label rule" of run-wave `post-run.md`; do not restate it). On a run-wave run, which is open under
@@ -330,8 +330,9 @@ never rebase (the tagged conventional subject keeps the branch eligible for a me
 door "Merge method"). When the merge stops on a conflict, the orchestrator resolves it in the
 feature worktree; a conflict in a child's owned files that needs judgement goes to a writer seat on
 that worktree (front door Route table, hand-dispatch row). The resolution is committed as the merge
-commit itself (`git -C <feature-worktree> commit --no-edit` keeps the `-m` subject from
-MERGE_MSG) and checked with `git log -1 --format=%s`; never abort and rebase. It is a writer
+commit itself (`git -C <feature-worktree> commit --no-edit --cleanup=strip` keeps the `-m` subject
+from MERGE_MSG and drops its `# Conflicts:` comment lines, which would otherwise land in the merge
+commit body) and checked with `git log -1 --format=%s`; never abort and rebase. It is a writer
 commit, so Step 4c build verification runs again before Step 3b. Then Step 3b for the next layer.
 
 **When all children reach terminal**, the parent feature is ready to finalize (a child that is only a live
