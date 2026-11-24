@@ -6,11 +6,11 @@
 export type DirectorState = { since: string } | null
 
 /**
- * This session is the coordinator of `runId` since this ISO instant: seen from its own `runs_write`
+ * This session is the orchestrator of `runId` since this ISO instant: seen from its own `runs_write`
  * `open` (`source: 'tool'`) or from the plugin's `coordinator.json` session marker (`'marker'`).
- * Null while it coordinates no run. The coordinator token is never kept.
+ * Null while it orchestrates no run. The orchestrator token is never kept.
  */
-export type CoordinatorState = { runId: string; label: string; since: string; source: 'tool' | 'marker' } | null
+export type OrchestratorState = { runId: string; label: string; since: string; source: 'tool' | 'marker' } | null
 
 /** What a band line shows of one item: its id, title, type and phase label (`statusLabel`, else its role). */
 export type ItemFacts = { itemId: string; title: string; type: string; label: string }
@@ -45,9 +45,9 @@ export type BoardRun = {
   members?: BoardMember[]
   /** How many terminal members a cancel left (frontier `cancelled`, counted in `counts.terminal`); absent from an older server. */
   cancelled?: number
-  /** The server's coordinator liveness flag as read; the band draws `coordStalled(run)`, which applies the director rule. */
+  /** The server's orchestrator liveness flag as read; the band draws `orchestratorStalled(run)`, which applies the director rule. */
   coordinatorStalled: boolean
-  /** The run's `hints.method` is `A` and `hints.phase` is `launched`: a Workflow runs it and nothing calls under the coordinator token. */
+  /** The run's `hints.method` is `A` and `hints.phase` is `launched`: a Workflow runs it and nothing calls under the orchestrator token. */
   workflowLaunched?: boolean
   /** The item the run is scoped to (`scopeId`), absent for a run over its whole root. */
   scopeId?: string
@@ -110,7 +110,7 @@ declare module 'claude-code' {
   interface PluginState {
     'orchestration-mode': {
       director: DirectorState
-      coordinator: CoordinatorState
+      orchestrator: OrchestratorState
       focus: FocusState
       bandHidden: boolean
       board: Board
