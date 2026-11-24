@@ -57,7 +57,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="tscroll"><table>
     <thead><tr><th>Class of work</th><th>Use</th></tr></thead>
     <tbody>
-      <tr><td><code>coordinator</code></td><td>Run and wave coordinators, orchestration sessions</td></tr>
+      <tr><td><code>orchestrator</code></td><td>Run and wave orchestrators, orchestration sessions</td></tr>
       <tr><td><code>planning</code></td><td>Planner seats, specifications, task scope</td></tr>
       <tr><td><code>planning-high-stakes</code></td><td>Architecture decisions and other high-stakes planning</td></tr>
       <tr><td><code>implementation</code></td><td>Well-specified implementation work</td></tr>
@@ -156,9 +156,9 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="grid3">
     <div class="rule"><h3>When the plan routes here</h3><p class="small">After materializing, the plugin hands off to <code>run-wave</code> only if at least two leaf items are unblocked, a project root resolves, their queue notes are filled, and the three protocol rules are served. Otherwise it dispatches by hand and says which condition failed.</p></div>
     <div class="rule"><h3>What post-run checks</h3><p class="small">In order: end any seat still active, verify that each commit exists and stays inside the files its seat owns, audit that the required notes are filled, write the orchestrator's own notes, advance in one batch, hand off to review, close the run. Who wrote a note is not audited, because the server enforces each seat's lane. Items that fail are left out of the batch advance.</p></div>
-    <div class="rule"><h3>Five agents, four seats</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item. The fifth, the director, runs the board and never code (plate 8, Runs and Decisions).</p></div>
+    <div class="rule"><h3>Five agents, four seats</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item. The fifth, the director agent, acts on the board at the user's instruction and never on code (plate 8, Runs and Decisions).</p></div>
   </div>
-  <p class="sub small">The run is recorded in the parent's <code>session-tracking</code> note (the single item's, in a one-item run) as a pointer line, <code>run-wave: &lt;runId&gt; run=&lt;uuid8&gt; parent=&lt;state&gt;</code>, which is how a later session finds it to resume. A seat that finds the plan wrong raises a deviation decision with <code>block: true</code> and stops. An answer never resumes the item: the coordinator does (plate 8, Runs and Decisions).</p>
+  <p class="sub small">The run is recorded in the parent's <code>session-tracking</code> note (the single item's, in a one-item run) as a pointer line, <code>run-wave: &lt;runId&gt; run=&lt;uuid8&gt; parent=&lt;state&gt;</code>, which is how a later session finds it to resume. A seat that finds the plan wrong raises a deviation decision with <code>block: true</code> and stops. An answer never resumes the item: the run's orchestrator does (plate 8, Runs and Decisions).</p>
 </section>
 
 <section>
@@ -193,7 +193,7 @@ config(op="rules", rootId)</pre>
     <tbody>
       <tr><td>Where it runs</td><td>In your interactive session</td><td>A detached script that starts a fresh headless Claude process and worktree per item. It needs the REST API and exits 64 without it.</td></tr>
       <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration selects the oldest ready item with <code>items_read</code> <code>next</code>, assigns it an implementer seat and claims it under that seat's token</td></tr>
-      <tr><td>The server run</td><td>Opened for the wave and closed by the coordinator</td><td>One run per loop. Each seat ends by outcome, and the driver closes the run.</td></tr>
+      <tr><td>The server run</td><td>Opened for the wave and closed by the run's orchestrator</td><td>One run per loop. Each seat ends by outcome, and the driver closes the run.</td></tr>
       <tr><td>Planning</td><td>A run plan of seat stages</td><td>None. The claimed item's schema is the contract.</td></tr>
       <tr><td>Agents</td><td>One per seat, dispatched by the orchestrator</td><td>No sub-agents. One process does the item.</td></tr>
       <tr><td>How it stops</td><td>The frontier is done, or a human checkpoint</td><td>The queue is empty, or a limit trips</td></tr>

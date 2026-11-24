@@ -155,8 +155,8 @@ traits:
     <div class="tscroll"><table>
       <thead><tr><th>Field</th><th>Meaning</th><th>Server's part</th></tr></thead>
       <tbody>
-        <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server, with two exceptions: <code>orchestrator</code> is the seat whose note keys a run's coordinator token writes, and <code>unowned</code> is reserved.</td><td>Validates and serves</td></tr>
-        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase. Inside a run, it is the only schema seat that may <code>start</code> the item (the run's coordinator token may too).</td><td>Allows one per phase</td></tr>
+        <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server, with two exceptions: <code>orchestrator</code> is the seat whose note keys the run's token writes, and <code>unowned</code> is reserved.</td><td>Validates and serves</td></tr>
+        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase. Inside a run, it is the only schema seat that may <code>start</code> the item (the run's token may too).</td><td>Allows one per phase</td></tr>
         <tr><td><code>transitions</code></td><td>The triggers other than <code>start</code> that a token for this seat may send. The default is <code>block</code> and <code>hold</code>. <code>start</code> is governed by <code>enters</code> and is never listed.</td><td>Refuses the rest as <code>seat_forbidden</code>, inside a run</td></tr>
         <tr><td><code>after</code></td><td>Seats whose work this one follows.</td><td>Serves as a hint</td></tr>
         <tr><td><code>reads_exclude</code></td><td>Note keys this seat should not read. Keeps a test author blind to the implementation.</td><td>Serves as a hint</td></tr>
@@ -235,7 +235,7 @@ traits:
 
 <section>
   <h2>A bug fix, seat by seat</h2>
-  <p class="sub">How four of the Claude Code plugin's five agent definitions (planner, implementer, test author, reviewer) and the main session take these seats. The fifth, the director, takes no seat.</p>
+  <p class="sub">How four of the Claude Code plugin's five agent definitions (planner, implementer, test author, reviewer) and the main session take these seats. The fifth, the director agent, takes no seat.</p>
   <ol class="steps">
     <li class="q"><span class="who">planner · queue</span><span class="do">Writes <code>diagnosis</code> and <code>test-plan</code>. The expected results for the tests are fixed before any code exists.</span></li>
     <li class="w"><span class="who">implementer · enters work</span><span class="do">Reads <code>items_read</code> <code>context</code> first and sends <code>advance</code> (<code>transition</code>, <code>start</code>) only when the role is queue. The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
@@ -244,7 +244,7 @@ traits:
     <li class="r"><span class="who">reviewer · review</span><span class="do">Fills <code>review-checklist</code> and <code>test-independence-audit</code>.</span></li>
     <li class="t"><span class="who">orchestrator</span><span class="do">Advances the item to terminal. The review gate checks the reviewer's notes.</span></li>
   </ol>
-  <p class="small sub">Only the entry seat calls <code>advance</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats. It opens a server run, assigns each seat a token, each seat ends itself with <code>end_seat</code>, and the coordinator closes the run (plate 8, Runs and Decisions).</p>
+  <p class="small sub">Only the entry seat calls <code>advance</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats. It opens a server run, assigns each seat a token, each seat ends itself with <code>end_seat</code>, and the run's orchestrator closes the run (plate 8, Runs and Decisions).</p>
 </section>
 
 <section>
