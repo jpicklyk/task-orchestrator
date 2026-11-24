@@ -3,8 +3,8 @@
 Read by the orchestrator on a Parallel-tier feature or a Delegated batch of 2+ ready items, and by a coordinator handed a run-wave review, once front door Step 1 is done; this file is the whole wave path.
 
 A wave runs through `/task-orchestrator:run-wave` (Step 3b), which generates every seat prompt.
-Two modes: **shared** (a Parallel feature: every child in one feature worktree, one PR when the
-parent is terminal) and **per-item** (a Delegated batch of unrelated items: one branch and PR per
+Two modes: **shared** (a Parallel feature: one planned scope, its waves run in turn in one feature
+worktree, one PR when the parent is terminal) and **per-item** (a Delegated batch of unrelated items: one branch and PR per
 item). Front-door sections are cited by name ("Envelope", "Base freshness", "Verification
 command", "CHANGELOG bullet", "Live-owed check", "Planning rules", "Arbitration — Red Author-Authored Tests", "Merge gate", "After
 merge", "Retrospective"). A dispatch run-wave does not generate (no run-wave, a one-off fix agent,
@@ -36,7 +36,7 @@ fi
 ```
 
 All child-task agents work in this **shared** worktree (Step 4). The feature branch is pushed and
-PR'd **once**, when the parent feature reaches terminal (Step 6). One worktree per feature, not per
+PR'd **once**, across every wave, when the parent feature reaches terminal (Step 6); no PR opens between waves. One worktree per feature, not per
 child: one commit history, one CI cycle, one PR, and no cross-PR contamination. The legacy
 per-dispatch `isolation: "worktree"` pattern is deprecated.
 
@@ -319,6 +319,12 @@ from. Automatically retrying hides these signals.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
+**When children remain for a later wave**, the wave ends with its Step 4c run green and its
+commits on the branch. Run front door "Base freshness" for the branch: when origin/main moved,
+`git -C <feature-worktree> merge origin/main -m "chore: merge main into feat/<feature-slug> [<parent-short>]"`,
+never rebase (the tagged conventional subject keeps the branch eligible for a merge commit, front
+door "Merge method"). Then Step 3b for the next layer.
+
 **When all children reach terminal**, the parent feature is ready to finalize (a child that is only a live
 check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
 merge, step 8):
@@ -327,7 +333,7 @@ merge, step 8):
    rule `closure-notes` point 5 - under the coordinator token while the parent is a member of an
    open run; the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and
    the step 8 post-merge live acceptance line is written as rule `live-checks` "Post-merge holder" (d) says.
-2. **No second suite run.** The wave's one whole-suite run is Step 4c's, after the last writer
+2. **No second suite run.** The last wave's Step 4c run is the whole-suite run, after the last writer
    commit. If a writer seat committed after it (a fix seat, a merge round), that run was not the
    last writer's, so Step 4c runs again before the PR.
 3. Advance the parent to review. The orchestrator never authors the parent's `review-checklist`,
@@ -384,8 +390,8 @@ merge, step 8):
    )"
    ```
 7. **Merge gate** - run front door "Merge gate" (merge method, green checks, fallback merge,
-   state `MERGED` confirmed) first. The method is `--merge` when every branch commit subject is
-   conventional and item-tagged, else `--squash`; the branch is never rebased to qualify. Only after the PR is `MERGED`:
+   state `MERGED` confirmed) first. The method is `--merge` when every first-parent commit subject
+   is conventional and item-tagged, else `--squash`; the branch is never rebased to qualify. Only after the PR is `MERGED`:
    ```bash
    git checkout main
    git pull origin main

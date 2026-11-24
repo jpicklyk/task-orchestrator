@@ -29,9 +29,16 @@ work_item_schemas:
       - key: feature-summary
         role: queue
         required: true
-        description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
+        description: "Lean feature-level summary - goal and a non-goals pointer."
         skill: "spec-quality"
-        guidance: "Keep this lean — target under 2k chars. Cover: (1) the goal in 2-3 sentences, (2) a findings→tasks table mapping brainstorm/research findings to the child task-scope items created for them, (3) dependency edges between those child tasks, (4) a pointer to where non-goals and alternatives are recorded — alternatives, blast radius, risk flags and test strategy are recorded in each child's task-scope note, not here."
+        guidance: "Keep this lean - target under 1k chars. Cover: (1) the goal in 2-3 sentences, (2) a pointer to where non-goals and alternatives are recorded. The cut into PRs and child items, with its dependency edges and waves, is recorded in work-breakdown; alternatives, blast radius, risk flags and test strategy are recorded in each child's task-scope note, not here."
+      - key: work-breakdown
+        role: queue
+        required: true
+        description: "The cut of the planned scope into PRs and child items."
+        skill: "task-orchestrator:decomposing-work"
+        maxLength: 4000
+        guidance: "Record the cut, not how it was made. Sections in this order: `PRs:` each PR with its scope, plus the reason that justifies the split at each boundary between PRs, or the one line `One PR` when nothing splits; `Items:` one line per child item - a short label, its type and a one-line scope (the child's own queue note holds the detail); `Edges:` one line per dependency edge, `A -> B: <reason>`, or `none`; `Waves:` the dependency layers the edges produce, for example `{A, C} then {B}`; `Shared files:` each file more than one item edits, with the edge or wave split that keeps them apart, or `none`. Never restate a child's acceptance criteria or file list. Target under 2500 characters; the 4000 maxLength is a backstop, not a goal."
       - key: implementation-notes
         role: work
         required: true

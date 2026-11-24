@@ -97,7 +97,7 @@ and PR. Group when the changes are cohesive and independent fixes would create
 merge conflicts. Keep items separate when they're unrelated or when isolation makes
 review cleaner. A batch of unrelated bug fixes is not a Parallel-tier feature: each fix gets its
 own branch and PR (run-wave per-item mode); the shared worktree applies only to items under one
-parent feature.
+parent feature. Items materialized from one approved plan share one parent feature and one branch, whatever their wave count (`wave.md` Step 2); a split into several parents is named on the plan's `work-breakdown` note.
 
 ---
 
@@ -215,8 +215,10 @@ update-branch), before merge.
 
 **Merge method** (`<method>` below). `--squash` for a PR with its own item (Direct, Delegated, a
 per-item wave item). `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
-subject from `git log --format=%s <base>..HEAD` is a conventional commit ending in an 8-hex item
-tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Any other subject
+subject from `git log --first-parent --format=%s <base>..HEAD` is a conventional commit ending in
+an 8-hex item tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Only
+the branch's own commits count: main's commits merged in reach HEAD through a merge's second
+parent, while the merge commit itself stays on the first-parent chain and must be tagged. Any other subject
 (wip, untagged, a bare "address review") makes it `--squash`. Never rewrite the branch to clean it:
 notes and run files record its SHAs (dispatch pre/post SHAs, repair SHAs, `fixed <sha>`
 dispositions), and a rebase orphans them. The repo titles both merge and squash commits with the
