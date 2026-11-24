@@ -45,7 +45,7 @@ Contract path (this file): `<absolute path in the MAIN checkout, e.g. D:\Project
 the feature worktree, so a relative `plans/<slug>.md` does not resolve for an agent whose working
 directory is the worktree.
 Base: `<short-sha>` (origin/main at <date>, after PR #<n>)
-PR boundary: ONE PR for the planned scope (every wave of the parent), opened when every item is terminal.
+PR: ONE PR for the planned scope (every wave of the parent), opened when every item is terminal.
 Scratchpad: `<absolute scratchpad path from the session environment>`
 Lock helper (agents' ONLY gradle entry point): `<worktree>\.claude\skills\implement\references\gradle-locked.ps1`
 (the tracked file, referenced in place; never copied into the scratchpad and never hand-written per
