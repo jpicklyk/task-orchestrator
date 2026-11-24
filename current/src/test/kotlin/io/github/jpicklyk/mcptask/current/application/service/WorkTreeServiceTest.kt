@@ -346,6 +346,62 @@ class WorkTreeServiceTest {
         }
 
     @Test
+    fun `S6 plan refuses a lifecycle-free existing end on the from side at its own pointer`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val free = rig.seed("Free", project)
+            rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+
+            val error =
+                service
+                    .plan(
+                        request(
+                            children = listOf(item("c1")),
+                            parentId = project.id,
+                            deps = listOf(TreeDepInput(existing(free.id), ref("c1")))
+                        )
+                    ).err()
+
+            assertEquals(ErrorCode.INVALID_REQUEST, error.code)
+            val field = (error.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/fromId", field.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, field.reason)
+            assertEquals(free.id.toString(), field.received)
+        }
+
+    @Test
+    fun `S6 plan refuses a lifecycle-free attached root on a ref end at the ref pointer`(
+        @TempDir dir: Path
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("Project")
+            val free = rig.seed("Free", project)
+            rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val root = ref(WorkTreeService.ROOT_REF)
+
+            fun attach(dep: TreeDepInput) =
+                WorkTreeRequest(root = TreeRootInput.Attach(free.id), children = listOf(item("c1")), deps = listOf(dep), caller = null)
+
+            val toEnd = service.plan(attach(TreeDepInput(ref("c1"), root))).err()
+            assertEquals(ErrorCode.INVALID_REQUEST, toEnd.code)
+            val toField = (toEnd.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/to", toField.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, toField.reason)
+
+            val fromEnd = service.plan(attach(TreeDepInput(root, ref("c1")))).err()
+            assertEquals(ErrorCode.INVALID_REQUEST, fromEnd.code)
+            val fromField = (fromEnd.detail as ErrorDetail.InvalidRequest).fields.single()
+            assertEquals("/deps/0/from", fromField.field)
+            assertEquals(Dependency.LIFECYCLE_FREE_ENDPOINT_REASON, fromField.reason)
+        }
+
+    @Test
     fun `S7 plan finds a cycle closed through a stored edge between existing items and names a ref`(
         @TempDir dir: Path
     ): Unit =

@@ -210,7 +210,7 @@ ends (`/deps/<i>`), `unblockAt` with `relates_to`, `noteAnchors` without `docRef
 then each `fromId`/`toId` (`not_found` for an unknown one, `forbidden` under a restricted scope); (3) the plan:
 an undeclared or blank `type` (`schema_violation`, the item service's rule), a dependency cycle (`cycle_detected`, the
 path holds item ids, the message names a ref; stored edges of the existing ends and an attached root count) or
-restatement (`duplicate`, a stored edge included), a lifecycle-free existing end of a `blocks` edge (`invalid_request`
+restatement (`duplicate`, a stored edge included), a lifecycle-free existing end or attached root of a `blocks` edge (`invalid_request`
 on that end's pointer), a note policy rejection
 (`schema_violation`, `payload_too_large`, `note_too_long`), a missing document (`not_found`, kind `document`), an
 already-adopted document (`duplicate`, kind `document`), an anchor miss (`invalid_request` on
