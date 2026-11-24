@@ -593,7 +593,7 @@ not restate it.
 | Item reviewer, feature reviewer | `reviewer:<short>` (the parent's short id for the feature) | seat |
 | Post-merge step runner | `<step>:<parent-short>` | red-proofs when the step is named so |
 | Retrospective agent | `retrospective:<run8>` (first 8 hex of the server run id) | retrospective |
-| Tier 2 or 2b orchestrator | `coordinator:<target-short>` | orchestrator |
+| Tier 2 or 2b orchestrator | `coordinator:<target-short>` | coordinator |
 | Research, audit, mining | `research:<topic>` | research |
 
 Any other description, or none, is class unlabelled. `<short>` is the item's 8-hex short id. A fix-cycle seat is
@@ -601,7 +601,7 @@ Any other description, or none, is class unlabelled. `<short>` is the item's 8-h
 `dispatch-meta` wants `<seat>:<short>` for each plan item's stage seats plus `planner` and `reviewer`, and also keeps,
 each under its own full label, the fix-cycle form `<seat>-a<n>:<short>` and the lane form `<seat>.<skill>:<short>` (a
 lane on a fix-cycle base too) of a wanted label; a free-text description leaves the seat unknown. `provenance
---coordinator` finds the coordinator by its exact label. The `red-proofs`, `retrospective`, `research` and unlabelled
+--coordinator` finds the run's orchestrator by its exact label. The `red-proofs`, `retrospective`, `research` and unlabelled
 classes are found only by `session-meters`.
 
 Tokens and meters come only from the seat's transcript, via `--meta`: never from the Agent result, never from a

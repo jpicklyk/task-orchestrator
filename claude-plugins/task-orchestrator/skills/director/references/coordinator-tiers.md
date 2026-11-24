@@ -200,7 +200,7 @@ re-plan.
 - A tier-2 Workflow resume is not the director's call: the guard denies `Workflow` with a `scriptPath` or
   `resumeFromRunId`, so it falls to the orchestrator, a background agent that may lack `Workflow`
   (run-wave post-run re-probes it for that reason). A resume may then have no one able to make it.
-- The director cannot plan: it reads no files or notes. New work is planned in orchestrator mode before
+- The director cannot plan: it reads no files or notes. New work is planned in orchestration mode before
   entering director mode.
 
 ## Tier 4: inline, with a warning

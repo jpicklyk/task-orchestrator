@@ -25,7 +25,7 @@ cost stays proportional to the work, and the server (not a prompt) holds state a
 
 ## When not to use one
 
-Small work or a single short wave. Orchestrator mode is enough, and a director adds a layer and its
+Small work or a single short wave. Orchestration mode is enough, and a director adds a layer and its
 cost. A run of one or two items needs no separate orchestrator even under a director.
 
 ## Limits
