@@ -40,8 +40,7 @@ change without a server release. The Claude Code plugin keeps its settings under
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow
+    steering: workflow
     retrospective:
       mode: dispatch
 ```

@@ -5,7 +5,8 @@
 // own additionalContext budget. Static template strings; the per-variant text must stay < 9000 chars.
 //
 // Gates, in order (each emits `{}`): suppressionReason (headless iteration, subagent, director session)
-// -> no located config -> orchestration mode off (read from extensions.claude-code.orchestration).
+// -> no located config -> steering `off` (read from extensions.claude-code.steering, or the deprecated
+// orchestration.mode alias, which adds one user-visible deprecation line per session, kept by a marker).
 // Mode `workflow` (default, also for absent/invalid) or `schema` selects the variant.
 // When CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is exactly '1' a short `## Code Mode` section is appended
 // after the variant: a routing hint to the run-wave Code Mode recipes, never a gate (the per-session
@@ -15,8 +16,9 @@
 import { suppressionReason } from './execution-mode.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { parseOrchestrationConfig } from './orchestration-lib.mjs';
+import { parseOrchestrationConfig, STEERING_DEPRECATION_NOTICE } from './orchestration-lib.mjs';
 import { emit } from './lib/emit.mjs';
+import { sessionMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 
 const SHARED_SCHEMA_WORKFLOW = `## Note Schema Workflow
 
@@ -149,14 +151,28 @@ function buildOrchestrationContext(mode) {
   return null;
 }
 
+// One deprecation line per session: the marker is created only when the old key is present and the
+// session has an id; createMarkerOnce is false on a repeat (compact, resume) and on any error.
+function deprecationNotice(parsed, input) {
+  if (!parsed.deprecatedKeyPresent) return null;
+  const sid = input?.session_id;
+  if (typeof sid !== 'string' || sid === '') return null;
+  return createMarkerOnce(sessionMarkerPath(sid, 'steering-deprecation')) ? STEERING_DEPRECATION_NOTICE : null;
+}
+
 function main() {
-  if (suppressionReason(readHookInput(), process.env)) return {};
+  const input = readHookInput();
+  if (suppressionReason(input, process.env)) return {};
   const loc = locateConfig({ cwd: process.cwd(), env: process.env });
   if (!loc || loc.scope === 'none' || typeof loc.text !== 'string' || !loc.text) return {};
-  const ctx = buildOrchestrationContext(parseOrchestrationConfig(loc.text).mode);
-  if (!ctx) return {};
+  const parsed = parseOrchestrationConfig(loc.text);
+  const notice = deprecationNotice(parsed, input);
+  const ctx = buildOrchestrationContext(parsed.mode);
+  if (!ctx) return notice ? { systemMessage: notice } : {};
   const full = process.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE === '1' ? ctx + '\n\n' + CODE_MODE_SECTION : ctx;
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: full } };
+  const out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: full } };
+  if (notice) out.systemMessage = notice;
+  return out;
 }
 
 let out = {};

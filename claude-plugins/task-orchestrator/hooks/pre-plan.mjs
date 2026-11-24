@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PreToolUse EnterPlanMode — triggers the pre-plan-workflow skill.
 // Gates (each emits `{}`): headless iteration / subagent / director session (suppressionReason) ->
-// located config whose orchestration.mode is `off`. No located config keeps the directive.
+// located config whose steering is `off`. No located config keeps the directive.
 import { emit } from "./lib/emit.mjs";
 import { readHookInput } from "./lib/stdin.mjs";
 import { suppressionReason } from "./execution-mode.mjs";

@@ -187,11 +187,11 @@ So the config-sync and other hooks can reach the REST API without an environment
 
 Run **Rule seeding** below, then advise committing `.taskorchestrator/config.yaml` (and `.taskorchestrator/rules/` if present). Never commit `client.json`.
 
-Close with one line on the orchestration mode, because a located config turns the plugin's orchestration hooks on by default. The mode is `extensions.claude-code.orchestration.mode` in the config just written (an absent key means `workflow`). Say:
+Close with one line on the orchestration mode, because a located config turns the plugin's orchestration hooks on by default. The setting is `extensions.claude-code.steering` in the config just written (an absent key means `workflow`). Say:
 
-> Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.orchestration.mode` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
+> Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.steering` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
 
-Do not write the `extensions:` block yourself in project mode. Absent orchestration mode already means `workflow`, and init touches this file surgically.
+Do not write the `extensions:` block yourself in project mode. An absent `steering` key already means `workflow`, and init touches this file surgically.
 
 ---
 
@@ -225,7 +225,7 @@ Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, t
 
 A user-level config counts as "config located" for every directory that has no project config of its own. The orchestration hooks therefore apply **everywhere** once this file exists: the orchestration core is injected at session start, an `Agent` dispatch without `model` is denied, and `advance` gains a dispatch hint, in unrelated repositories too. A project-level config only reaches its own checkout, so this is the one place the reach has to be chosen deliberately.
 
-If the user-level config already sets `extensions.claude-code.orchestration.mode`, keep it and state its mode in one line. Otherwise ask:
+If the user-level config already sets `extensions.claude-code.steering` (or the deprecated `orchestration.mode`), keep it and state its mode in one line. Otherwise ask:
 
 ```
 AskUserQuestion(questions: [{
@@ -245,11 +245,10 @@ For the second and third answers, add the key to `userConfigPath()` with the sam
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: off   # or schema
+    steering: off   # or schema
 ```
 
-Write the key before the validate-and-push of U3 so one push covers it; when U3 already ran, push again with the P5 flow. The user-level mode applies only where no project config is located. Inside a project the project's own config is found first and decides alone - its `extensions.claude-code.orchestration.mode`, or `workflow` when it has no such key - so `off` here does not switch orchestration off in initialized projects.
+Write the key before the validate-and-push of U3 so one push covers it; when U3 already ran, push again with the P5 flow. The user-level mode applies only where no project config is located. Inside a project the project's own config is found first and decides alone - its `extensions.claude-code.steering`, or `workflow` when it has no such key - so `off` here does not switch orchestration off in initialized projects.
 
 ### U4 - `client.json`
 

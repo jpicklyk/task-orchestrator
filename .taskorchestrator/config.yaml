@@ -4,11 +4,10 @@ project:
 
 # Plugin and hook settings live under extensions.<tool>; the server stores them and never reads them (4.0).
 # Hook-local (read by the plugin's orchestration-context, dispatch-model-guard and dispatch-hint hooks):
-# orchestration.mode is workflow (default) | schema | off. retrospective is read by the retrospective hooks.
+# steering is workflow (default) | schema | off. retrospective is read by the retrospective hooks.
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow
+    steering: workflow
     retrospective:
       mode: dispatch
       dispatchThreshold: 3

@@ -47,13 +47,13 @@ An HTTP director entry is the orchestration URL with `/mcp/director` in place of
 
 ### Plugin settings
 
-The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`orchestration.mode`, `retrospective.mode`, `retrospective.minItems`, `retrospective.boundary`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
+The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`steering`, `retrospective.mode`, `retrospective.minItems`, `retrospective.boundary`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The old `orchestration.mode` key still works as a deprecated alias for `steering`. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
 
 ---
 
 ## Hooks
 
-Hooks fire automatically — no invocation needed after installation. Each hook is fail-open (an error emits `{}` and exits 0) except `director-guard`, which fails closed under the director marker. The per-hook gating (headless iteration, subagent, `orchestration.mode`, director session) is tabulated in [`hooks/README.md`](../../../claude-plugins/task-orchestrator/hooks/README.md) under "Mode gating"; each section below states the same facts.
+Hooks fire automatically — no invocation needed after installation. Each hook is fail-open (an error emits `{}` and exits 0) except `director-guard`, which fails closed under the director marker. The per-hook gating (headless iteration, subagent, `steering`, director session) is tabulated in [`hooks/README.md`](../../../claude-plugins/task-orchestrator/hooks/README.md) under "Mode gating"; each section below states the same facts.
 
 ### Session Start
 
@@ -88,7 +88,7 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **What it injects:** the always-on orchestration core as `additionalContext`: workflow principles (materialize before implement, agent-owned phases, an explicit `model` on every dispatch, one feature-level review before a multi-child feature closes), the schema-resolution rule (a type selects the schema; tags never do), skill routing, retrospective handling, action items and visual conventions. It points at the `task-orchestrator:orchestrate` skill for the tier table, the delegation model table and phase-owner dispatch rules. It is a separate hook from Session Start so it has its own context budget. When the environment variable `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` is exactly `1`, a short `Code Mode` section is appended that routes the session to the run-wave Code Mode recipes (`skills/run-wave/references/code-mode.md`) and the generated Code Mode call shapes (`skills/_generated/call-shapes-js.md`); it is a hint only and gates nothing.
 
-**Inert when:** the session is a headless ralph iteration, a subagent or a director session, no `.taskorchestrator/config.yaml` can be located, or `extensions.claude-code.orchestration.mode` is `off`. `orchestration.mode: schema` swaps in a variant with no tiers and no model table. A top-level `orchestration:` block is not read. See [Tier 5: Orchestration Mode](orchestration-mode.md) and [config-format.md → Plugin settings](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code).
+**Inert when:** the session is a headless ralph iteration, a subagent or a director session, no `.taskorchestrator/config.yaml` can be located, or `extensions.claude-code.steering` is `off`. `steering: schema` swaps in a variant with no tiers and no model table. A top-level `orchestration:` block is not read. See [Tier 5: Orchestration Mode](orchestration-mode.md) and [config-format.md → Plugin settings](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code).
 
 **Effect:** the agent orchestrates from the first prompt without any output style or CLAUDE.md instructions. It fails open: any error emits `{}`.
 
@@ -98,7 +98,7 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **What it does:** denies a dispatch whose `model` or `effort` is absent, empty or not a string. The shipped agents set neither, so an omitted value silently runs the subagent at the caller's own model or effort. The deny reason names what is missing (`model`, `effort` or both) and says to retry the same call with it set, taking the values from the `task-orchestrator:model-effort` class table or the item's dispatch profile. The values are not validated; the Agent tool owns that.
 
-**Inert when:** the session is a headless ralph iteration, no `.taskorchestrator/config.yaml` can be located, `orchestration.mode` is `off`, or both `model` and `effort` are present. A subagent or director-session dispatch is still guarded: the check is on the dispatch, whoever makes it.
+**Inert when:** the session is a headless ralph iteration, no `.taskorchestrator/config.yaml` can be located, `steering` is `off`, or both `model` and `effort` are present. A subagent or director-session dispatch is still guarded: the check is on the dispatch, whoever makes it.
 
 **Effect:** every dispatch carries an explicit model and effort. It fails open: any error emits `{}`.
 
@@ -108,7 +108,7 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **What it does:** for each applied `transition` result element that entered `work` or `review`, injects one line as `additionalContext`: `↳ <itemId> now in <role>; dispatch profile: agent=<agent|none> model=<model> effort=<effort|class default|unset> - pass model and effort explicitly`. The profile comes from the `dispatch` object already in the result, so there is no server call. A value the profile does not set (`model` or `effort`) reads `class default` in `workflow` mode, meaning the work's class in `task-orchestrator:model-effort`, and `unset` in `schema` mode; `effort=` always appears.
 
-**Inert when:** the session is a headless ralph iteration, no config can be located, `orchestration.mode` is `off`, the call comes from a subagent or a run seat (only the dispatcher needs the hint), or no transition entered `work` or `review`. A 3.x-shaped result shows the legacy-shape warning once per session and hints nothing.
+**Inert when:** the session is a headless ralph iteration, no config can be located, `steering` is `off`, the call comes from a subagent or a run seat (only the dispatcher needs the hint), or no transition entered `work` or `review`. A 3.x-shaped result shows the legacy-shape warning once per session and hints nothing.
 
 **Effect:** the dispatcher sees the item's dispatch profile right after the transition instead of reading it off the result. It fails open: any error emits `{}`.
 
@@ -128,7 +128,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **What it injects:** An instruction to invoke the `pre-plan-workflow` internal skill.
 
-**Effect:** Before writing a plan, the agent checks MCP state — existing items, note schemas, gate requirements. This sets a "definition floor" so the plan does not duplicate tracked work or ignore schema constraints. Gated like the other context hooks: `{}` in a headless iteration, a subagent or a director session, and when `orchestration.mode` is `off`.
+**Effect:** Before writing a plan, the agent checks MCP state — existing items, note schemas, gate requirements. This sets a "definition floor" so the plan does not duplicate tracked work or ignore schema constraints. Gated like the other context hooks: `{}` in a headless iteration, a subagent or a director session, and when `steering` is `off`.
 
 ### Post-Plan
 
@@ -158,7 +158,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Time budget:** one deadline, 4000 ms minus the process's uptime; each REST call gets the smaller of its own timeout and the remaining time less 250 ms, and is skipped as failed when under 100 ms is left, so the hook stays inside its 5 s registration.
 
-**Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `orchestration.mode`: it checks the claimed item's own writes, whoever runs them.
+**Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `steering`: it checks the claimed item's own writes, whoever runs them.
 
 ### Seat Skill Hint
 
@@ -180,7 +180,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **What it does:** inside a subagent whose required record enforces (the server lists `seatSkills`), it refuses the record's gate point until each required skill is loaded or preloaded: `Edit`, `Write` and `NotebookEdit` for a work seat, a `notes_write` upsert whose role matches the seat's phase (case-insensitive) for a planner or reviewer. Every such call is denied with a reason beginning `SEAT SKILLS REQUIRED:` naming the seat, each missing skill and the binding source. There is no release: a skill that is not installed, or a seat without the Skill tool, is denied on each attempt, and the reason tells the agent to stop and report the seat, the skill and the binding source. No hook sees the failure, so the text asks the agent to stop and report. When the marker root cannot be written the call is allowed. No REST call.
 
-**Inert when:** the call is from the main session, no record exists, the server lacks `seatSkills`, nothing is missing, or the marker directory is unwritable. It is not gated by execution mode, `orchestration.mode` or a director session, and it has no `onFailure` block: a crash or timeout lets the call through.
+**Inert when:** the call is from the main session, no record exists, the server lacks `seatSkills`, nothing is missing, or the marker directory is unwritable. It is not gated by execution mode, `steering` or a director session, and it has no `onFailure` block: a crash or timeout lets the call through.
 
 ### Decision Guard
 
@@ -188,7 +188,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **What it does:** denies the call when it comes from a subagent (the hook input carries a non-empty string `agent_id`) and any `ops[]` element has `op` exactly `answer`, `ack`, `pause` or `resume`. The deny reason is: "A subagent never answers, acknowledges, pauses or resumes. Raise the decision (runs_write raise) or report it in your return; the director or the user answers." Every other call is allowed with `{}`, including all calls from the main session and every other op from a subagent.
 
-**Inert when:** the call is from the main session, or no `ops[]` element carries one of the four ops. It is not gated by execution mode, `orchestration.mode` or a director session. It fails open: malformed input or any error emits `{}`, because the server stays the authority and this is a guard rail.
+**Inert when:** the call is from the main session, or no `ops[]` element carries one of the four ops. It is not gated by execution mode, `steering` or a director session. It fails open: malformed input or any error emits `{}`, because the server stays the authority and this is a guard rail.
 
 ### Subagent Start
 
@@ -219,7 +219,7 @@ below.
 
 A call that carries a non-empty top-level `seatToken` belongs to a run seat and is never recorded: run seats do not return through the SubagentStop check below the way an ordinary subagent dispatch does, so recording them would only produce false blocks later. A 3.x-shaped result records and hints nothing and shows the legacy-shape warning once per session.
 
-**Effect:** Feeds the SubagentStop guard below the list of items to re-check when this subagent tries to stop, along with the role each item was entered in. Fail-open and always silent (`{}` on stdout, exit 0) — this hook never blocks `advance` or a read. It is `{}` in a headless iteration, and it is not gated by `orchestration.mode` or a director session.
+**Effect:** Feeds the SubagentStop guard below the list of items to re-check when this subagent tries to stop, along with the role each item was entered in. Fail-open and always silent (`{}` on stdout, exit 0) — this hook never blocks `advance` or a read. It is `{}` in a headless iteration, and it is not gated by `steering` or a director session.
 
 ### Phase Guard (SubagentStop)
 
@@ -243,7 +243,7 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **What it does:** every successful `open` and `close` op is recorded in the session marker (a subagent's calls carry the parent's session id): a retrospective is owed only to the session that opened or closed the run (exceptions at the scope boundary, all limited to groups that became due after the session started: in a dispatch-configured project any session takes a completed scope 60 minutes after it finished, and a dead claim on such a group is taken over after 20 minutes; an abandoned scope belongs to its owner alone, nudged or dispatched only there). At the default boundary `scope` the hook runs the scope evaluation on a successful `close` (one retrospective per completed scope; the state machine is the "Retrospective firing" section of the [hooks README](../../../claude-plugins/task-orchestrator/hooks/README.md)), which yields nothing while the scope is open. The rest of this paragraph is the `run` boundary (`retrospective.boundary: run`): a retrospective is owed per closed run of the project root that is not yet marked `retro`. On a successful `close` op, in the main session with a REST API URL and a project `rootId`, the hook lists the root's recently closed, unmarked runs this session owns (`runs_read` `list` with `unmarked: "retro"`, the last 24 hours), reads each run's terminal member count from its frontier (at most 5 per call), and either dispatches a retrospective or nudges. In `dispatch` mode and with at least `minItems` terminal members (`dispatchThreshold` is the older name of the key) it first writes the run's `retro` mark with `runs_write` `mark`; the first mark wins, so two sessions never both dispatch. Otherwise it injects the nudge naming `/session-retrospective --run <runId>`. In a director session (the director marker is present) `nudge` is treated as `dispatch`, and a run that would be nudged (below the threshold, or a failed mark) is named in the dispatch directive instead. Without a REST API URL or a project `rootId` it only records the close in the session marker for the Stop backstop. The settings are `extensions.claude-code.retrospective.mode` (`nudge` default, `dispatch`, `off`) `minItems` (default 3) and `boundary` (`scope` default, `run`); there is no cooldown and no tmp marker file.
 
-**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or the call is a failed or non-`close` result. A subagent records the close for the main session and never nudges. It is not read against `orchestration.mode`.
+**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or the call is a failed or non-`close` result. A subagent records the close for the main session and never nudges. It is not read against `steering`.
 
 ### Retro Backstop
 

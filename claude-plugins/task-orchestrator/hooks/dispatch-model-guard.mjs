@@ -18,7 +18,7 @@ import { isHeadlessIteration } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
 
-const OFF_POINTER = 'Set `mode: off` under `extensions.claude-code.orchestration` in .taskorchestrator/config.yaml to disable this guard.';
+const OFF_POINTER = 'Set `steering: off` under `extensions.claude-code` in .taskorchestrator/config.yaml to disable this guard.';
 
 function rule(missing) {
   const names = missing.map((f) => `\`${f}\``).join(' and ');
