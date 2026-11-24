@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -10,20 +12,24 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -129,6 +135,25 @@ class ItemsWriteDerivedFromTest {
             .getValue("field")
             .jsonPrimitive.content
 
+    /** One read-tool call over the real dispatcher in the orchestration profile; returns the envelope body. */
+    private suspend fun IwKit.read(
+        tool: String,
+        args: JsonObject
+    ): JsonObject {
+        val spec = checkNotNull(ToolRegistry(buildToolSpecs())[tool]) { "$tool is not registered" }
+        return testToolDispatcher(rig.ctx).dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp").envelope.body
+    }
+
+    /** Every JSON object anywhere in [element], depth first. */
+    private fun objectsIn(element: JsonElement): List<JsonObject> =
+        when (element) {
+            is JsonObject -> listOf(element) + element.values.flatMap { objectsIn(it) }
+            is JsonArray -> element.flatMap { objectsIn(it) }
+            else -> emptyList()
+        }
+
+    private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.content
+
     private fun JsonObject.code(): String = getValue("code").jsonPrimitive.content
 
     private fun assertRejected(
@@ -174,6 +199,53 @@ class ItemsWriteDerivedFromTest {
                     .linkStore()
                     .findTo(EntityRef(RefKind.DOCUMENT, page.id))
             assertEquals(listOf(RefKind.ITEM), incoming.map { it.from.kind })
+
+            // AC1 through the tool: docs_read links, incoming on the page, shows the item's derived_from link.
+            val body =
+                f.k.read(
+                    "docs_read",
+                    buildJsonObject {
+                        put("select", "links")
+                        put("rootId", r1.toString())
+                        put("kind", "page")
+                        put("slug", "rep")
+                        put("direction", "incoming")
+                    }
+                )
+            val shown = objectsIn(body).filter { it.text("relation") == "derived_from" }
+            assertEquals(1, shown.size, "docs_read links: $body")
+            val from = shown.single().getValue("from").jsonObject
+            assertEquals("item", from.text("kind"), "docs_read links: $body")
+            assertEquals(id.toString(), from.text("id"), "docs_read links: $body")
+            assertEquals("page:rep", shown.single().text("toRef"))
+            assertEquals("f-12", shown.single().text("anchor"))
+        }
+
+    @Test
+    fun `S2 items_read related on the new item lists the note's item with links_to`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val id =
+                f.k
+                    .callIn(ToolProfile.KNOWLEDGE, create(r1, links("item:$c1#goal")))
+                    .envelope.body
+                    .okId()
+            val body =
+                f.k.read(
+                    "items_read",
+                    buildJsonObject {
+                        put("select", "related")
+                        put("itemId", id.toString())
+                    }
+                )
+            val hit = objectsIn(body).singleOrNull { c1.toString().startsWith(it.text("itemId") ?: "-") }
+            val reasons =
+                hit
+                    ?.get("reasons")
+                    ?.jsonArray
+                    ?.map { it.jsonPrimitive.content }
+                    .orEmpty()
+            assertTrue("links_to" in reasons, "items_read related must list $c1 with links_to: $body")
         }
 
     @Test
@@ -367,6 +439,58 @@ class ItemsWriteDerivedFromTest {
             ),
             "not_found",
             profile = ToolProfile.ORCHESTRATION
+        )
+    }
+
+    @Test
+    fun `AC4 a rejected link leaves the tree's plan document PENDING`(): Unit =
+        runBlocking {
+            val f = fixture()
+            f.k.rig.raw
+                .planDocumentRepository()
+                .stash(r1, "tree-plan", "# Overview\nFeature overview text.")
+            val tree =
+                twTree(
+                    twRoot("T", extra = listOf("noteAnchors" to JsonArray(listOf(twAnchor("requirements", "queue", "overview"))))),
+                    listOf(twChild("a", extra = listOf("links" to links("item:$c1#absent")))),
+                    extra = listOf("parentId" to jstr(r1.toString()), "docRef" to buildJsonObject { put("slug", "tree-plan") })
+                )
+            assertRejected(f.k, tree, "not_found", profile = ToolProfile.ORCHESTRATION)
+            val doc =
+                checkNotNull(
+                    f.k.rig.raw
+                        .planDocumentRepository()
+                        .get(r1, "tree-plan")
+                )
+            assertEquals(PlanDocumentStatus.PENDING, doc.status)
+        }
+
+    @Test
+    fun `create_tree parse faults point at the child's link, and the cap at the child's links`() {
+        val f = runBlocking { fixture() }
+
+        fun tree(vararg children: JsonObject): JsonObject =
+            twTree(
+                twRoot("T"),
+                children.toList(),
+                extra =
+                    listOf(
+                        "parentId" to jstr(r1.toString())
+                    )
+            )
+        assertRejected(
+            f.k,
+            tree(twChild("a"), twChild("b", extra = listOf("links" to links("rep", "x:foo")))),
+            "invalid_request",
+            "/children/1/links/1/to",
+            ToolProfile.ORCHESTRATION
+        )
+        assertRejected(
+            f.k,
+            tree(twChild("a", extra = listOf("links" to links(*(0..10).map { "item:$c1#k$it" }.toTypedArray())))),
+            "invalid_request",
+            "/children/0/links",
+            ToolProfile.ORCHESTRATION
         )
     }
 

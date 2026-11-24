@@ -35,8 +35,8 @@ import java.util.UUID
  *
  * Relations: `[[...]]` references parsed from a body are [LinkRelation.REFERENCES] (a re-parse replaces only those),
  * an explicit document-to-item attachment is [LinkRelation.ATTACHED], and a note cut from a plan document, or a new
- * item's declared source (a note or a document), is [LinkRelation.DERIVED_FROM]. A target resolves only within the source's root; a bare slug resolves PAGE, then PLAN,
- * then RULE. An unresolved document reference is stored dangling (`to_id` NULL, text in `to_ref`) and resolved when
+ * item's declared source (a note or a document), is [LinkRelation.DERIVED_FROM]. A target resolves only within the
+ * source's root; a bare slug resolves PAGE, then PLAN, then RULE. An unresolved document reference is stored dangling (`to_id` NULL, text in `to_ref`) and resolved when
  * the document is created; an unresolved item reference is not stored.
  */
 class LinkService(
@@ -185,8 +185,9 @@ class LinkService(
      * Resolves the sources a new item of root [rootId] derives from, in [targets] order; reads only. The pointer of
      * target `i` is `<pointerPrefix>/<i>/to`. A document resolves in [rootId] by kind (a bare slug PAGE, then PLAN,
      * then RULE; archived documents count): none is `not_found`, an anchor that is not a heading slug of its current
-     * body `invalid_request`. A note's item must lie under [rootId] (`invalid_request`) and carry the key (`not_found`).
-     * Two targets that resolve to one entity are `invalid_request`, since an item keeps one link per target.
+     * body `invalid_request`. A note's item must exist (`not_found`), lie under [rootId] (`invalid_request`) and carry
+     * the key (`not_found`). Two targets that resolve to one entity are `invalid_request`, since an item keeps one link
+     * per target. For a new root item, [rootId] is its own id, so every target fails: no document or note lies under it.
      */
     suspend fun resolveItemDerivedFrom(
         rootId: UUID,

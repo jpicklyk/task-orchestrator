@@ -221,8 +221,8 @@ internal data class TreeAdoption(
  * document and the children's declared sources ([LinkService.resolveItemDerivedFrom]).
  * [write] writes, joining the caller's unit: items root first through [ItemCommandService.createInUnit] (each
  * placement is read from the parent row inside the unit), the children's `derived_from` links, the dependencies, the
- * notes, the `derived_from` links of the anchored notes and, LAST, the adoption. Any [Outcome.Err] returned from it must roll the caller's unit back; nothing
- * of the tree then remains and the document stays PENDING.
+ * notes, the `derived_from` links of the anchored notes and, LAST, the adoption. Any [Outcome.Err] returned from it
+ * must roll the caller's unit back; nothing of the tree then remains and the document stays PENDING.
  *
  * Note precedence on `(ref, key)`: explicit notes win over anchors, anchors over `createNotes` blanks; among explicit
  * notes (and among anchors) the last one wins. A [PerRootConfigUnavailableException] propagates.
@@ -445,7 +445,8 @@ class WorkTreeService(
 
     /**
      * Writes [plan] in ONE write unit, joining the caller's: items root first, then the items' `derived_from` links,
-     * the dependencies, the notes, the notes' `derived_from` links and, last, the adoption. The first failure is returned; the caller's unit must roll back.
+     * the dependencies, the notes, the notes' `derived_from` links and, last, the adoption. The first failure is
+     * returned; the caller's unit must roll back.
      */
     suspend fun write(plan: WorkTreePlan): Outcome<WorkTreeResult> =
         unitOfWork.write("WorkTreeService.write") {

@@ -158,8 +158,9 @@ kind `shedding`, `retryAfterMs`). A `properties` object carrying a `traits` key 
 the new item's project root: to the note, or to the document with `toRef` `<kind>:<slug>` and the anchor. Errors, all
 before any write: `invalid_request` at `/links/<i>/to` (a malformed target, an anchor that is no heading of the
 document's current body, a note item outside the root, a target repeated, two anchors of one document included) or at
-`/links` (more than 10); `not_found` (a document or a note key); under a restricted scope a note item the scope does not
-admit is `forbidden`. The result is unchanged; read the links with `docs_read` `links` or `items_read` `related`.
+`/links` (more than 10); `not_found` (a document, a note item or a note key); under a restricted scope a note item the
+scope does not admit is `forbidden`. A create without `parentId` founds a new project root, which holds no document or
+note yet, so any link on it fails. The result is unchanged; read the links with `docs_read` `links` or `items_read` `related`.
 
 **Scope.** Every item an element touches is checked against the caller's scope before any write: the target of
 `update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
