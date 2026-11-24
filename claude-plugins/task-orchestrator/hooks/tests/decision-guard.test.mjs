@@ -17,7 +17,7 @@ const HOOK = fileURLToPath(new URL('../decision-guard.mjs', import.meta.url));
 const HOOKS_CONFIG = JSON.parse(readFileSync(fileURLToPath(new URL('../hooks-config.json', import.meta.url)), 'utf-8'));
 
 const MSG =
-  'A subagent never answers, acknowledges, pauses or resumes. Raise the decision (runs_write raise) or report it in your return; the director or the user answers.';
+  'A subagent never answers, acknowledges, pauses, resumes or reissues. Raise the decision (runs_write raise) or report it in your return; the director or the user answers.';
 const DENY = denyOutput(MSG);
 const TOOL = 'mcp__mcp-task-orchestrator__runs_write';
 const DIRECTOR_TOOL = 'mcp__mcp-task-orchestrator-director__runs_write';
@@ -32,9 +32,9 @@ function exec(stdin) {
 const call = (ops, extra = {}) => ({ tool_name: TOOL, tool_input: { ops }, agent_id: 'a1', ...extra });
 const ops = (...names) => names.map((op) => ({ op }));
 
-test('S8 (AC3): a subagent op answer, ack, pause or resume is denied with the contract message, on both entry names', () => {
+test('S8 (AC3): a subagent op answer, ack, pause, resume or reissue is denied with the contract message, on both entry names', () => {
   for (const tool_name of [TOOL, DIRECTOR_TOOL]) {
-    for (const op of ['answer', 'ack', 'pause', 'resume']) {
+    for (const op of ['answer', 'ack', 'pause', 'resume', 'reissue']) {
       const { out } = exec(call(ops(op), { tool_name }));
       assert.deepEqual(out, DENY, `${tool_name} ${op}`);
     }
@@ -44,7 +44,7 @@ test('S8 (AC3): a subagent op answer, ack, pause or resume is denied with the co
 });
 
 test('S9 (AC4): the same call with agent_id absent or an empty string is allowed', () => {
-  for (const op of ['answer', 'ack', 'pause', 'resume']) {
+  for (const op of ['answer', 'ack', 'pause', 'resume', 'reissue']) {
     const absent = { tool_name: TOOL, tool_input: { ops: ops(op) } };
     assert.deepEqual(exec(absent).out, {}, `absent ${op}`);
     assert.deepEqual(exec(call(ops(op), { agent_id: '' })).out, {}, `empty ${op}`);
@@ -61,6 +61,7 @@ test('S11 (AC6): a batch mixing an allowed op with a denied one is denied, whate
   assert.deepEqual(exec(call(ops('raise', 'answer'))).out, DENY);
   assert.deepEqual(exec(call(ops('end_seat', 'pause'))).out, DENY);
   assert.deepEqual(exec(call(ops('resume', 'raise', 'assign'))).out, DENY);
+  assert.deepEqual(exec(call(ops('raise', 'reissue'))).out, DENY);
 });
 
 test('S12 (AC7): malformed input is allowed, exit 0, never throws', () => {

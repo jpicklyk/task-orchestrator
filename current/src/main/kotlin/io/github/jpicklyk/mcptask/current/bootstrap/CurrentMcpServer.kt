@@ -645,7 +645,7 @@ internal fun profileInstructions(profile: ToolProfile): String =
         ToolProfile.DIRECTOR ->
             "Task Orchestrator MCP server, ${profile.wire} tool profile: the run board and the decision inbox. Call any " +
                 "tool with describe: true for its selects, operations and parameters. runs_read: runs, their frontier " +
-                "and the open decisions. runs_write: open, close, pause and resume runs; ack, answer and withdraw " +
+                "and the open decisions. runs_write: open, close, pause, resume and reissue runs; ack, answer and withdraw " +
                 "decisions. report: aggregate metrics and the rollup of a subtree or run. items_read: items, the " +
                 "hierarchy and what is blocked. deps_read: dependency edges. No read here returns a note or document " +
                 "body, and there is no item or note write."
@@ -665,8 +665,8 @@ internal fun profileInstructions(profile: ToolProfile): String =
                 "phase transitions and claims. config: a root's schemas and rule text. runs_read and runs_write: " +
                 "runs, seats and raising decisions. Start with items_read context (an item's gate state) or next " +
                 "(what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
-                "Decisions are answered, and runs paused or resumed, on the director profile: HTTP path " +
-                "/mcp/director, or stdio with MCP_TOOL_PROFILE=director. A client that loads " +
+                "Decisions are answered, runs paused or resumed and a lost run token reissued, on the director " +
+                "profile: HTTP path /mcp/director, or stdio with MCP_TOOL_PROFILE=director. A client that loads " +
                 "tool schemas on demand should load the tools a task needs together, in one step."
     }
 

@@ -51,8 +51,14 @@ names that path and the seat reads it. Write the run token the same way, as one 
 `tokenFile` that `run-ops --phase open` names (`tokens/coordinator.token`), so a restart, `--resume`
 or compaction can read it back; pass it as `seatToken` from that file, and delete `tokens/` at close. Never put a token in a prompt, a note, a log line, a commit, the plan or a helper
 input, and never echo one back to the user. A lost run token (no file, or the file's token is
-refused) cannot be recovered: close the run on the director profile's connection (no `seatToken`) or with a
-human credential, and open another.
+refused) of an open or paused run is reissued on the director profile's connection (no `seatToken`) or
+with a human credential; the old token is refused from then on. A closed run cannot be reissued (`run_closed`). Write the answer's `orchestratorToken` to `tokens/coordinator.token`:
+
+```to-call
+{"tool": "runs_write", "op": "reissue", "args": {"runId": "<run uuid>"}, "profile": "director"}
+```
+
+A background orchestrator is denied `reissue`: it reports the lost token to the session that started it.
 
 A seat envelope is stripped before it is persisted: any `seatToken`, `orchestratorToken` or `coordinatorToken` key is removed at any depth in both methods, and Method B's `stage-result` also redacts every value read from the run's token files. Method A strips by key only (the Workflow sandbox cannot read token files), so a token echoed under another key is not caught there. The run token file sits in the same `tokens/` directory, so Method B redacts its value too.
 
@@ -74,7 +80,7 @@ exception is an atomic batch (`atomic: true`): it answers only the failing eleme
 | `run_paused {pauseReason, pauseDecisionId}` | never retry. Save the answer as `paused.json` and send a `paused` report with `--paused paused.json` (see Reporting). The run pauses on an `attempt-cap` decision, or on a manual pause. A director or a human answers an attempts decision (`allow_one`, `skip_item` or `stop`); it cannot be withdrawn, so answering it or closing the run is the only way out. A manual pause has no decision: a director or a human `resume`s it. A run token can neither answer nor resume |
 | `run_at_capacity {active, max}` | transient: back off until a seat ends (`maxActiveSeats`), then re-send the same `assign`; no decision to answer (Method B and every post-run reviewer assign; a Method A launch assign: see Step 5a) |
 | `unavailable` (kind shedding) | retry once after `retryAfterMs` |
-| `unauthenticated` "The seat token is not accepted." | the token is unknown, ended, superseded or the run closed: a seat stops (`seat-token-rejected`); a lost run token means close and re-open |
+| `unauthenticated` "The seat token is not accepted." | the token is unknown, ended, superseded or the run closed: a seat stops (`seat-token-rejected`); a lost run token of an open or paused run is reissued (see Tokens); a closed run's token cannot be, `reissue` answers `run_closed` |
 | `note_owned_by_other {ownerSeat}`, `seat_forbidden`, `not_claim_holder`, `decision_closed {decisionId, status}`, `forbidden` (`detail.required`), `not_found` (`detail.kind` `seat` or `decision`), `invalid_run_state`, `run_closed` | permanent: never retry unchanged; read `error.fix` |
 
 **Decisions.** A writing seat that needs a ruling raises `runs_write` `raise {class: "deviation",
@@ -252,8 +258,7 @@ When Step 0 F7 finds an open run, read `runs_read` `get` (status, `hints.phase`,
 **paused** run is surfaced first (its pause decision is a director's or a human's to answer); a run
 whose run token is lost cannot be updated, assigned or closed with it. Check the token first:
 if `tokens/coordinator.token` is present, use it; if it is absent, or a call on an open run answers
-`unauthenticated`, close the run `abandoned` (`run-ops --phase close --reason abandoned`) on the
-director profile's connection (no `seatToken`) or with a human credential, then re-plan from Step 2. An
+`unauthenticated`, reissue the run token (see Tokens) and continue at the run's phase. An
 `unauthenticated` answer on a closed run means it is finished: send the `closed` report and finish
 post-run token-less.
 

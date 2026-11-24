@@ -878,6 +878,19 @@ Optional: `idempotencyKey`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#runs_write-resume).
 
+<a id="runs_write-reissue"></a>
+### `runs_write` op `reissue`
+
+Profiles: director.
+
+```js
+await tools['mcp__mcp-task-orchestrator-director__runs_write']({ops: [{op: 'reissue', runId}]});
+```
+
+Optional: `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#runs_write-reissue).
+
 <a id="runs_write-mark"></a>
 ### `runs_write` op `mark`
 

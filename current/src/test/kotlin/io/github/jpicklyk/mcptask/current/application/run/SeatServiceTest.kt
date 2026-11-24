@@ -363,6 +363,90 @@ work_item_schemas:
     // ------------------------------------------------------------------ S3 supersede
 
     @Test
+    fun `S10 two reissues count attempts 2 and 3 over the coordinator rows, keep one active row and bind the old row's principal`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val first = f.seats.openOrchestrator(f.run, ORCH).ok()
+            clock.advanceSeconds(5)
+
+            val second = f.seats.reissueOrchestrator(f.run.id, OTHER).ok()
+            clock.advanceSeconds(5)
+            val third = f.seats.reissueOrchestrator(f.run.id, OTHER).ok()
+
+            assertEquals(2, second.issued.seat.attempt)
+            assertEquals(3, third.issued.seat.attempt)
+            val rows = allSeatRows(f.run.id).filter { it["seat"] == "coordinator" }
+            assertEquals(listOf(1L, 2L, 3L), rows.map { it["attempt"] })
+            assertEquals(listOf("superseded", "superseded", null), rows.map { it["outcome"] })
+            assertEquals(1, rows.count { it["status"] == "active" }, "one active coordinator row")
+            assertEquals(ORCH, third.issued.seat.principalId, "bound to the superseded row's principal, not the fallback")
+            assertNull(f.seats.resolve(first.token, ORCH), "the first token is dead")
+            assertNull(f.seats.resolve(second.issued.token, ORCH), "the second token is dead")
+            assertEquals(third.issued.seat.id, f.seats.resolve(third.issued.token, ORCH)?.id, "control: the newest token resolves")
+        }
+
+    @Test
+    fun `D8 an open run with no active coordinator row is issued one, attempt 1, bound to the opener`(): Unit =
+        runBlocking {
+            val f = fixture()
+            assertEquals(emptyList(), allSeatRows(f.run.id), "fixture: the seeded run has no coordinator row")
+
+            val issued = f.seats.reissueOrchestrator(f.run.id, OTHER).ok()
+
+            assertEquals(1, issued.issued.seat.attempt)
+            assertEquals(ORCH, issued.issued.seat.principalId, "the run's opener, not the fallback")
+            assertNull(issued.supersededSeenAt)
+            val row = allSeatRows(f.run.id).single()
+            assertEquals("active", row["status"])
+            assertEquals("coordinator", row["seat"])
+            assertEquals(issued.issued.seat.id, f.seats.resolve(issued.issued.token, ORCH)?.id)
+        }
+
+    @Test
+    fun `D2 a run with no coordinator row and no recorded opener binds the new token to the fallback principal`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val provider = db.db.repositoryProvider()
+            val anonymous =
+                ParitySeeder(provider.workItemRepository(), provider.dependencyRepository(), provider, db.db.unitOfWork(clock)).run(
+                    id = UUID.randomUUID(),
+                    rootId = f.root.id,
+                    items = listOf(f.outsider.id),
+                    openedBy = null,
+                    openedAt = Instant.parse("2026-10-10T11:00:00Z")
+                )
+            assertEquals(emptyList(), allSeatRows(anonymous.id), "fixture: no coordinator row")
+
+            val issued = f.seats.reissueOrchestrator(anonymous.id, OTHER).ok()
+
+            assertEquals(OTHER, issued.issued.seat.principalId)
+            assertEquals(OTHER, allSeatRows(anonymous.id).single()["principal_id"])
+            assertEquals(issued.issued.seat.id, f.seats.resolve(issued.issued.token, OTHER)?.id, "the fallback principal presents it")
+            assertNull(f.seats.resolve(issued.issued.token, ORCH), "no other principal can")
+        }
+
+    @Test
+    fun `S10 reissue of a closed run is run_closed and writes no row, of an unknown run not_found`(): Unit =
+        runBlocking {
+            val f = fixture(RunStatus.CLOSED)
+            assertEquals(
+                ErrorCode.RUN_CLOSED,
+                f.seats
+                    .reissueOrchestrator(f.run.id, ORCH)
+                    .err()
+                    .code
+            )
+            assertEquals(emptyList(), allSeatRows(f.run.id))
+            assertEquals(
+                ErrorCode.NOT_FOUND,
+                f.seats
+                    .reissueOrchestrator(UUID.randomUUID(), ORCH)
+                    .err()
+                    .code
+            )
+        }
+
+    @Test
     fun `S3 re-assigning a triple ends the old row superseded, counts attempt 2 and kills the old token`(): Unit =
         runBlocking {
             val f = fixture()

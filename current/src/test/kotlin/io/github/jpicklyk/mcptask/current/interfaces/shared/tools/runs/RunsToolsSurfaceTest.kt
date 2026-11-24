@@ -97,20 +97,34 @@ class RunsToolsSurfaceTest {
     }
 
     @Test
-    fun `the members are exactly get list seats frontier decisions decision, and the twelve write ops`() {
+    fun `the members are exactly get list seats frontier decisions decision, and the thirteen write ops`() {
         // R22 adds the `seats` select and the `assign` / `end_seat` ops; R25 adds the `frontier` select (task-scope Build 3);
         // R24 adds the `decisions` / `decision` selects and the `raise` / `ack` / `answer` / `withdraw` ops.
         assertEquals(setOf("get", "list", "seats", "frontier", "decisions", "decision"), read.selects.map { it.name }.toSet())
         assertEquals(6, read.selects.size)
         assertEquals(
-            setOf("open", "update", "close", "pause", "resume", "mark", "assign", "end_seat", "raise", "ack", "answer", "withdraw"),
+            setOf(
+                "open",
+                "update",
+                "close",
+                "pause",
+                "resume",
+                "reissue",
+                "mark",
+                "assign",
+                "end_seat",
+                "raise",
+                "ack",
+                "answer",
+                "withdraw"
+            ),
             write.ops.map { it.name }.toSet()
         )
-        assertEquals(12, write.ops.size)
+        assertEquals(13, write.ops.size)
     }
 
     @Test
-    fun `profile sets follow plan 3-4c - mark is the empty set, pause and resume director only, update orchestration only`() {
+    fun `profile sets follow plan 3-4c - mark is the empty set, pause resume and reissue director only, update orchestration only`() {
         val both = setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR)
         assertEquals(both, readMember("get").profiles)
         assertEquals(both, readMember("list").profiles)
@@ -121,6 +135,7 @@ class RunsToolsSurfaceTest {
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("update").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("pause").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("resume").profiles)
+        assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("reissue").profiles)
         assertEquals(emptySet(), writeMember("mark").profiles, "mark is REST only (R5 empty-set contract)")
         // R22: the seat members are orchestration only (the director never assigns or ends a seat)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), readMember("seats").profiles)
@@ -188,7 +203,7 @@ class RunsToolsSurfaceTest {
         )
         assertEquals(setOf("get", "list", "frontier", "decisions", "decision"), visible("runs_read", ToolProfile.DIRECTOR))
         assertEquals(
-            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
+            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             visible("runs_write", ToolProfile.DIRECTOR)
         )
         for (profile in ToolProfile.entries) {
@@ -235,7 +250,7 @@ class RunsToolsSurfaceTest {
             opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION))
         )
         assertEquals(
-            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
+            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             opEnum(rendered("runs_write", ToolProfile.DIRECTOR))
         )
         assertNull(McpOperationAdapter.toolFor(registry["runs_write"]!!, ToolProfile.KNOWLEDGE), "control: knowledge renders no runs_write")
@@ -269,7 +284,10 @@ class RunsToolsSurfaceTest {
             setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"),
             described(ToolProfile.ORCHESTRATION).toSet()
         )
-        assertEquals(setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"), described(ToolProfile.DIRECTOR).toSet())
+        assertEquals(
+            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            described(ToolProfile.DIRECTOR).toSet()
+        )
         val selects =
             ToolDescriber
                 .describe(registry["runs_read"]!!, ToolProfile.DIRECTOR, null)

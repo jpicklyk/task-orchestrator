@@ -41,6 +41,7 @@ class EventClassCoverageTest {
             "run.resumed",
             "run.ended",
             "run.marked",
+            "run.orchestrator_reissued",
             "decision.raised",
             "decision.acknowledged",
             "decision.answered",

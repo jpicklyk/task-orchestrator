@@ -795,7 +795,7 @@ class RunsSeatOpsTest {
             visibleNames(write, ToolProfile.ORCHESTRATION).toSet()
         )
         assertEquals(
-            setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
+            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             visibleNames(write, ToolProfile.DIRECTOR).toSet(),
             "the director sees neither seat op"
         )

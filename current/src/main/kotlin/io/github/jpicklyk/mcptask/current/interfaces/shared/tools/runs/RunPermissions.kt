@@ -14,7 +14,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
  * the scope check, so a refusal here never reveals whether a run outside the callers scope exists.
  *
  * - director: the call was served by the director profile (a profile, not a principal attribute) and carries no seat
- *   token.
+ *   token. Director or human is the pause, resume and reissue rule: a lost run token is reissued without one.
  * - human: the credential is a human one and the call carries no seat token (a seat is always an agent).
  * - coordinator: the call carries the run token (R22): its seat is the `coordinator` pseudo-seat of THIS
  *   run. The token is the only credential for it; the opening principal is not the run's orchestrator by identity (a seat
@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 internal object RunPermissions {
     const val CLOSE_REQUIRED = "coordinator,director,human"
     const val PAUSE_REQUIRED = "director,human"
+    const val REISSUE_REQUIRED = "director,human"
     const val UPDATE_REQUIRED = "coordinator"
     const val ASSIGN_REQUIRED = "coordinator"
     const val END_SEAT_REQUIRED = "seat"
@@ -63,6 +64,9 @@ internal object RunPermissions {
 
     /** pause and resume. */
     fun mayPauseOrResume(ctx: CallContext): Boolean = isDirector(ctx) || isHuman(ctx)
+
+    /** reissue: never under a seat token, the run token included. */
+    fun mayReissue(ctx: CallContext): Boolean = isDirector(ctx) || isHuman(ctx)
 
     /** update. */
     fun mayUpdate(

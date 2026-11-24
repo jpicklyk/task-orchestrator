@@ -1250,9 +1250,9 @@ class RunServiceTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S19 the six run event types are declared and every one classifies as audit`() {
+    fun `S19 the seven run event types are declared and every one classifies as audit`() {
         assertEquals(
-            listOf("run.opened", "run.updated", "run.paused", "run.resumed", "run.ended", "run.marked"),
+            listOf("run.opened", "run.updated", "run.paused", "run.resumed", "run.ended", "run.marked", "run.orchestrator_reissued"),
             DomainEvent.RUN_TYPES
         )
         for (type in DomainEvent.RUN_TYPES) assertEquals(EventClass.AUDIT, EventClasses.of(type), type)

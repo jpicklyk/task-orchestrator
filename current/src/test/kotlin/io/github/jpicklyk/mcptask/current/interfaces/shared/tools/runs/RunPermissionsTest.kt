@@ -336,6 +336,16 @@ class RunPermissionsTest {
     }
 
     @Test
+    fun `S11 mayReissue is director or human without a token and never under a member or run token`() {
+        val run = runOpenedBy("api:rw-caller", "service")
+        for ((d, h) in combinations) {
+            assertEquals(d || h, RunPermissions.mayReissue(ctx(d, h)), "no token: director=$d human=$h")
+            assertFalse(RunPermissions.mayReissue(ctx(d, h, coordinatorSeat(run))), "run token: director=$d human=$h")
+            assertFalse(RunPermissions.mayReissue(ctx(d, h, memberSeat(run))), "member token: director=$d human=$h")
+        }
+    }
+
+    @Test
     fun `mayUpdate and mayAssign are the coordinator token only - neither the director, a human nor the opener may`() {
         val run = runOpenedBy("api:rw-caller", "service")
         for ((d, h) in combinations) {
@@ -391,6 +401,7 @@ class RunPermissionsTest {
     fun `the required strings of the three rows are the listed kinds`() {
         assertEquals("coordinator,director,human", RunPermissions.CLOSE_REQUIRED)
         assertEquals("director,human", RunPermissions.PAUSE_REQUIRED)
+        assertEquals("director,human", RunPermissions.REISSUE_REQUIRED)
         assertEquals("coordinator", RunPermissions.UPDATE_REQUIRED)
         assertEquals("coordinator", RunPermissions.ASSIGN_REQUIRED)
         assertEquals("seat", RunPermissions.END_SEAT_REQUIRED)
@@ -401,6 +412,7 @@ class RunPermissionsTest {
         for (required in listOf(
             RunPermissions.CLOSE_REQUIRED,
             RunPermissions.PAUSE_REQUIRED,
+            RunPermissions.REISSUE_REQUIRED,
             RunPermissions.UPDATE_REQUIRED,
             RunPermissions.ASSIGN_REQUIRED,
             RunPermissions.END_SEAT_REQUIRED

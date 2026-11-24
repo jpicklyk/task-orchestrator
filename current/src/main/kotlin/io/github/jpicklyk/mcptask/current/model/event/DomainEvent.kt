@@ -586,6 +586,25 @@ sealed class DomainEvent {
         }
     }
 
+    /**
+     * A new run token was issued for the run (`runs_write reissue`): the `coordinator` row of attempt [attempt] replaced
+     * [supersededAssignmentId] (null when none was active), whose token was last seen at [supersededSeenAt] (null when
+     * never). Neither token nor its hash is ever part of the event.
+     */
+    data class RunOrchestratorReissued(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val attempt: Int,
+        val supersededAssignmentId: UUID? = null,
+        val supersededSeenAt: Instant? = null
+    ) : DomainEvent() {
+        override val type: String get() = RUN_ORCHESTRATOR_REISSUED
+        override val entityKind: String get() = KIND_RUN
+
+        override fun payload(): Map<String, Any?> =
+            mapOf("attempt" to attempt, "supersededAssignmentId" to supersededAssignmentId, "supersededSeenAt" to supersededSeenAt)
+    }
+
     /** Named marks were set on a run. Defined here; produced by a later item. */
     data class RunMarked(
         override val entityId: UUID,
@@ -772,6 +791,7 @@ sealed class DomainEvent {
         const val RUN_RESUMED = "run.resumed"
         const val RUN_ENDED = "run.ended"
         const val RUN_MARKED = "run.marked"
+        const val RUN_ORCHESTRATOR_REISSUED = "run.orchestrator_reissued"
         const val SEAT_ASSIGNED = "seat.assigned"
         const val SEAT_ENDED = "seat.ended"
         const val DECISION_RAISED = "decision.raised"
@@ -780,7 +800,8 @@ sealed class DomainEvent {
         const val DECISION_WITHDRAWN = "decision.withdrawn"
 
         /** The run event types, in lifecycle order (all of them stream on the SSE projection). */
-        val RUN_TYPES: List<String> = listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED)
+        val RUN_TYPES: List<String> =
+            listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED, RUN_ORCHESTRATOR_REISSUED)
 
         /** The decision event types, in lifecycle order (all of them stream on the SSE projection; audit by prefix). */
         val DECISION_TYPES: List<String> = listOf(DECISION_RAISED, DECISION_ACKNOWLEDGED, DECISION_ANSWERED, DECISION_WITHDRAWN)

@@ -16,6 +16,7 @@
                 "close",
                 "pause",
                 "resume",
+                "reissue",
                 "ack",
                 "answer",
                 "withdraw"
@@ -71,7 +72,7 @@
             },
             "runId": {
               "type": "string",
-              "description": "Run id: UUID or 8-32 hex. [ops: close, pause, resume]"
+              "description": "Run id: UUID or 8-32 hex. [ops: close, pause, resume, reissue]"
             },
             "reason": {
               "type": "string",
@@ -120,7 +121,7 @@
     },
     "type": "object"
   },
-  "description": "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause and resume: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
+  "description": "Open, close, pause, resume and reissue runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause, resume and reissue: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

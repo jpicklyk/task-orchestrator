@@ -2263,7 +2263,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 **Ops.** `open` (a run on a root over up to 500 of its items; the caller is recorded as `openedBy`), `update` (add or remove
 items, lower the budget, replace the hints; `expectedVersion` guards a concurrent change), `close` (reason `completed`,
 `cancelled`, `failed` or `abandoned`; the answer adds `snapshot: {reason, countsByRole, inFlight, released, openDecisions}`),
-`pause`, `resume`, `assign` (a seat of a member item; returns the seat token once), `end_seat` (the calling seat ends its own
+`pause`, `resume`, `reissue` (a new run token for an open or paused run), `assign` (a seat of a member item; returns the seat token once), `end_seat` (the calling seat ends its own
 assignment), `raise`, `ack`, `answer` and `withdraw` (decisions, below) and `mark` (REST only: sets a named instant, first
 write wins, at most 32 marks; the answer adds `marked`, false for a replay). Every op needs the `runs` capability (`ack` and
 `answer` need `decide`) and a run whose root is in scope.
@@ -2274,10 +2274,13 @@ caller that presents that token as the top-level `seatToken`. `assign` returns a
 and one seat; re-assigning the seat supersedes the old token. A token that is unknown, ended, superseded or another
 principal's is `unauthenticated` with no detail. When a run closes, its tokens die with it: a run token of a
 closed run is `unauthenticated` (for example on `update`), while a director or human `close` still works. A lost
-run token cannot be recovered: close the run and open another.
+run token is replaced with `reissue`: the old `coordinator` row ends `superseded` (its claims are released), the new token
+is bound to that row's principal, and the answer carries `orchestratorToken` (and its alias) plus `supersededSeenAt` when the
+old token was ever seen. Each reissue records a `run.orchestrator_reissued` event; neither token is ever in it.
 
 **Permissions.** `open` any caller with `runs`. `close`, any reason: the run token, the director profile or a human
-token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update` and `assign`: the
+token. `pause`, `resume` and `reissue`: the director profile or a human token, never under a seat token (the opener may
+not pause). `update` and `assign`: the
 run token only. `end_seat`: the seat's own token. `mark`: any caller with `runs`. A refusal is `forbidden` with `detail:
 {scope: "principal_kind", required}` where `required` lists the allowed kinds. Errors come in a fixed order: the scope check
 on the run's root first, so a permission refusal never reveals whether an out-of-scope run exists; then the permission
@@ -2315,7 +2318,7 @@ without the withdrawn ones.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_write -->
-Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; update, assign: run token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
+Open, update, close, pause, resume, reissue and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; update, assign: run token; end_seat: the seat's own token; pause, resume and reissue: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
 
 **`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator (shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
@@ -2373,6 +2376,14 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `runId` | string | yes | Run id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
+**`runs_write` op `reissue`** (director profile only; capability `runs`): Issue a new run token for an open or paused run; the old one is refused from then on (of concurrent reissues the last wins). Director or a human only. Returns the run, orchestratorToken and supersededSeenAt (when the old token was seen).
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
 
 **`runs_write` op `mark`** (REST only; capability `runs`): Set a named mark on a run to now. REST only. Allowed in every status, including closed; the first write of a key wins and a replay changes nothing (marked false). A run holds at most 32 marks. Returns the run and marked.
 
