@@ -1,0 +1,608 @@
+<title>Entry Skills Design</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet. One card per entry skill, keyed by the moment hue the journey map uses; routing and internals follow. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --sunk:#e9ecf1; --ink:#18202c; --muted:#5a6577; --line:#d3d9e2;
+  --accent:#2f5fd0; --accent-soft:#e3eafb; --warn:#b7791f; --warn-bg:#fbf0dc; --bad:#c43d3d; --bad-bg:#fbe5e5; --ok:#1f8a5b; --ok-bg:#e4f4ec;
+  --m-i:#2f5fd0; --m-i-bg:#e3eafb; --m-d:#b0532a; --m-d-bg:#fbe9df; --m-a:#1f8a5b; --m-a-bg:#e4f4ec;
+  --m-m:#7a4fc9; --m-m-bg:#efe8fa; --m-l:#4d6275; --m-l-bg:#e6ebf0; --m-e:#0f7c86; --m-e-bg:#dcf1f2; --m-s:#7c8592; --m-s-bg:#eef0f3;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47; --warn:#e0a84a; --warn-bg:#33281a; --bad:#f07a7a; --bad-bg:#3a1f22; --ok:#4cc38a; --ok-bg:#16302a;
+  --m-i:#7aa2ff; --m-i-bg:#1d2a47; --m-d:#f0a27a; --m-d-bg:#3a2519; --m-a:#4cc38a; --m-a-bg:#16302a;
+  --m-m:#a98bf0; --m-m-bg:#271f3d; --m-l:#9fb3c6; --m-l-bg:#1f2833; --m-e:#5cc8d0; --m-e-bg:#16302f; --m-s:#9aa3ae; --m-s-bg:#1d222a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47; --warn:#e0a84a; --warn-bg:#33281a; --bad:#f07a7a; --bad-bg:#3a1f22; --ok:#4cc38a; --ok-bg:#16302a;
+  --m-i:#7aa2ff; --m-i-bg:#1d2a47; --m-d:#f0a27a; --m-d-bg:#3a2519; --m-a:#4cc38a; --m-a-bg:#16302a;
+  --m-m:#a98bf0; --m-m-bg:#271f3d; --m-l:#9fb3c6; --m-l-bg:#1f2833; --m-e:#5cc8d0; --m-e-bg:#16302f; --m-s:#9aa3ae; --m-s-bg:#1d222a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:52px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700}
+h2{font-size:24px;font-weight:600}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:70ch}
+section{display:flex;flex-direction:column;gap:16px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{color:var(--muted);font-size:16px}
+code,.sk{font-family:var(--mono);font-size:12.5px}
+.sk{background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap;display:inline-block;margin:2px 3px 2px 0}
+.m-I{--c:var(--m-i);--cb:var(--m-i-bg)} .m-D{--c:var(--m-d);--cb:var(--m-d-bg)} .m-A{--c:var(--m-a);--cb:var(--m-a-bg)}
+.m-M{--c:var(--m-m);--cb:var(--m-m-bg)} .m-L{--c:var(--m-l);--cb:var(--m-l-bg)} .m-E{--c:var(--m-e);--cb:var(--m-e-bg)} .m-S{--c:var(--m-s);--cb:var(--m-s-bg)}
+.pill{font:500 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--c);background:var(--cb);padding:4px 7px;border-radius:3px;white-space:nowrap}
+.inv{font:600 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.04em;padding:4px 7px;border-radius:3px;white-space:nowrap}
+.inv.both{color:var(--ok);background:var(--ok-bg)} .inv.user{color:var(--warn);background:var(--warn-bg)}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;counter-reset:r}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:14px;display:flex;flex-direction:column;gap:4px}
+.rule b{font-family:var(--display)}
+.strip{display:flex;flex-wrap:wrap;gap:8px}
+.strip a{text-decoration:none;color:inherit}
+.chip{display:inline-flex;gap:6px;align-items:center;border:1.5px solid var(--c);background:var(--cb);border-radius:999px;padding:5px 11px;font:500 13px var(--mono);color:var(--ink)}
+.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.skill{background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:20px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px 28px;scroll-margin-top:16px}
+@media (max-width:820px){.skill{grid-template-columns:minmax(0,1fr)}}
+.skill .head{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px}
+.skill .head h3{font-size:22px}
+.skill .head .ns{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.skill .goal{grid-column:1/-1;font-size:16px}
+.blk{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font:500 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.blk ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+.desc{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.count{font:500 11px var(--mono);color:var(--muted)}
+.trig{display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+.trig .yes::before{content:"✓ ";color:var(--ok);font-weight:700}
+.trig .no::before{content:"✗ ";color:var(--bad);font-weight:700}
+.tbl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--surface);min-width:680px}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font:500 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;font-size:14px;min-width:0}
+.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.flow{min-width:760px;display:grid;grid-template-columns:repeat(5,1fr 24px) 1fr;gap:6px;align-items:center;font-size:13px}
+.flow .n{border:1.5px solid var(--c);background:var(--cb);border-radius:8px;padding:10px;text-align:center;font-family:var(--mono)}
+.flow .ar{text-align:center;color:var(--muted)}
+.footer{color:var(--muted);font-size:13px}
+.st{font:600 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.03em;padding:4px 6px;border-radius:3px;white-space:nowrap;display:inline-block}
+.st.fits{color:var(--ok);background:var(--ok-bg)} .st.profile-gap{color:var(--m-d);background:var(--m-d-bg)} .st.shape-gap{color:var(--warn);background:var(--warn-bg)}
+.st.missing{color:var(--bad);background:var(--bad-bg)} .st.client{color:var(--muted);background:var(--sunk)}
+.fitbar{display:flex;height:8px;width:120px;border-radius:4px;overflow:hidden;background:var(--sunk)}
+.fitbar span{display:block}
+.fitbar .fits{background:var(--ok)} .fitbar .profile-gap{background:var(--m-d)} .fitbar .shape-gap{background:var(--warn)} .fitbar .missing{background:var(--bad)} .fitbar .client{background:var(--line)}
+td.tool{font-family:var(--mono);font-size:12.5px}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:14px">
+  <div class="eyebrow">Task Orchestrator · plan</div>
+  <h1>Entry Skills Design</h1>
+  <p class="lede" style="font-size:14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 12px;max-width:max-content"><b>v4.2:</b> All 13 review calls are decided (see Your calls). Option C is decided: the director uses the orchestrator's tools, and the guard hook alone enforces altitude. All six investigations are back. Their recommendations, the reconciliations where they disagreed, six flow diagrams and the calls left to you are in <a href="#review">Investigation results</a>. The target-interfaces table reflects the reconciled design. Decisions settled since v18 are folded in where they belong and listed in <a href="#settled">Settled since v18</a>.</p>
+  <p class="lede">The user-facing skills, one for each moment on the Strategic Journey Map. Each card gives the skill's goal, what it is responsible for, how it is invoked, a draft description written to Anthropic's skill guidance, the phrases that should and should not trigger it, and what it hands off to. Everything else becomes model-only internals the agent runs on its own.</p>
+  <p class="lede" style="font-size:14px">Companion pages: <a href="https://claude.ai/artifact/XZH4m8WqMH2TyvB3oMMW5V">Strategic Journey Map</a> (the moments and journeys) and <a href="https://claude.ai/artifact/1wPBpYW8hCtXKd1hdYwbRD">Journey Config Fit</a> (what config can say for each journey, the knowledge-base leaks and the full anti-requirements).</p>
+  <nav class="strip" id="nav" aria-label="Skills"></nav>
+</header>
+
+<section id="settled">
+  <div class="eyebrow">Settled since v18</div>
+  <h2>Decisions the owner settled after version 18</h2>
+  <ol style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:14px;max-width:90ch">
+    <li><b>Certainty dial is judgement, not config.</b> It is settled in conversation through questions and answers, from the user’s or the agent’s domain knowledge; its outcomes are recorded as a ruling, an assumption on the node or an acceptance grant, and a project’s human-only decision classes are its limits.</li>
+    <li><b>Acceptance is a server gate, opt-in per type</b> (as the review phase is), satisfied the same way on every surface; plan approval before the work is a conditional grant that applies only when the accept card’s checks pass. The smallest gate shape is still open.</li>
+    <li><b>Setup applies one tested template.</b> It checks the connected tool profile, asks the domain and two to four questions with defaults, applies one CI-tested template with its steering, records the template and version, and leaves the user’s edits alone on upgrade; templates are never composed live.</li>
+    <li><b>Two supported domains.</b> Software development (primary) and keeping a knowledge base (first-class, on the knowledge tool profile); intake and operations is dropped.</li>
+    <li><b>The knowledge journey constrains the other entry skills:</b> learn, board, capture and plan mode each respect it (the list under Framing).</li>
+    <li><b>The <code>next</code> contract stays as decided</b> in call 7; further <code>next</code> proposals are held.</li>
+  </ol>
+</section>
+
+<section>
+  <div class="eyebrow">Framing</div>
+  <h2>Rules every entry skill follows</h2>
+  <div class="rules">
+    <div class="rule"><b>The description decides triggering.</b><span>Only the name and description are always loaded. Write them in the third person as "Does X. Use when the user says A, B, C", with the main use first. The description plus <code>when_to_use</code> is capped at 1,536 characters.</span></div>
+    <div class="rule"><b>One moment per skill, with no shared triggers.</b><span>Natural language routes by what the sentence is about. A phrase listed for one skill appears in no sibling's description, and the near-miss column below proves it.</span></div>
+    <div class="rule"><b>Both triggers by default.</b><span><code>disable-model-invocation: true</code> is reserved for timing or cost the user controls. Only <code>audit</code> (cost) and <code>director</code> (a mode switch) use it. A user-only skill's description leaves the model's context, so the agent can suggest the skill but never run it.</span></div>
+    <div class="rule"><b>SKILL.md is a table of contents.</b><span>The body stays under 500 lines, with the critical part first, because only the first 5,000 tokens survive compaction. Each path lives in a reference file one level deep.</span></div>
+    <div class="rule"><b>The domain boundary holds.</b><span>An entry skill holds the conversation and the Task Orchestrator mechanics. Engineering craft stays in seat-bound skills, process stays in the schema and rules, and a must-hold-every-time guarantee belongs in a hook.</span></div>
+    <div class="rule"><b>Triggering is measured.</b><span>Each skill gets a <code>claude plugin eval</code> suite with a <code>tool_used: Skill</code> grader over two prompt sets: the phrases that should trigger it, and the near-misses that belong to a sibling.</span></div>
+    <div class="rule"><b>Named for the subject they act on.</b><span>Entry points are typed commands, so they use short words (<code>/task-orchestrator:accept</code>). Engineering skills keep gerunds (<code>designing-modules</code>). Each class follows one pattern.</span></div>
+    <div class="rule"><b>Certainty is judgement, not config.</b><span>How sure the work must be before it starts is settled in conversation, through questions and answers, from the user’s or the agent’s domain knowledge and experience. Its outcomes are recorded: a ruling, an assumption on the node, or an acceptance grant. The limits are the human-only decision classes a project declares; no config key sets the dial.</span></div>
+    <div class="rule"><b>Two domains, one profile check.</b><span>Software development is primary. Keeping a knowledge base is first-class, served by the knowledge tool profile (<code>/mcp/knowledge</code>: items, notes, deps and docs; no advance, next, context, config, runs or decisions). Intake and operations is dropped. A skill checks which profile it is connected to before it picks a call.</span></div>
+  </div>
+  <h3 style="margin-top:8px">What no entry skill may break in a knowledge base</h3>
+  <ol style="margin:0;padding-left:22px;columns:340px 2;column-gap:32px;font-size:14px">
+    <li>No hook gives a knowledge session sizing tiers, a model table, dispatch rules, run-wave routing or “materialise before implement”.</li>
+    <li>Plan mode in a knowledge session never orders materialisation or implementation dispatch.</li>
+    <li>A hook names only selects and ops the session’s profile serves, or says nothing.</li>
+    <li>Setup checks which profile it is connected to first; a missing <code>context</code> or <code>runs_read</code> never means the server is 3.x.</li>
+    <li>Setup registers no director entry for a user who asked only for a knowledge base.</li>
+    <li>A root whose template declares no seats gets no bundled build rules, and process rule documents never show as knowledge hits.</li>
+    <li>No lifecycle-free item is listed or counted as queue, backlog, next or stalled work.</li>
+    <li>No skill defaults to a <code>blocks</code> edge when either end is lifecycle-free.</li>
+    <li>Capture, the board and dependency handling offer no bug, feature, tech-debt, blocker or backlog framing on a root whose types are all lifecycle-free.</li>
+    <li>The knowledge journey runs end to end on the knowledge profile alone, with config delivered over REST.</li>
+    <li>Nothing deletes an entry or a page without the user’s explicit yes; pruning prefers archive or a tag.</li>
+    <li>No new phase, gate, seat, decision class or detector is added to serve this journey.</li>
+    <li>Knowledge terms in the glossary stay method-neutral and borrow no build words.</li>
+    <li>The knowledge profile keeps serving no <code>advance</code> and no runs; type discovery is fixed by a read of declared types, not the <code>config</code> tool.</li>
+  </ol>
+  <p class="lede" style="font-size:14px">The leaks behind this list (KL1 to KL29) and the knowledge config requirements are on <a href="https://claude.ai/artifact/1wPBpYW8hCtXKd1hdYwbRD">Journey Config Fit</a>.</p>
+</section>
+
+<section>
+  <div class="eyebrow">The flow</div>
+  <h2>How the skills hand off</h2>
+  <div class="scroll"><div class="flow" id="flow"></div></div>
+  <p class="lede">Accepted work, retros and funded audit findings come back to <code>shape</code>. <code>learn</code> is reachable from anywhere. <code>board</code> suggests <code>director</code> once more than one run is open.</p>
+</section>
+
+<section>
+  <div class="eyebrow">The eight skills</div>
+  <h2>Goals and responsibilities</h2>
+  <div id="skills" style="display:flex;flex-direction:column;gap:16px"></div>
+</section>
+
+<section>
+  <div class="eyebrow">Routing</div>
+  <h2>What you say, and where it goes</h2>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>You say</th><th>Goes to</th><th>Why there</th></tr></thead><tbody id="routes"></tbody></table></div></div>
+</section>
+
+<section>
+  <div class="eyebrow">Interfaces</div>
+  <h2>What each skill reads and writes on the server</h2>
+  <p class="lede">The skills were mapped against <code>current/docs/api-reference.md</code> (the generated tool contract) and the decision view source. Two facts shape everything here. The orchestration profile cannot read, answer, acknowledge or resume decisions, and cannot run reports. The director profile has no schema, config, document, note or write access. The tree's node types and goal notes are not on the server: they are schema config, pushed per root before a skill can write them.</p>
+  <p class="lede" style="font-size:14px"><b>No methodology words in the plugin.</b> Charter, epic, story, increment and open question are one project's schema vocabulary (item types and note templates), not Task Orchestrator concepts. This plan speaks of nodes, the tree, a node's goal note, the work-item graph and items that build nothing. Any node with a goal note can be accepted. An incremental-delivery pattern that uses those words belongs in the manage-schemas pattern library (follow-up, not done).</p>
+  <div class="legend" style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted)">
+    <span><span class="st fits">fits</span> exists and is shaped right</span>
+    <span><span class="st profile-gap">profile gap</span> exists, but not on the profile the skill runs on</span>
+    <span><span class="st shape-gap">shape gap</span> exists, but the input or output is the wrong shape</span>
+    <span><span class="st missing">missing</span> no interface</span>
+    <span><span class="st client">client</span> client-side work, nothing for the tools to do</span>
+  </div>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Skill</th><th>Fit</th><th>Interaction</th><th>Tool and select or op</th><th>Profile</th><th>Status and note</th></tr></thead><tbody id="ifaces"></tbody></table></div></div>
+
+  <h3 style="margin-top:12px">Data the skills must produce</h3>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Shape</th><th>What it holds</th><th>Where it can live today</th><th>Status</th></tr></thead><tbody id="shapes"></tbody></table></div></div>
+
+  <h3 style="margin-top:12px">Server and plugin gaps the skills share, ranked</h3>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>#</th><th>Gap</th><th>Blocks</th><th>Evidence</th></tr></thead><tbody id="xgaps"></tbody></table></div></div>
+</section>
+
+<section>
+  <div class="eyebrow">Target interfaces</div>
+  <h2>Decisions taken, and the server changes that remain</h2>
+  <div class="cols">
+    <div class="card"><h3>Decided in review</h3><ul>
+      <li><b>A decision stays a server record.</b> It carries authority rules (class and credential), options with a recommended pick, severity and expiry, it blocks the item that asked, and it has server-raised classes that pause runs. Turning it into an item would rebuild all of that as transition gates.</li>
+      <li><b>A planned question is an item that builds nothing (<code>builds: false</code>), which <code>next</code> reads.</b> A pattern may mark it with a trait such as <code>open-question</code>; that trait is pattern-library config, not tool behaviour. When it is ready to settle, the agent raises a decision on it. Answering it writes the ruling note and completes the item, which releases its <code>blocks</code> edges.</li>
+      <li><b>stdio is deprecated.</b> Its limits (no human-only answers, no provable "user decided") are accepted. Enforcement happens over HTTP with a human credential.</li>
+      <li><b><s>Accept needs no server extension.</s> Superseded since v18: acceptance is a server gate, opt-in per type</b> as the review phase is. Every surface satisfies it the same way: plan-mode approval or a plain yes in Claude, or a skill on a harness with no plan mode. Plan approval before the work is a conditional grant (calls 11 and 12). Sending back still uses the existing fix cycle.</li>
+      <li><b>The director runs on the same connection and tools as the orchestrator (option C).</b> Altitude is enforced in one place, the <code>director-guard</code> hook. It denies body reads and edits, and allows read-only scripts and background dispatch. The director profile stays served but is optional, and the hardened director agent is no longer the default. The director offloads research to background agents and answers from their concise result.</li>
+    </ul></div>
+    <div class="card"><h3>Principles</h3><ul>
+      <li>Organise interfaces by domain object (work, decision, board), not by skill.</li>
+      <li>Authority comes from the decision class and the credential. A profile only limits how much body text a caller can read.</li>
+      <li>The server computes the states skills keep asking about: refined, delegated, escalated, deferred.</li>
+      <li>Everything a skill produces links back to its source: a finding, a node's goal note or a ruling.</li>
+    </ul></div>
+  </div>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>#</th><th>Server change</th><th>Shape</th><th>For</th></tr></thead><tbody id="tchanges"></tbody></table></div></div>
+  <p class="lede" style="font-size:14px">Dropped after review: an acceptance decision class, a send-back trigger, human identity on stdio, and a deferred block reason (deferring moves a node to a later container, a pattern choice). Since v18 acceptance is an opt-in server gate; whether an answered decision of the right class is what satisfies it is open (see Still open).</p>
+</section>
+
+<section id="review">
+  <div class="eyebrow">Investigation results</div>
+  <h2>Six recommendations, for review</h2>
+  <p class="lede">Six agents each took one open question and returned a recommendation, the alternatives they rejected, a diagram, what to reuse, and questions for you. Each was checked against source. Where two of them disagreed, the reconciliation below says which way to go and why. Your calls are collected at the end.</p>
+
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>#</th><th>Question</th><th>Recommendation</th><th>Size</th></tr></thead><tbody>
+    <tr><td class="tool">1</td><td><b>The decisions surface</b></td><td>Two new tools, <code>decisions_read</code> and <code>decisions_write</code>, served on both profiles. The <code>runs_*</code> decision ops stay as frozen aliases until 5.0. Authority comes from the decision class plus a credential that grants <code>decide</code>. Delegation and escalation are stored next to the status, not as new status values. Item <code>resume</code> is refused while its blocking decision is pending.</td><td>L</td></tr>
+    <tr><td class="tool">2</td><td><b>The director loop and hand-off</b></td><td><code>delegate</code> and <code>escalate</code> set who the decision waits on. Standing instructions are <code>autonomy: answer | ask</code> on the decision class. A background evidence agent writes a page document and returns a fixed block, so the director never reads evidence bodies. The answer records <code>decidedBy</code>, its basis and evidence links. An orchestrator resumes the item afterwards.</td><td>M + M</td></tr>
+    <tr><td class="tool">3</td><td><b>The work-item model for shape</b></td><td>Node shapes come from the schema. In the incremental-delivery pattern (a manage-schemas library example, not tool behaviour) the goal note is a required queue note. Refined, meaning all required queue-phase notes are filled, is computed by the server and filterable, and <code>next</code> filters on it. A schema or trait property <code>builds: false</code> keeps questions and containers away from build seats. Rank is a sparse integer. <code>create_tree</code> deps accept existing ids. Provenance uses <code>derived_from</code> links. There is no deferred reason: deferring moves the node to a later container, a pattern choice.</td><td>L</td></tr>
+    <tr><td class="tool">4</td><td><b>The board read and run control</b></td><td>A new <code>report board</code> select, with all <code>report</code> selects served on both profiles. It returns facts plus a closed list of attention kinds, with no score. One board skill holds the one layout. <code>runs_write reissue</code> rotates a lost run token for the root's orchestrator.</td><td>M-L</td></tr>
+    <tr><td class="tool">5</td><td><b>Accept and the ship seam</b></td><td>A mechanics skill builds one card and takes your verbal yes or send-back. The ship step is a run-profile <code>postRun</code> entry with <code>when: accept</code>, which runs a project rule that reports shipped, pending or failed. Send-back reuses the post-run fix cycle. An optional <code>acceptance</code> note lets a pending ship survive compaction.</td><td>M</td></tr>
+    <tr><td class="tool">6</td><td><b>Skills and helper scripts</b></td><td>One plugin CLI, <code>scripts/entry.mjs</code>, on pure libraries. It provides scope, board, node-state, order, audit-preview, dispatch, route-decision, close-preview and config-change. It is read-only and renders ops for the model to send. Entry skills shrink to about 100 lines, and duplicated prose comes out of today's skills.</td><td>M</td></tr>
+  </tbody></table></div></div>
+
+  <h3 style="margin-top:8px">Reconciliations</h3>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>Where they disagreed</th><th>Resolution</th><th>Why</th></tr></thead><tbody>
+    <tr><td><b>Scripts over REST (6) or server reads (4)</b> to close the profile gaps</td><td>Server reads where the data is shared: <code>report board</code> and <code>decisions_*</code>, both served on both profiles. Scripts for computations: order, node-state until refined lands, audit-preview, dispatch, decision-route. Under option C the director can run these read-only scripts too.</td><td>Option C lets the guard allow read-only scripts in director mode. With stdio deprecated, REST is always there for scripts.</td></tr>
+    <tr><td><b>How a hand-off is shown:</b> a <code>route</code> column shown as six wire states (1), or a separate <code>waitingOn</code> field (2)</td><td>Store it as one routing field. On the wire, show <code>waitingOn: director | user</code> plus <code>waitingReason</code>, and leave <code>status</code> unchanged.</td><td>Every status consumer keeps working, and the name says who the decision waits on.</td></tr>
+    <tr><td><b>Autonomy default:</b> <code>answer</code> (1) or <code>ask</code> (2)</td><td><code>ask</code> everywhere to start. Report on it, then widen per class.</td><td>Today the director skill asks you unless you told it otherwise, so <code>ask</code> matches what users see now.</td></tr>
+    <tr><td><b>Whether to add <code>get</code> and <code>classes</code></b> to <code>decisions_read</code> (1)</td><td>Keep <code>list</code> only, with <code>decisionIds</code>. Return the class policies for every root in scope, including on an empty page.</td><td>You already settled on <code>list</code> only. Returning policies on an empty page covers what <code>classes</code> was for.</td></tr>
+    <tr><td><b>A director answer on an escalated decision:</b> refuse it (1), or let delegation lift criteria (2)</td><td>Refuse it while the decision waits on you. You can delegate it back.</td><td>It's a rule of the state machine, not a detector, and the two designs agree once the decision is delegated back.</td></tr>
+    <tr><td><b>The deferred block reason</b> (target table) and (3)</td><td>Drop it. Deferring moves the node to a later container, a pattern choice.</td><td>Deferring is a choice, not an impediment. A new reason would also force recreating the <code>work_items</code> table, because of its CHECK constraint.</td></tr>
+    <tr><td><b>excludeTypes on next</b> or <code>builds: false</code> (3)</td><td><code>builds: false</code> on the schema or the trait, honoured by next, claim, run-wave and post-plan.</td><td>A planned question is marked by a pattern's trait, not a type, and callers would forget a filter. The glossary entry is "building item".</td></tr>
+    <tr><td><b>Where type and trait names live:</b> <code>extensions.claude-code.entry</code> (6) or <code>.delivery</code> (3)</td><td>One block, <code>extensions.claude-code.delivery</code>, with the profile's names as defaults.</td><td>It's named for what it holds. No script hard-codes a project's type name.</td></tr>
+  </tbody></table></div></div>
+
+  <h3 style="margin-top:8px">Diagrams</h3>
+  <div class="cols">
+    <div class="card"><h3>Decision lifecycle</h3><span class="count">investigation 1, with the waitingOn reconciliation</span>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Open: raise
+  Open --> Acknowledged: ack
+  Open --> WaitingOnDirector: delegate by user
+  Acknowledged --> WaitingOnDirector: delegate by user
+  Open --> WaitingOnUser: escalate with reason
+  Acknowledged --> WaitingOnUser: escalate with reason
+  WaitingOnDirector --> WaitingOnUser: escalate with reason
+  WaitingOnUser --> WaitingOnDirector: user hands it back
+  Open --> Answered: answer
+  Acknowledged --> Answered: answer
+  WaitingOnDirector --> Answered: answer by director
+  WaitingOnUser --> Answered: answer by user only
+  Open --> Withdrawn: withdraw
+  Answered --> [*]
+  Withdrawn --> [*]
+</pre></div>
+    <div class="card"><h3>Director loop and hand-off</h3><span class="count">investigation 2</span>
+<pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant B as Board
+  participant D as Director
+  participant R as Evidence agent
+  participant S as Server
+  participant O as Orchestrator
+  U->>B: handle these d1 d2
+  B->>S: delegate d1 d2
+  U->>B: decide this class from now on
+  B->>O: tune delegate edits config
+  O->>S: config push autonomy answer
+  S-->>D: decision waiting
+  D->>S: decisions list waiting on director
+  D->>R: background evidence agent
+  R->>S: read notes and rulings
+  R->>S: write page evidence-d1
+  R-->>D: evidence block favours key
+  alt grounded and within authority
+    D->>S: answer with basis and evidence link
+  else ungrounded or conflict or human-only
+    D->>S: escalate with reason
+    D-->>U: push notification
+  end
+  D->>O: hand answered item ids
+  O->>S: resume and write ruling
+</pre></div>
+    <div class="card"><h3>Shape and the certainty dial</h3><span class="count">investigation 3</span>
+<pre class="mermaid">
+flowchart TD
+  I[Intention] --> Z{One known change}
+  Z -->|yes| P[Plan mode or the agent]
+  Z -->|no| C[Goal note on the top node, keys from the schema]
+  C --> B[Child nodes and planned questions]
+  B --> K{Classify each choice}
+  DF[Leans decide-first when shared or irreversible] -.-> K
+  K -->|shared or irreversible| Q[Question item, builds false, blocks edges]
+  K -->|node-local| S[Recorded in the node scope]
+  K -->|reversible assumption| A[Assumption line, checked at accept]
+  K -->|later| L[Moved to a later container]
+  Q --> D[Raise a decision when ready]
+  D --> R[Ruling note, question completes, edges release]
+  R --> X[Re-shape nodes the ruling changed]
+  S --> F[Node refined]
+  A --> F
+  X --> F
+  F --> N[next refined, builds true, by rank]
+  N --> W[Seats build the node]
+</pre></div>
+    <div class="card"><h3>Board data and run control</h3><span class="count">investigation 4</span>
+<pre class="mermaid">
+flowchart LR
+  B[report board by root or anchor] --> M[Board model]
+  Q[question counts, builds false] --> M
+  M --> L[One layout in the board skill]
+  M --> Band[mod band, one read per tick]
+  L --> S{Session mode}
+  S -->|orchestration| O1[You answer in your own words]
+  O1 --> O2[Answer by id, orchestrator resumes]
+  S -->|director| D1[You say handle these]
+  D1 --> D2[Delegate, director answers or escalates]
+  X[Run token lost] --> R[reissue by the root orchestrator]
+  R --> U[update and assign work again]
+</pre></div>
+    <div class="card"><h3>Accept</h3><span class="count">investigation 5</span>
+<pre class="mermaid">
+flowchart TD
+  A[accept on any node] --> B[Accept card gathers the outcome]
+  B --> C{Open run, decision or stale verdict}
+  C -->|yes| C1[Resolve on the board or resume the run first]
+  C -->|no| D[Verdict, PR and check against its notes]
+  D --> E{You say}
+  E -->|scope change| S[Hand to shape]
+  E -->|send back| F[Reason on the acceptance note]
+  F --> G[Fix cycle, then the original reviewer rechecks]
+  G --> B
+  E -->|yes| H[Accepted line on the acceptance note, gate satisfied]
+  D -.->|conditional grant from plan approval, checks pass| H
+  H --> I[postRun steps when accept]
+  I --> J{Ship rule result}
+  J -->|pending| K[Stay in review until you return]
+  J -->|failed| L[Report to you]
+  J -->|shipped| M[Cleanup, then post-merge steps]
+  M --> N[Complete, children first, root last]
+</pre></div>
+    <div class="card"><h3>Judgement or script, in shape</h3><span class="count">investigation 6</span>
+<pre class="mermaid">
+flowchart TD
+  U[Intention] --> S1[Script: scope]
+  S1 --> S2[Script: node state]
+  S2 --> J1{Judgement: one change or a tree}
+  J1 -->|one change| H1[Plan mode or the agent]
+  J1 -->|larger| J2[Judgement: goal note the schema asks for]
+  J2 --> J3[Judgement: child nodes, questions, classify choices]
+  J3 --> S3[Script: order, cycle check, split calls]
+  S3 --> J4[You confirm the tree]
+  J4 --> M1[Send create_tree as rendered]
+  M1 --> S4[Script: node state again]
+  S4 --> J5[Judgement: fill missing queue notes]
+  J5 --> S4
+  S4 --> S5[Script: dispatch model and effort]
+  S5 --> H2[Refined nodes build, decisions go to the board]
+</pre></div>
+  </div>
+
+  <h3 style="margin-top:8px">Reuse and helper scripts the investigations found</h3>
+  <div class="cols">
+    <div class="card"><h3>Already exists</h3><ul>
+      <li>run-planner functions: <code>orderItems</code>, <code>frontier</code>, <code>resolveDispatch</code>, <code>selectPostRunSteps</code>.</li>
+      <li><code>dispatch-policy.mjs</code>: <code>forClass</code> and <code>escalate</code>. Prose restates them today.</li>
+      <li>The post-run fix-cycle recipe and the ruling-needed class, used for send-back.</li>
+      <li><code>director-watch.mjs</code> push and dedupe. Extend it with a triage line, because the director cannot run <code>node</code>.</li>
+      <li><code>coordinator-report.mjs</code>, a fixed-block renderer to copy for the evidence and delegate blocks.</li>
+      <li><code>LinkService.recordDerivedFrom</code> for provenance, and <code>create_tree</code> attach mode.</li>
+    </ul></div>
+    <div class="card"><h3>New helpers</h3><ul>
+      <li><code>entry.mjs</code> subcommands: scope, board (until the server read lands), node-state, order, audit-preview, dispatch, route-decision, close-preview, config-change.</li>
+      <li><code>shape-plan.mjs</code>: turns a breakdown into one <code>create_tree</code> with ranks, traits, edges and links, and checks that every shared question blocks at least two nodes.</li>
+      <li><code>accept-card</code>, plus <code>post-run-steps --profile --when accept</code> and a thin <code>escalate</code> CLI.</li>
+      <li><code>decision-route</code>: answer, escalate or ask the user for each decision, from its class policy.</li>
+    </ul></div>
+    <div class="card"><h3>Prose to cut</h3><ul>
+      <li>The "Director mode" section, repeated in 7 skills, and the envelope paragraph, repeated in 7.</li>
+      <li>Scope resolution, repeated in 8 skills.</li>
+      <li>director SKILL.md lines 25 to 49, which restate the guard.</li>
+      <li>Tables in run-audit and director that copy script data by hand.</li>
+      <li>Reference files over 100 lines need a table of contents: code-mode.md (1222), config-format.md (1102), post-run.md (799).</li>
+    </ul></div>
+  </div>
+
+  <h3 style="margin-top:8px">Your calls</h3>
+  <div class="tbl"><div class="scroll"><table><thead><tr><th>#</th><th>Question</th><th>Lean</th><th>From</th></tr></thead><tbody>
+    <tr><td class="tool">1</td><td>Should item <code>resume</code> be refused while its decision is pending, shipped in 4.x?</td><td><b>Decided: yes,</b> shipped as a 4.x fix with a CHANGELOG line. The documented flow is already answer first, then resume.</td><td>1</td></tr>
+    <tr><td class="tool">2</td><td>Keep the <code>runs_*</code> decision aliases until 5.0?</td><td><b>Decided:</b> the new names are canonical. Old <code>runs_*</code> decision ops and <code>coordinator*</code> wire fields stay listed as deprecated in 4.x, routed through a thin legacy adapter that keeps the old defaults and output shape. Responses carry both field names. All of it is removed in 5.0.</td><td>1</td></tr>
+    <tr><td class="tool">3</td><td>Single-credential deployments: the orchestration session can now answer director-or-human decisions. Accept that, with separate credentials as the real control?</td><td><b>Decided:</b> accept it and audit rather than enforce. Every answer records <code>decidedBy</code>, <code>basis</code>, <code>relayed</code> and <code>withinAutonomy</code>. <code>human-only</code> over HTTP stays the hard gate. Separate credentials are documented as opt-in, not required.</td><td>1</td></tr>
+    <tr><td class="tool">4</td><td>Should the server refuse a director answer on an <code>ask</code> class that wasn't delegated?</td><td><b>Decided:</b> no refusal. The answer records <code>withinAutonomy: false</code>, and reports show it. <code>human-only</code> is the lock. A refusal is added only if reports show the director overriding <code>ask</code>.</td><td>1, 2</td></tr>
+    <tr><td class="tool">5</td><td>How does a director with no live run wake for decisions raised outside any run?</td><td><b>Decided:</b> no built-in polling. A SessionStart and UserPromptSubmit hint names pending run-less decisions waiting on the director. Delegate and evidence reports wake it, and the board groups run-less decisions. A user who wants polling can have the director write a one-off script.</td><td>2</td></tr>
+    <tr><td class="tool">6</td><td><s>Can a background agent started from the hardened director entry reach the orchestration MCP connection?</s></td><td><b>Resolved by option C.</b> The director now uses the orchestration connection, so its delegates do too.</td><td>2</td></tr>
+    <tr><td class="tool">7</td><td>Should <code>next</code> and <code>claim</code> exclude non-building items by default?</td><td><b>Decided, as a wider fix:</b> <code>next</code> means "an item a build seat can start now". By default every result is a leaf, a building item and refined, as well as queued, unblocked and unclaimed. The opt-outs are <code>includeParents</code>, <code>builds: false</code> and <code>refined: false | any</code>. <code>claim</code> by selector shares the same eligibility; claim by itemId is unchanged. It ships in 4.x as a fix, phased: the leaf rule and <code>builds</code> first, then refined once its storage lands. This also fixes ralph, the run-wave frontier and post-plan route 3.</td><td>3</td></tr>
+    <tr><td class="tool">8</td><td>Is it acceptable that a node's goal note keeps no version history?</td><td><b>Decided:</b> nodes show current state. In the incremental-delivery pattern the goal note (called charter there) is a required queue note with dated revision lines (for example "Revised 2026-11-30: dropped offline mode (ruling on d4e1)"). That is the pattern's choice, an example for the manage-schemas library, not tool behaviour. A versioned page can be added later if full history is wanted.</td><td>3</td></tr>
+    <tr><td class="tool">9</td><td>Should <code>reissue</code> always be allowed, even while the current orchestrator is live?</td><td><b>Decided:</b> always allowed, and audited. Each reissue writes a <code>run.orchestrator_reissued</code> event and returns <code>supersededSeenAt</code>. Seat-token callers and subagents are refused through the decision-guard deny list. The old token then fails with <code>unauthenticated</code>.</td><td>4</td></tr>
+    <tr><td class="tool">10</td><td>Should "shared" planned questions be marked by a tag or a second trait?</td><td><b>Decided:</b> a tag (for example <code>shared</code>) on the question item. shape-plan sets or clears it from the blocks edges (two or more nodes). Check first that tags and traits combine with AND in list.</td><td>4</td></tr>
+    <tr><td class="tool">11</td><td>Should this project's auto-merge arming move behind your verbal yes?</td><td><b>Decided:</b> merge is armed only on accept. A plan approved in Auto mode grants acceptance for that plan's root and children: post-plan records the grant, and accept-card auto-accepts when review passed, findings are disposed, the build is green at HEAD and no decision or run is open. Otherwise you accept manually. The grant is read from <code>permission_mode</code> on the first hook event after approval: <code>auto</code>, <code>acceptEdits</code> or <code>bypassPermissions</code> grants it, and <code>default</code> leaves acceptance manual. The docs do not say whether PostToolUse on ExitPlanMode already shows the new mode. A send-back, scope added beyond the plan, or a ruling that changes a node's goal note needs a new plan approval. There are no config toggles. <b>Reframed since v18:</b> this Auto-mode grant is the acceptance gate’s conditional grant: plan approval before the work applies only if review passed, findings were disposed, the build is green and no decision is open, which are the accept card’s existing checks.</td><td>5</td></tr>
+    <tr><td class="tool">12</td><td>Add the optional <code>acceptance</code> note?</td><td><b>Decided by call 11:</b> yes. The note holds the grant line and the Accepted or Sent back lines. Since v18, whether a required acceptance note is the smallest form of the acceptance gate is open.</td><td>5</td></tr>
+    <tr><td class="tool">13</td><td>Should <code>route-decision</code> ship before the autonomy field lands?</td><td><b>Decided:</b> ship it now, using <code>answerers</code>, severity, overdue and a missing recommendation, with autonomy treated as <code>ask</code>. When the autonomy field lands, the helper reads it.</td><td>6</td></tr>
+  </tbody></table></div></div>
+</section>
+
+<section>
+  <div class="eyebrow">Below the entries</div>
+  <h2>What the agent runs on its own</h2>
+  <div class="cols">
+    <div class="card"><h3>Model-only <span class="count">user-invocable: false</span></h3><ul>
+      <li><b>Capturing work</b> ("track this"): create-item becomes internal and is called by <code>shape</code> and by the agent whenever it notices something. On a root whose types are all lifecycle-free it captures an entry, never a bug or a feature.</li>
+      <li><b>Sizing and dispatch</b>: orchestrate, model-effort, schema-workflow.</li>
+      <li><b>Moving work</b>: status-progression, dependency-manager, batch-complete.</li>
+      <li><b>Plan hooks</b>: pre-plan-workflow, post-plan-workflow.</li>
+      <li><b>Retrospective</b>: session-retrospective, dispatched by a hook once its nudge text stops addressing the user.</li>
+      <li><b>Seat craft</b>: planning-standards, designing-modules, implementation-standards, test-authoring, review-method, writing-documentation, defining-project-terms.</li>
+    </ul></div>
+    <div class="card"><h3>Expert overrides <span class="count">callable, not a way in</span></h3><ul>
+      <li><b>run-wave</b>: resume a run by hand or launch a wave by hand.</li>
+      <li><b>ralph</b>: an unattended queue drain, until standing work is modelled.</li>
+      <li><b>auditing-codebase</b>, <b>auditing-documentation</b>: a cheap single pass, and the method <code>audit</code> uses for each slice.</li>
+      <li><b>init</b>, <b>configure-server</b>: the steps <code>start</code> calls, kept for a deliberate re-run.</li>
+    </ul></div>
+    <div class="card"><h3>Still open</h3><ul>
+      <li>How <code>accept</code> hands approval to the project's ship step (merge, release) without naming a project skill.</li>
+      <li>The smallest acceptance gate: a required acceptance note satisfied only by an answered decision of the right class, or a new lifecycle step.</li>
+      <li>Whether <code>board</code>'s hand-to-director instructions are a new config section or decision-class fields.</li>
+      <li>In director mode the hardened director agent has only the director profile, so <code>learn</code>, <code>shape</code>, <code>accept</code>, <code>tune</code>, <code>start</code> and <code>audit</code> must run through a background agent on the orchestration entry.</li>
+    </ul></div>
+  </div>
+</section>
+
+<p class="footer">Framed by Anthropic's skill guidance: the Agent Skills best practices and overview on platform.claude.com, and the Claude Code skills docs on code.claude.com. Moments and vocabulary follow the Strategic Journey Map and GLOSSARY.md. Every name here was checked against host skills, Claude Code built-ins and this project's skills, and none collides.</p>
+</div>
+
+<script>
+const S=a=>a.map(x=>`<span class="sk">${x}</span>`).join('');
+const K=[
+ {id:'start',m:'S',mn:'Setup',inv:'both',goal:'Make Task Orchestrator work here, once.',
+  resp:['Check which tool profile it is connected to before any other read','Find or launch the server and register the entries that profile needs: on a knowledge connection the knowledge entry only, with no director entry','Ask the domain first (software development or a knowledge base), then two to four questions about the work, each with a default','Apply one pre-built, CI-tested template from its reference library, with the use cases each supports, steering included (<code>extensions.claude-code.orchestration.mode</code>). Templates are never composed live. The manage-schemas library (ten profiles plus a classifier) is the starting point; setup does not call it today','Record which template and version it applied; on upgrade, leave the user’s edits alone (the bundled-rules known-hash policy)','Create the project anchor root and write the project config; on a knowledge connection a lifecycle-free anchor, config pushed over REST, steering off and retrospective off','Push the config and seed the bundled rules','Migrate an existing database that has no project scope','Offer a short tour, which hands off to learn'],
+  desc:'Sets up Task Orchestrator for a project or for the user: checks the connected tool profile, finds or launches the server and registers it, asks the domain and a few questions about the work, applies a tested template with its steering, creates the project anchor and config, and migrates an existing database that has no project scope. Use when the user says set up task orchestrator, get started, install, connect the server, initialise this project, set up a knowledge base, or when the session-start notice says setup is missing.',
+  yes:['set up task orchestrator here','connect to the server','get me started','I want somewhere to keep what I learn'],no:['how does director mode work? (learn)','change our workflow (tune)'],
+  hands:['learn (tour)','shape (first work)'],absorbs:['init','configure-server','adopt-project-scope','quick-start (setup half)'],refs:['server.md','project.md','templates.md','migration.md']},
+ {id:'learn',m:'E',mn:'Learn',inv:'both',goal:'Understand the system, explained against your own setup.',
+  resp:['Explain a concept using your board, schema, rules and glossary','Explain the applied template from the template record and the glossary (on a knowledge base: its types, notes, link syntax and tags)','Answer why an item is blocked, waiting or doing something','Walk through one moment once, on real items','Point to the right skill without running it'],
+  desc:'Teaches how Task Orchestrator works using the user’s own board, schemas, rules and glossary, and walks through one moment on request. Read-only. Use when the user asks how something works, what a term means, why an item is blocked or waiting, or says teach me, show me how, explain, or walk me through.',
+  yes:['why is this item blocked?','what is a seat?','walk me through accepting a feature'],no:['where are we? (board)','set this up (start)'],
+  hands:['any skill it explains'],absorbs:['quick-start (teaching half)'],refs:['concepts.md','why-blocked.md','walkthroughs.md']},
+ {id:'shape',m:'I',mn:'Intend',inv:'both',goal:'Turn an intention of any size into work that can start.',
+  resp:['Read the schema to learn which notes each node needs; with no schema, make plain items','Write the top node\u2019s goal notes','Break the work into a tree of nodes and planned questions','Classify each choice: shared, node-local, reversible assumption, or later','Set the order and the dependency edges','Re-shape existing work: reorder, defer, drop, or re-plan after a ruling','Send a single known change to plan mode or straight to the agent','Settle certainty by judgement in conversation, through questions and answers, and record the outcome as a ruling, an assumption on the node or an acceptance grant','On a root whose types are all lifecycle-free, capture knowledge as entries, never as bugs or features, and never route its plans to materialisation'],
+  desc:'Turns an intention of any size into work that can start: a tree whose node shapes come from the schema, its goal notes filled, then child nodes and planned questions in order. Also reorders, defers or drops existing work and re-plans what a ruling changed. Use when the user wants to build, add, fix or improve something in the product, or says break this down, plan this feature, what should we build next, or reprioritise.',
+  yes:['break this feature down','improve the checkout flow','what should we build next?','fix these three bugs'],no:['where does the code cost us? (audit, typed)','improve our process (tune)','is this done? (accept)'],
+  hands:['plan mode (one known change)','the agent builds refined nodes','board (decisions as they surface)'],absorbs:['create-item','dependency-manager','batch-complete (defer, cancel)','work-summary "next"'],refs:['breakdown.md','reshape.md']},
+ {id:'audit',m:'I',mn:'Intend input',inv:'user',goal:'Find where the code and docs cost the most, at a price you agreed.',
+  resp:['Set the scope (code, docs or both) and the preset, showing agents and rough tokens','Run the deep audit workflow','Present the findings table: Act now, Plan it, Watch','Pass the findings you fund to shape','Analysis only: it never fixes anything'],
+  desc:'Runs a costly multi-agent analysis of the codebase or documents and reports where they cost the most to change, ending in a findings table. Analysis and reporting only; funded findings go to shape. Invoke deliberately.',
+  yes:['/task-orchestrator:audit (typed only)'],no:['improve the code (shape)','fix this bug (no skill)','review this diff (host review)'],
+  hands:['shape (funded findings)'],absorbs:['deep-codebase-audit (front)','run-audit','create-item findings path'],refs:['presets.md','findings.md']},
+ {id:'board',m:'L',mn:'Look + Decide',inv:'both',goal:'See where things stand, and act on it.',
+  resp:['Show open runs and their frontier, the decision inbox, stalls, risk and cost','Orchestration mode: answer waiting decisions inline, in your own words','Director mode: hand work to the director (handle these, decide this class from now on)','Suggest director mode once more than one run is open','On a knowledge base, never show it as empty and never count lifecycle-free items as backlog, queue or stalled work'],
+  desc:'Shows where work stands across runs: open runs, what is ready and in flight, the decision inbox, stalls, risk and cost. In orchestration mode the user answers waiting decisions; in director mode the user hands work to the director. Use when the user asks where things stand, what is waiting or blocked, what needs them, or says show the board or status.',
+  yes:['where are we?','what needs me?','answer the open decisions'],no:['why is X blocked, in depth? (learn)','what should we build next? (shape)'],
+  hands:['director (suggested)','accept (finished work)','shape (re-plan)'],absorbs:['work-summary','the director dashboard'],refs:['decisions.md','handing-off.md']},
+ {id:'director',m:'D',mn:'Decide',inv:'user',goal:'Hand the deciding loop to the director.',
+  resp:['Enter director mode, or leave it with off','Work through the decision inbox one decision at a time','Send a background research or prototype agent when an answer needs evidence','Answer within each decision class’s authority and escalate the rest','Never drive work: hand it to orchestrators'],
+  desc:'Switches this session into director mode, or out of it with off. In director mode the session works through the decision inbox, researches when an answer needs evidence, answers within each decision class’s authority and escalates the rest. Invoke deliberately.',
+  yes:['/task-orchestrator:director (typed only)'],no:['where are we? (board)','answer this one decision (board)'],
+  hands:['board (your view)','orchestrators (the work)'],absorbs:['director'],refs:['answer-loop.md','escalation.md','orchestrator-placement.md']},
+ {id:'accept',m:'A',mn:'Accept',inv:'both',goal:'Judge what came back, then ship it or send it back.',
+  resp:['Check the outcome against the item\u2019s own notes and rulings','Show the review verdict, the change summary and the pull request','Send it back, which opens a fix cycle with your reason','Approve, which closes the work and hands off to the project’s ship step through config','Satisfy the acceptance gate where the item’s type opts in: plan-mode approval or a plain yes in Claude, this skill on a harness with no plan mode','Apply a conditional grant from plan approval only when review passed, findings are disposed, the build is green and no decision is open','Ship only on an explicit yes'],
+  desc:'Judges finished work against its own notes and rulings, then approves it, closing the work and handing off to the project’s ship step, or sends it back as a fix cycle. Use when the user asks whether something is done or is what they asked for, or says ship it, send it back, accept this, or close out this feature.',
+  yes:['is this what I asked for?','ship the checkout feature','send it back, the totals are wrong'],no:['review this diff (host review)','where are we? (board)'],
+  hands:['the project ship step','shape (send-back scope change)','tune (retro)'],absorbs:['batch-complete (close)','status-progression (complete)'],refs:['verdict.md','send-back.md','ship-seam.md']},
+ {id:'tune',m:'M',mn:'Improve',inv:'both',goal:'Make the process fit this project.',
+  resp:['Show process health: cost, quality, friction, and whether adopted changes worked','Triage improvement proposals: accept, reject, defer','Change the process from a stated intent, choosing the layer (schema, rule, trait, run-profile, decision class, autonomy)','Validate, push, and report what is in flight that the change affects'],
+  desc:'Improves how Task Orchestrator runs this project: shows process health (cost, quality, friction, whether adopted changes worked), triages improvement proposals, and changes schemas, rules, traits, decision classes or autonomy from a stated intent, then validates and pushes. Use when the user asks whether the process is working, or says make reviews cheaper, change our workflow, add a gate, this rule is too strict, or look at the proposals.',
+  yes:['is our process working?','make reviews cheaper','add a gate before release'],no:['improve the checkout code (shape)','audit the docs (audit, typed)'],
+  hands:['shape (process work items)'],absorbs:['manage-schemas','review-retrospectives','review-proposals'],refs:['health.md','proposals.md','changing-config.md']}
+];
+document.getElementById('nav').innerHTML=K.map(k=>`<a class="chip m-${k.m}" href="#${k.id}">${k.id}</a>`).join('');
+const FLOW=[['start','S'],['learn','E'],['shape','I'],['board','L'],['accept','A'],['tune','M']];
+document.getElementById('flow').innerHTML=FLOW.map(([n,m],i)=>`<div class="n m-${m}">${n}</div>${i<FLOW.length-1?'<div class="ar">→</div>':''}`).join('');
+document.getElementById('skills').innerHTML=K.map(k=>`<article class="skill m-${k.m}" id="${k.id}">
+ <div class="head"><h3>${k.id}</h3><span class="ns">/task-orchestrator:${k.id}</span><span class="pill">${k.mn}</span><span class="inv ${k.inv}">${k.inv==='both'?'natural language + slash':'user-only (slash)'}</span></div>
+ <div class="goal">${k.goal}</div>
+ <div class="blk"><span class="lbl">Responsibilities</span><ul>${k.resp.map(r=>`<li>${r}</li>`).join('')}</ul></div>
+ <div class="blk"><span class="lbl">Draft description <span class="count">${k.desc.length} chars</span></span><div class="desc">${k.desc}</div></div>
+ <div class="blk"><span class="lbl">Triggers / near-misses</span><div class="trig">${k.yes.map(y=>`<span class="yes">${y}</span>`).join('')}${k.no.map(n=>`<span class="no">${n}</span>`).join('')}</div></div>
+ <div class="blk"><span class="lbl">Hands off to</span><div>${S(k.hands)}</div><span class="lbl" style="margin-top:6px">Absorbs today</span><div>${S(k.absorbs)}</div><span class="lbl" style="margin-top:6px">References</span><div>${S(k.refs)}</div></div>
+</article>`).join('');
+const R=[["Build X, fix these bugs, refactor this module, improve the checkout flow","shape","Product work of any size. Shape sizes it first; a single known change goes straight through."],
+ ["Fix this one bug","(no skill)","One clear change. The agent does it, using the sizing it runs internally."],
+ ["Where does the code cost us? Find refactoring candidates","audit (typed)","Costly analysis you choose to buy. The agent can only suggest it."],
+ ["Where are we? What needs me? Answer the open decisions","board","Look and Decide, in either mode."],
+ ["Run it in the background and decide what you can","director (typed)","A mode switch whose timing you control."],
+ ["Is this done? Ship it. Send it back","accept","Judging finished work."],
+ ["Is our process working? Make reviews cheaper. Add a gate","tune","The process is the subject."],
+ ["How does this work? Why is it blocked? Teach me","learn","Your understanding is the subject."],
+ ["Keep what I learn about soil ecology. Set up a knowledge base","start","Setup asks the domain first and applies the knowledge-base template on the knowledge profile."],
+ ["How does this base work? What kinds of entry can I make?","learn","The applied template is the subject, explained from its record and the glossary."],
+ ["Set this up, connect the server","start","Once, before the loop."]];
+const IF={
+ start:[["Check the connected tool profile","none (the registration and the initialize instructions)","","client","no config key names the profile (R47)"],
+  ["Find existing roots and config","items_read list; config get","O","fits",""],
+  ["Create the anchor root","items_write create","O, K","fits","forbidden under a root or tag scope unless admin"],
+  ["Validate and push config","config validate, push","O","fits","needs the write-config capability"],
+  ["Push config on a knowledge connection","config-sync over REST","K","profile-gap","the config tool is not served on K, so there is no in-session validate"],
+  ["Apply a template and record it","config push; a template record under extensions","O","shape-gap","the record can be stored, but nothing reads it yet (R46); init may not write steering (KL4)"],
+  ["Create a lifecycle-free anchor","items_write create","K","shape-gap","the floor's anchor type project is role-bearing and would sit in queue (KL3)"],
+  ["Seed rules","docs_write upsert (kind rule)","O, K","fits",""],
+  ["Migrate an unscoped database","items_read overview; items_write update parentId; config push","O","fits","a root with an open run cannot be moved; pages of 50"],
+  ["Reach or launch the server, register it","none","","client","client and Docker work"]],
+ learn:[["Schema, seats, guidance","items_read schema","O, K","fits",""],
+  ["Resolved config and rule text","config effective, rules","O","fits",""],
+  ["Why is it blocked","items_read context, blocked","O (blocked also D)","fits","frontier waiting[].blockers is empty for a plain dependency block"],
+  ["What happened","items_read history; runs_read get","O","fits",""],
+  ["The glossary","none","","missing","a repo file; a page document could hold a copy"],
+  ["The applied template","config get; the template record","O","shape-gap","nothing reads the record yet (R46)"],
+  ["Declared types on a knowledge connection","items_read schema (needs a type)","K","missing","only a failed create's availableTypes lists them (KL20)"]],
+ shape:[["The tree, its goal notes and questions in one write","items_write create_tree","O","shape-gap","deps may only name refs inside the call"],
+  ["Edit or move work","items_write update","O, K","fits",""],
+  ["Dependency edges","deps_write create, linear, fan_out, fan_in","O, K","fits",""],
+  ["Order","priority, complexity, deps linear","O, K","shape-gap","no rank field; next orders by priority, oldest or newest"],
+  ["Cancel","advance cancel; items_write complete_tree (cancel)","O","fits",""],
+  ["Defer","advance block (reason manual)","O","shape-gap","no deferred reason, so deferrals count as blocked"],
+  ["Change run membership after a ruling","runs_write update","O","shape-gap","needs the run token, which cannot be recovered"],
+  ["Find what is refined and ready","items_read next","O","shape-gap","type is include-only; no refined filter"],
+  ["Send one known change to plan mode","none","","client",""],
+  ["Capture knowledge as an entry","items_write create; notes_write upsert","O, K","shape-gap","create-item files it as a bug or feature through create_tree, which K does not serve (KL16)"]],
+ audit:[["Check findings against existing items","items_read search","O, K","fits",""],
+  ["Findings table","a report file; optionally docs_write (kind plan)","O, K","shape-gap","no server structure; an adopted plan is frozen"],
+  ["Funded findings to items","items_write create_tree; notes_write","O","shape-gap","provenance only in tags and description; properties unused"]],
+ board:[["Runs","runs_read list, get","O, D","fits",""],
+  ["Frontier","runs_read frontier","O, D","fits",""],
+  ["Decision inbox","runs_read decisions, decision","D only","profile-gap","no status, class, severity or subtree filter; question cut at 120 characters"],
+  ["Stalls, risk, cost","report rollup","D only","profile-gap","risk is derived; cost is a call-log estimate"],
+  ["Answer inline in orchestration mode","runs_write answer","D only","profile-gap","provenance records profile director"],
+  ["Hand work to the director","none","","missing",""],
+  ["A knowledge base's contents","items_read overview, list","O, K","shape-gap","work-summary leaves lifecycle-free items out and reads context and next (KL17)"]],
+ director:[["Read one decision","runs_read decision","D","fits","the full view carries answerers, options, recommended, links"],
+  ["Answer or acknowledge","runs_write answer, ack","D","shape-gap","no evidence links; rationale capped at 1000 characters"],
+  ["Escalate to the user","none","","missing","no escalated state; ack is limited to answerers"],
+  ["Pause, resume, close, open, withdraw","runs_write","D","fits","resume does not check for open decisions"],
+  ["Read items at altitude","items_read get, list, overview, blocked; deps_read","D","fits",""],
+  ["Research agents","none","","client","their findings go to notes the director cannot read"],
+  ["Per-class autonomy","decision_classes in config","not on D","shape-gap","no autonomy field, and config is unreadable on D"]],
+ accept:[["Read outcome and its notes","items_read context, get, history; notes_read; docs_read; deps_read","O","fits",""],
+  ["Approve","the user's verbal yes; advance complete; items_write complete_tree; runs_write close","O","fits","approval is conversational, as with plan mode's accept; where the type opts in it satisfies the acceptance gate; the ship step is still an open question"],
+  ["Acceptance gate, opt-in per type","none yet","O","missing","smallest shape open: a required acceptance note satisfied only by an answered decision of the right class, or a new lifecycle step"],
+  ["Send back","a fix-cycle seat re-dispatched while the item stays in review, with the reason in a note","O","fits","no new trigger needed"]],
+ tune:[["Process health and cost","report gates, usage, notes, waste, contention, rollup","D only","profile-gap",""],
+  ["Retros, trends, proposals","items_read list by type; notes_read","O","fits","types come from the global floor"],
+  ["Triage a proposal","notes_write upsert; advance","O","fits",""],
+  ["Link a proposal to its change","deps_write create (relates_to)","O","fits",""],
+  ["Change config","config get, validate, push, rollback, history, effective","O","fits","diff, affectedInFlight and lint come back"],
+  ["Re-pin in-flight items","items_write repin","O","fits",""],
+  ["Rules","docs_write upsert (kind rule)","O, K","fits",""],
+  ["Server-level config, run-profile, dispatch policy","none","","missing","server set only from the boot import; the JSON files are plugin files"]]};
+const ST={'fits':'fits','profile-gap':'profile gap','shape-gap':'shape gap','missing':'missing','client':'client'};
+document.getElementById('ifaces').innerHTML=Object.entries(IF).map(([sk,rows])=>{
+ const c={};rows.forEach(r=>c[r[3]]=(c[r[3]]||0)+1);
+ const bar=`<div class="fitbar">${['fits','shape-gap','profile-gap','missing','client'].filter(k=>c[k]).map(k=>`<span class="${k}" style="flex:${c[k]}"></span>`).join('')}</div>`;
+ const m=(K.find(k=>k.id===sk)||{}).m;
+ return rows.map((r,i)=>`<tr>${i===0?`<td rowspan="${rows.length}"><span class="chip m-${m}">${sk}</span></td><td rowspan="${rows.length}">${bar}<div class="count" style="margin-top:4px">${c.fits||0} of ${rows.length} fit</div></td>`:''}<td>${r[0]}</td><td class="tool">${r[1]}</td><td>${r[2]}</td><td><span class="st ${r[3]}">${ST[r[3]]}</span>${r[4]?` <span style="color:var(--muted)">${r[4]}</span>`:''}</td></tr>`).join('')}).join('');
+const SH=[["Goal note","Whatever the schema asks of a node (in the incremental-delivery pattern: goal, bounds, non-goals); revisable","A queue note on a declared node type. An adopted plan is frozen, so not that. The director can read neither.","shape-gap"],
+ ["Node","A piece of the tree that can be accepted on its own","An item of a declared type. Refined (all required queue-phase notes filled) has no queryable field.","shape-gap"],
+ ["Planned question and its classification","The question, what it blocks, and whether it is shared, irreversible or other","An item with blocks edges. The classification has no field; tags or properties hold it only by convention.","shape-gap"],
+ ["Ruling","The option taken and the reason, on the governed item","A note, plus the decision's answer. answer takes no links, so the note cannot be tied to its decision.","shape-gap"],
+ ["Answer with who decided","Option, rationale, and whether the user or the director chose","The answer records kind, seat, run and profile, but a relayed user answer and an autonomous one look the same. Proposed: decidedBy on answer. Enforceable over HTTP with a human credential; stdio is deprecated and its limit is accepted.","shape-gap"],
+ ["Planned question","A question that blocks the nodes it touches","An item that builds nothing (builds: false); a pattern may add a trait such as open-question. When it is ready to settle, the agent raises a decision on that item.","fits"],
+ ["Acceptance verdict","Ship or send back, judged against the item\u2019s own notes and rulings","Your verbal yes, plus an optional verdict note key in the schema. Where a type opts in, the server's acceptance gate requires it; the gate is not built yet.","shape-gap"],
+ ["Send-back","What to fix, back into work","A fix cycle with your reason in a note, while the item stays in review.","fits"],
+ ["Hand-to-director instruction","Handle these; decide this class from now on","Proposed: a delegated decision state for one-off hand-offs, and the per-class autonomy field for standing instructions.","missing"],
+ ["Config change","Schema, rules, traits, decision classes","config validate then push with expectedVersion; affectedInFlight and repin. Server-floor classes and the plugin JSON files are outside it.","fits"]];
+document.getElementById('shapes').innerHTML=SH.map(s=>`<tr><td><b>${s[0]}</b></td><td>${s[1]}</td><td>${s[2]}</td><td><span class="st ${s[3]}">${ST[s[3]]}</span></td></tr>`).join('');
+const XG=[["Decisions can only be read, answered and acknowledged on the director profile","board, shape, accept","api-reference.md:42, 2202-2215, 2388-2396"],
+ ["report (rollup, usage, gates, notes, contention, waste) is director-only","board, tune","api-reference.md:65"],
+ ["No per-class autonomy field; escalation criteria live only in skill logic","director, board","config-reference.md:199-205"],
+ ["next cannot exclude a type or filter refined items","shape","api-reference.md:835-854"],
+ ["create_tree deps cannot name existing items","shape, audit","api-reference.md:187, 206"],
+ ["resume is not refused while a decision is open (run or item)","director, accept","RunsResumeOp.kt:31-56"],
+ ["No escalated state; the director cannot ack a human-only decision","director, board","api-reference.md:2388"],
+ ["The decision inbox has no status, class, severity or subtree filter","board, director","api-reference.md:2202"],
+ ["answer takes no evidence links","director","api-reference.md:2398-2404"],
+ ["No deferred block reason; deferrals count as blocked","shape, board","api-reference.md:1261"],
+ ["No rank or sequence field","shape","api-reference.md:648"],
+ ["Run membership needs the unrecoverable run token","shape, director","api-reference.md:2238, 2243"],
+ ["Server-level config is read-only to the tools (boot import only)","tune","api-reference.md:1568"],
+ ["No bulk read of refined or accepted items","shape, accept","api-reference.md:581, 638"],
+ ["No structured provenance from audit, goal note or ruling to the items they produced","audit, shape","deep-codebase-audit.js:1062-1075"],
+ ["In director mode only the director profile is available, so other skills must run in a background agent","all but board and director","the director agent's tool list"],
+ ["No acceptance gate; acceptance is conversational only","accept","settled since v18 (decision 2); gate shape open"],
+ ["init cannot run on a knowledge connection and registers orchestration and director only","start","init/SKILL.md:33-57 (KL1, KL2)"],
+ ["Setup may not write steering, and nothing reads a template record","start, learn","init/SKILL.md:190-194 (KL4); R46"],
+ ["work-summary leaves lifecycle-free items out; create-item files knowledge as bugs or features","board, shape","work-summary/SKILL.md:135 (KL17); create-item/SKILL.md:17 (KL16)"],
+ ["Hooks steer every session as a build orchestrator, and plan mode orders materialisation","all on a knowledge base","session-start.mjs:25-30; pre-plan.mjs:24-33; post-plan.mjs:24-31 (KL9-KL11)"]];
+document.getElementById('xgaps').innerHTML=XG.map((g,i)=>`<tr><td style="font-family:var(--mono);color:var(--muted)">${i+1}</td><td><b>${g[0]}</b></td><td>${g[1].split(', ').map(x=>`<span class="sk">${x}</span>`).join('')}</td><td class="tool">${g[2]}</td></tr>`).join('');
+const TC=[["Decisions on both profiles","decisions_read list (filters: status, waitingOn, class, severity, item, subtree, run, root, decisionIds; includeContext; keyset paging); each root's class policies returned once, even on an empty page. decisions_write raise, ack, delegate, escalate, answer, withdraw. runs_* decision ops stay as frozen aliases until 5.0","board, director, shape"],
+ ["Who a decision waits on","delegate {decisionIds} sets waitingOn director; escalate {decisionId, reason} sets waitingOn user, with a waitingReason. status is unchanged. One additive migration","board, director"],
+ ["Authority by class and credential","the director caller means no seat token plus a credential that grants decide, not the director profile","director, board"],
+ ["Per-class autonomy","decision_classes.<name>.autonomy: answer | ask, default ask; human-only always ask","director, tune"],
+ ["Who decided, and evidence","answer {option, rationale, decidedBy, basis: autonomy | delegation | relayed, links[]}; withinAutonomy recorded, not enforced","director, board"],
+ ["Resume refused while a decision is pending","a new gate on item resume: invalid_transition with {decisionId, status}","director, accept"],
+ ["One board read","report board on both profiles, and every report select on both: runs, frontier, backlog, inbox, stalls, blocked dwell, cost, and closed attention kinds; ids and counts only","board, director, learn"],
+ ["next means startable by a build seat","default: leaf, builds true, refined, queued, unblocked, unclaimed; opt-outs includeParents, builds: false, refined: false | any; claim by selector shares it; claim by itemId unchanged. Phase 1: leaf and builds. Phase 2: refined","shape, board, run-wave, ralph"],
+ ["Refined, computed","a notes.filled flag plus pinned required queue keys; also a refined filter on list; fields: refined","shape"],
+ ["Non-building items","builds: false on a schema or trait, pinned on the item; containers marked builds: false in config","shape, board"],
+ ["Rank","work_items.rank, a sparse integer among siblings; next orderBy rank, list sort rank","shape"],
+ ["Deps to existing items","create_tree deps take fromId or toId, with scope, lifecycle and cycle checks before any write","shape, audit"],
+ ["Provenance links","links: [{to: note | document anchor, relation: derived_from}] on create and create_tree children","audit, shape"],
+ ["Lost run token","runs_write reissue by the root's orchestrator; audited; added to the subagent deny list","shape"]];
+document.getElementById('tchanges').innerHTML=TC.map((t,i)=>'<tr><td style="font-family:var(--mono);color:var(--muted)">'+(i+1)+'</td><td><b>'+t[0]+'</b></td><td class="tool">'+t[1]+'</td><td>'+t[2].split(', ').map(x=>'<span class="sk">'+x+'</span>').join('')+'</td></tr>').join('');
+document.getElementById('routes').innerHTML=R.map(r=>`<tr><td>"${r[0]}"</td><td><span class="sk">${r[1]}</span></td><td>${r[2]}</td></tr>`).join('');
+</script>
