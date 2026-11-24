@@ -6,8 +6,8 @@ package io.github.jpicklyk.mcptask.current.platform.port
  *
  * The compiler resolves the receiver of every call, override and callable reference, so a call through any
  * receiver form (scope function, extension receiver, store-returning call, delegation) fails to compile
- * unless the call site opts in. Opt-in is confined to `application/service/` and `application/knowledge/`
- * by `WriteConfinementTest`; the build never opts in for main compilation.
+ * unless the call site opts in. Opt-in is confined to `application/service/` and the owner files
+ * `WriteConfinementTest` lists; the build never opts in for main compilation.
  */
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,

@@ -16,12 +16,12 @@ import kotlin.test.assertTrue
  * claim and lease stores), so a call, override or callable reference through ANY receiver form fails to compile unless the
  * caller opts in. This guard confines where the marker may be named, opted into or suppressed, so the compiler guarantee
  * cannot be quietly widened:
- *  - the marker names (USE as an annotation) appear only in their allow-lists (service and knowledge dirs, the port dir, the
+ *  - the marker names (USE as an annotation) appear only in their allow-lists (the service dir and owner files, the port dir, the
  *    SQLite impl dirs (and a slice's `internal/sqlite/`) for StoreWrite; ClaimService.kt, the port dir, `claim/ClaimStore.kt`, `claim/LeaseStore.kt`
  *    and three SQLite impl files for ClaimWrite; both also
  *    in `platform/port/WriteConfinement.kt`, the file that declares them);
  *  - an OPT-IN of a marker (`@OptIn`, `@file:OptIn`, `@kotlin.OptIn`, any argument layout) is narrower: StoreWrite only in the
- *    service and knowledge dirs, ClaimWrite only in ClaimService.kt, so a port or SQLite store file can never opt in to its
+ *    service dir and owner files, ClaimWrite only in ClaimService.kt, so a port or SQLite store file can never opt in to its
  *    own marker and unlock an unmarked default or helper method;
  *  - exactly the listed port methods carry their marker (every overload), and no other port method does;
  *  - every production override of a marked method carries the marker itself, never an `@OptIn`;
@@ -77,13 +77,22 @@ internal class WriteConfinementTest {
         const val CLAIM_SERVICE = "claim/ClaimService.kt"
 
         /** Port files that sit in a slice's top package instead of [PORT_DIR] (a port leaves `application/port/` with its slice). */
-        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt", "claim/LeaseStore.kt", "dependency/DependencyStore.kt")
+        val SLICE_PORT_FILES =
+            setOf(
+                "claim/ClaimStore.kt",
+                "claim/LeaseStore.kt",
+                "dependency/DependencyStore.kt",
+                "knowledge/DocumentStore.kt",
+                "knowledge/LinkStore.kt",
+                "knowledge/PlanDocumentStore.kt"
+            )
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
-        private val STORE_OWNER_FILES = setOf(CLAIM_SERVICE, "dependency/DependencyCommandService.kt")
+        private val STORE_OWNER_FILES =
+            setOf(CLAIM_SERVICE, "dependency/DependencyCommandService.kt", "knowledge/DocumentService.kt", "knowledge/LinkService.kt")
 
-        private val STORE_OWNER_DIRS = listOf("application/service/", "application/knowledge/")
-        private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/", "infrastructure/sqlite/knowledge/")
+        private val STORE_OWNER_DIRS = listOf("application/service/")
+        private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/")
         private val CLAIM_IMPL_FILES =
             setOf(
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
@@ -468,7 +477,7 @@ internal class WriteConfinementTest {
 
         private val OPT_IN = Regex("""@(?:file:)?(?:[\w.]*\.)?OptIn\s*\(([^)]*)\)""")
 
-        /** An OPT-IN of StoreWrite is allowed only in the service and knowledge dirs (marker USE: see [storeWriteAllowed]). */
+        /** An OPT-IN of StoreWrite is allowed only in the service dir and the owner files (marker USE: see [storeWriteAllowed]). */
         fun storeWriteOptInAllowed(path: String): Boolean =
             norm(path).let { p ->
                 STORE_OWNER_DIRS.any { p.startsWith(it) } ||
@@ -830,12 +839,12 @@ internal class WriteConfinementTest {
         listOf(
             "application/service/X.kt",
             "application/service/nested/X.kt",
-            "application/knowledge/document/DocumentService.kt",
+            "knowledge/DocumentService.kt",
             "application/port/ItemStore.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/sqlite/repository/nested/Deep.kt",
-            "infrastructure/sqlite/knowledge/SqliteDocumentStore.kt",
-            "infrastructure/sqlite/knowledge/nested/Deep.kt",
+            "knowledge/internal/sqlite/document/SqliteDocumentStore.kt",
+            "knowledge/internal/sqlite/nested/Deep.kt",
             "claim/ClaimStore.kt",
             "claim/internal/sqlite/SqliteClaimStore.kt",
             "claim/internal/sqlite/nested/Deep.kt",
@@ -856,6 +865,8 @@ internal class WriteConfinementTest {
             "claim/Other.kt",
             "dependency/Other.kt",
             "dependency/internal/wire/DepsCreateOps.kt",
+            "knowledge/internal/wire/X.kt",
+            "knowledge/Other.kt",
             "dependency/DependencyCommandServiceHelper.kt",
             "claim/internal/app/A.kt",
             "claim/internal/wire/A.kt",
@@ -884,9 +895,9 @@ internal class WriteConfinementTest {
             "claim/internal/app/SqliteClaimStore.kt",
             "claim/internal/sqlite/nested/SqliteClaimStore.kt",
             "infrastructure/sqlite/repository/SqliteClaimStore.kt",
-            "application/knowledge/document/DocumentService.kt",
+            "knowledge/DocumentService.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
-            "infrastructure/sqlite/knowledge/SqliteDocumentStore.kt",
+            "knowledge/internal/sqlite/document/SqliteDocumentStore.kt",
             "claim/internal/wire/ResourceLeaseRoutes.kt",
             "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
             "claim/internal/app/SQLiteResourceLeaseRepository.kt",
@@ -966,8 +977,8 @@ internal class WriteConfinementTest {
         listOf(
             "application/service/AdvanceService.kt",
             "application/service/nested/X.kt",
-            "application/knowledge/document/DocumentService.kt",
-            "application/knowledge/link/LinkService.kt"
+            "knowledge/DocumentService.kt",
+            "knowledge/LinkService.kt"
         ).forEach { assertEquals(0, optInViolations(it, "@file:OptIn(StoreWrite::class)\npackage x"), "StoreWrite owner: $it") }
         assertEquals(0, optInViolations(CLAIM_SERVICE, bothOptIn), "ClaimService owns both")
         assertEquals(
@@ -980,7 +991,12 @@ internal class WriteConfinementTest {
             optInViolations("dependency/Other.kt", "@file:OptIn(StoreWrite::class)\npackage x"),
             "a dependency slice file is no owner"
         )
-        assertEquals(1, optInViolations("application/knowledge/link/LinkService.kt", claimOptIn), "knowledge: no claim")
+        assertEquals(1, optInViolations("knowledge/LinkService.kt", claimOptIn), "knowledge: no claim")
+        assertEquals(
+            1,
+            optInViolations("knowledge/internal/wire/X.kt", "@file:OptIn(StoreWrite::class)\npackage x"),
+            "a knowledge wire file is no owner"
+        )
 
         // lexer conventions: comments and strings are not opt-ins; unrelated opt-ins are fine
         listOf(
@@ -1043,7 +1059,7 @@ internal class WriteConfinementTest {
         ).forEach {
             assertEquals(emptyList(), implementorProblems(listOf(compositePort, src(outside, it))), "wrongly flagged: $it")
         }
-        listOf("infrastructure/sqlite/repository/SqliteX.kt", "infrastructure/sqlite/knowledge/nested/SqliteY.kt").forEach {
+        listOf("infrastructure/sqlite/repository/SqliteX.kt", "knowledge/internal/sqlite/nested/SqliteY.kt").forEach {
             val text = "class Impl : NoteStore {\n}\nclass R : WorkItemRepository {\n}"
             val problems = implementorProblems(listOf(compositePort, src(it, text)))
             assertEquals(emptyList(), problems, "impl dirs may implement confined ports: $it")

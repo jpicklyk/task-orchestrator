@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.calltelemetry
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.knowledge.SearchService
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore

@@ -1,12 +1,8 @@
 package io.github.jpicklyk.mcptask.current.platform.support
 
-import io.github.jpicklyk.mcptask.current.application.port.Analyzer
-import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.application.port.ItemSort
-import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
-import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -15,6 +11,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ids
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.irApp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.obj
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.short
+import io.github.jpicklyk.mcptask.current.knowledge.Analyzer
+import io.github.jpicklyk.mcptask.current.knowledge.Corpus
+import io.github.jpicklyk.mcptask.current.knowledge.ScopeFilter
+import io.github.jpicklyk.mcptask.current.knowledge.TextQuery
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail

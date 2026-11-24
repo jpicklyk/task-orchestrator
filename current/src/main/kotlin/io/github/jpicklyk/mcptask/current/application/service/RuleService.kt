@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
-import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.knowledge.PlanSlugs
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
 import io.github.jpicklyk.mcptask.current.platform.support.LegacyFaults
@@ -95,7 +95,7 @@ class RuleService(
 
         /**
          * Hard cap on a rule document body's UTF-8 byte size, enforced by
-         * [PlanDocumentService.stash] for any slug starting with [RULE_SLUG_PREFIX] (tighter than
+         * `PlanDocumentService.stash` for any slug starting with [RULE_SLUG_PREFIX] (tighter than
          * that service's general 64 KiB cap for non-rule plan documents).
          */
         const val MAX_RULE_BODY_BYTES = DocumentService.MAX_RULE_BODY_BYTES

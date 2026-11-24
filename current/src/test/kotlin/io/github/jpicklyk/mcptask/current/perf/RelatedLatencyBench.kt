@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.perf
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedRequest
-import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
+import io.github.jpicklyk.mcptask.current.knowledge.RelatedRequest
+import io.github.jpicklyk.mcptask.current.knowledge.RelatedService
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.item.Role

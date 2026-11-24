@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
+import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig

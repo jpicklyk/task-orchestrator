@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.docs.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionService
 import io.github.jpicklyk.mcptask.current.application.run.RunLimits
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
+import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import kotlin.reflect.KClass
 

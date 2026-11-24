@@ -210,7 +210,7 @@ class SQLiteNoteRepository(
         }
     }
 
-    override suspend fun ownersOf(noteIds: Set<UUID>): Map<UUID, UUID> {
+    override suspend fun itemsOfNotes(noteIds: Set<UUID>): Map<UUID, UUID> {
         if (noteIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
             noteIds
