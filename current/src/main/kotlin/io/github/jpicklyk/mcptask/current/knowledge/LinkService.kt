@@ -36,8 +36,8 @@ import java.util.UUID
  * Relations: `[[...]]` references parsed from a body are [LinkRelation.REFERENCES] (a re-parse replaces only those),
  * an explicit document-to-item attachment is [LinkRelation.ATTACHED], and a note cut from a plan document, or a new
  * item's declared source (a note or a document), is [LinkRelation.DERIVED_FROM]. A target resolves only within the
- * source's root; a bare slug resolves PAGE, then PLAN, then RULE. An unresolved document reference is stored dangling (`to_id` NULL, text in `to_ref`) and resolved when
- * the document is created; an unresolved item reference is not stored.
+ * source's root; a bare slug resolves PAGE, then PLAN, then RULE. An unresolved document reference is stored dangling
+ * (`to_id` NULL, text in `to_ref`) and resolved when the document is created; an unresolved item reference is not stored.
  */
 class LinkService(
     private val repositoryProvider: KnowledgeStoreProvider,
