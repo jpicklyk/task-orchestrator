@@ -92,6 +92,24 @@ class SeatConfigLoadFailClosedTest {
             )
         }
 
+    private fun validate(
+        context: ToolExecutionContext,
+        rootId: String,
+        yaml: String,
+    ): JsonObject =
+        runBlocking {
+            context.callTool(
+                "config",
+                configCall(
+                    buildJsonObject {
+                        put("op", "validate")
+                        put("rootId", rootId)
+                        put("configYaml", yaml)
+                    },
+                ),
+            )
+        }
+
     private fun get(
         context: ToolExecutionContext,
         rootId: String,
@@ -229,6 +247,109 @@ class SeatConfigLoadFailClosedTest {
                 required: true
                 seat: unowned
         """.trimIndent()
+
+    private val reservedDirectorName =
+        """
+        work_item_schemas:
+          reserved-seat-check:
+            seats:
+              - { name: director, phase: work }
+            notes:
+              - key: n1
+                role: work
+                required: true
+                seat: director
+        """.trimIndent()
+
+    private val retiredCoordinatorName =
+        """
+        work_item_schemas:
+          retired-coordinator:
+            seats:
+              - { name: coordinator, phase: work }
+            notes:
+              - key: n1
+                role: work
+                required: true
+                seat: coordinator
+        """.trimIndent()
+
+    @Test
+    fun `S4 F3 a seat named director fails global startup naming the config path and the seat`(
+        @TempDir tempDir: Path,
+    ) {
+        val configPath = writeGlobalConfig(tempDir, reservedDirectorName)
+
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
+            }
+        assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
+        assertTrue(ex.message?.contains("director") == true, "message must name the reserved seat name: ${ex.message}")
+    }
+
+    @Test
+    fun `S4 F3 a seat named director push is rejected as config_invalid at the seats path and stores nothing`() {
+        val (context, rootId) = buildContext()
+        val result = push(context, rootId.toString(), reservedDirectorName)
+        assertTrue(!isSuccess(result), "push must be rejected: $result")
+        assertEquals("config_invalid", errorOf(result)["code"]!!.jsonPrimitive.content)
+        val atSeats = violationsOf(result).filter { it["path"]!!.jsonPrimitive.content == "/work_item_schemas/reserved-seat-check/seats" }
+        assertTrue(atSeats.isNotEmpty(), "the rejection must name the seats list: ${violationsOf(result)}")
+        assertTrue(
+            atSeats.any { it["reason"]!!.jsonPrimitive.content.contains("a seat named 'director', which is reserved") },
+            "the rejection reason must name the reserved seat: $atSeats",
+        )
+        val stored = get(context, rootId.toString())
+        assertEquals(
+            "not_found",
+            errorOf(stored)["code"]!!.jsonPrimitive.content,
+            "a config with a seat named 'director' must never be stored",
+        )
+    }
+
+    @Test
+    fun `a seat named coordinator push succeeds with the warning and is stored`() {
+        val (context, rootId) = buildContext()
+        val result = push(context, rootId.toString(), retiredCoordinatorName)
+
+        assertTrue(isSuccess(result), "a retired seat name only warns: $result")
+        val warnings = dataOf(result)["warnings"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(
+            warnings.any { it.contains("seats[0] is named 'coordinator', a retired name for a run's orchestrator") },
+            "the warning must carry its own location text: $warnings",
+        )
+        assertTrue(isSuccess(get(context, rootId.toString())), "the version must be stored")
+    }
+
+    @Test
+    fun `a seat named coordinator validates ok with the warning at the seat name path`() {
+        val (context, rootId) = buildContext()
+        val result = validate(context, rootId.toString(), retiredCoordinatorName)
+
+        assertTrue(isSuccess(result), "validate reports problems in the result, not as an error: $result")
+        val data = dataOf(result)
+        assertEquals("true", data["valid"]!!.jsonPrimitive.content, "a retired seat name only warns: $data")
+        val warnings = data["warnings"]!!.jsonArray.map { it.jsonObject }
+        val atName =
+            warnings.filter { it["path"]!!.jsonPrimitive.content == "/work_item_schemas/retired-coordinator/seats/0/name" }
+        assertTrue(atName.isNotEmpty(), "the warning must carry the seat name path: $warnings")
+        assertTrue(
+            atName.any { it["reason"]!!.jsonPrimitive.content.contains("a retired name for a run's orchestrator") },
+            "the warning reason must say the name is retired: $atName",
+        )
+    }
+
+    @Test
+    fun `a seat named coordinator does not fail global startup`(
+        @TempDir tempDir: Path,
+    ) {
+        writeGlobalConfig(tempDir, retiredCoordinatorName)
+
+        val composition = ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
+
+        assertNotNull(composition.serverConfig, "a retired seat name only warns, the config must load")
+    }
 
     private val afterCycle =
         """

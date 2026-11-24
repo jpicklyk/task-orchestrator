@@ -25,7 +25,7 @@ In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derive
 A named position in an item's workflow, declared in a schema for one phase, that one dispatched agent fills. The one exception is the orchestrator seat, which the orchestrator fills itself. A seat may not be named after the director, which never writes notes.
 
 Distinct from: role. A role is the phase a note belongs to; a seat is the position whose agent fills it.
-In code: `SeatDefinition`. The reserved names are `unowned` (refused) and `orchestrator` (given meaning by the server).
+In code: `SeatDefinition`. The reserved names are `unowned` and `director` (refused) and `orchestrator` (given meaning by the server); `coordinator` loads with a warning.
 
 ### Seat-aware schema
 
