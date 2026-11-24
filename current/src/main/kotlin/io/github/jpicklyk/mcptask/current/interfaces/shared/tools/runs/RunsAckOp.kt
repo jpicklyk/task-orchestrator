@@ -24,6 +24,7 @@ internal val runsAckOp =
         profiles = director(),
         capability = ApiCapability.DECIDE,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsAckRequest>(),
         errors =
             setOf(

@@ -47,6 +47,7 @@ internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, Ite
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<CreateItemRequest>(),
         errors =
             setOf(

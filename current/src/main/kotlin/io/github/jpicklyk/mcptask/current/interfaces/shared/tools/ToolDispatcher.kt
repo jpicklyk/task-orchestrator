@@ -37,6 +37,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import io.github.jpicklyk.mcptask.current.platform.tool.declaredServices
+import io.github.jpicklyk.mcptask.current.platform.tool.declaredStores
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
 import io.github.jpicklyk.mcptask.current.platform.tool.unknownParameters
@@ -65,7 +66,8 @@ data class Dispatched(
 /**
  * Runs one call of a 4.0 tool, transport-neutral, so MCP ([McpOperationAdapter][io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter])
  * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it validates at
- * construction (a call may name any spec): construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
+ * construction (a call may name any spec): construction throws when a select or op of one declares a services holder the dispatcher's registry lacks,
+ * or an op declares a store provider the server's repository provider does not implement.
  *
  * Order (task-scope D2):
  * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`
@@ -115,6 +117,13 @@ class ToolDispatcher(
             for ((member, type) in spec.declaredServices()) {
                 val registered = services.isRegistered(type)
                 require(registered) { "Tool member '$member': no tool services holder is registered for ${type.qualifiedName}" }
+            }
+            // An op's write scope is restored to its declared store provider by a cast (OpSpec.decode); that is sound only while the
+            // unit's provider (the server's full RepositoryProvider) is an instance of it, so a mismatch fails here, not at the op's
+            // first store call as `internal`.
+            for ((member, type) in spec.declaredStores()) {
+                val provided = type.isInstance(env.repositoryProvider)
+                require(provided) { "Tool member '$member': the dispatcher's provider does not implement ${type.qualifiedName}" }
             }
         }
     }

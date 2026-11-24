@@ -127,6 +127,7 @@ class RestOnlyMemberContractTest {
         profiles = profiles,
         capability = ApiCapability.WRITE_ITEMS,
         services = ToolExecutionContext::class,
+        stores = RepositoryProvider::class,
         request = serializer<RunReq>(),
         execute = { _, _, _ -> Outcome.Ok("ran:$name") }
     )

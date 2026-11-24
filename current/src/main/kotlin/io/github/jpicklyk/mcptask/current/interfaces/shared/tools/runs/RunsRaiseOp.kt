@@ -48,6 +48,7 @@ internal val runsRaiseOp =
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsRaiseRequest>(),
         errors =
             setOf(

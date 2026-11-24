@@ -47,6 +47,7 @@ internal val configEffectiveOp =
         profiles = orchestration(),
         capability = ApiCapability.READ,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigEffectiveRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),
         execute = { env, ctx, req ->

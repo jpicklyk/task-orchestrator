@@ -44,6 +44,7 @@ internal fun deleteItemOp(): OpSpec<WorkflowToolServices, DeleteItemRequest, Ite
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<DeleteItemRequest>(),
         errors =
             setOf(

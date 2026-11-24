@@ -60,6 +60,7 @@ internal fun updateItemOp(): OpSpec<WorkflowToolServices, UpdateItemRequest, Ite
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<UpdateItemRequest>(),
         errors =
             setOf(

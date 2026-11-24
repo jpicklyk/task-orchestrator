@@ -148,6 +148,7 @@ class ParityFixtureTools {
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<RenameReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -179,6 +180,7 @@ class ParityFixtureTools {
             capability = ApiCapability.WRITE_NOTES,
             profiles = knowledge(),
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<RetagReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -235,6 +237,7 @@ class ParityFixtureTools {
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<StampReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->

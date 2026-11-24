@@ -98,6 +98,7 @@ class DirectorVisibilityGuardTest {
                         profiles = profiles,
                         capability = ApiCapability.WRITE_ITEMS,
                         services = ToolExecutionContext::class,
+                        stores = RepositoryProvider::class,
                         request = serializer<MarkerReq>(),
                         execute = { _, _, _ -> Outcome.Ok("x") }
                     )

@@ -40,6 +40,7 @@ internal val configPushOp =
         profiles = orchestration(),
         capability = ApiCapability.WRITE_CONFIG,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigPushRequest>(),
         errors =
             setOf(

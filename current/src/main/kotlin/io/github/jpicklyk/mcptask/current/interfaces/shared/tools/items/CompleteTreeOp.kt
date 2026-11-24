@@ -49,6 +49,7 @@ internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest,
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<CompleteTreeRequest>(),
         errors =
             setOf(

@@ -33,6 +33,7 @@ internal val runsOpenOp =
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsOpenRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.DUPLICATE),
         execute = { env, ctx, req -> openRun(env, ctx, req) }

@@ -24,6 +24,7 @@ internal val runsWithdrawOp =
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsWithdrawRequest>(),
         errors =
             setOf(

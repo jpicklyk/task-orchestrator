@@ -25,6 +25,7 @@ internal val runsAnswerOp =
         profiles = director(),
         capability = ApiCapability.DECIDE,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsAnswerRequest>(),
         errors =
             setOf(

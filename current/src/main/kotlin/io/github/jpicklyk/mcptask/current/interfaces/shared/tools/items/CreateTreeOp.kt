@@ -50,6 +50,7 @@ internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, Ite
         profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<CreateTreeRequest>(),
         errors =
             setOf(

@@ -32,6 +32,7 @@ internal val configRollbackOp =
         profiles = orchestration(),
         capability = ApiCapability.WRITE_CONFIG,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigRollbackRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.VERSION_CONFLICT),
         execute = { env, ctx, req ->

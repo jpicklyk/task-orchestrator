@@ -32,6 +32,7 @@ internal val runsEndSeatOp =
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsEndSeatRequest>(),
         errors = setOf(ErrorCode.FORBIDDEN, ErrorCode.UNAUTHENTICATED),
         execute = { env, ctx, req -> endSeat(env, ctx, req) }

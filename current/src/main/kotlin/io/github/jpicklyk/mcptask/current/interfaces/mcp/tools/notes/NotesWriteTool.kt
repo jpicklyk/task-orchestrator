@@ -26,6 +26,7 @@ internal val noteUpsertOp =
         destructive = false,
         capability = ApiCapability.WRITE_NOTES,
         services = NoteToolServices::class,
+        stores = NoteStoreProvider::class,
         request = serializer<NoteUpsertRequest>(),
         errors =
             setOf(
@@ -53,6 +54,7 @@ internal val noteDeleteOp =
         destructive = true,
         capability = ApiCapability.WRITE_NOTES,
         services = NoteToolServices::class,
+        stores = NoteStoreProvider::class,
         request = serializer<NoteDeleteRequest>(),
         errors =
             setOf(

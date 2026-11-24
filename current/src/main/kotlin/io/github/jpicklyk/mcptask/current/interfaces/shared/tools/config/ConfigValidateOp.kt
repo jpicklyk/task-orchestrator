@@ -42,6 +42,7 @@ internal val configValidateOp =
         profiles = orchestration(),
         capability = ApiCapability.READ,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigValidateRequest>(),
         errors =
             setOf(
