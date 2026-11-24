@@ -220,6 +220,54 @@ class SeatConfigParseTest {
     }
 
     @Test
+    fun `F3 a schema seat named director is rejected at the seats list path`() {
+        val ex =
+            assertFailsWith<ConfigStructureException> {
+                parse(
+                    """
+                    work_item_schemas:
+                      bug-fix:
+                        seats:
+                          - { name: director, phase: work }
+                    """.trimIndent()
+                )
+            }
+        assertEquals("/work_item_schemas/bug-fix/seats", ex.path)
+        assertTrue(ex.message!!.contains("'director'"), "message must name the seat: ${ex.message}")
+    }
+
+    @Test
+    fun `F3 a trait-only seat named director is rejected at the trait seats list path`() {
+        val ex =
+            assertFailsWith<ConfigStructureException> {
+                parse(
+                    """
+                    traits:
+                      t1:
+                        seats:
+                          - { name: director, phase: work }
+                    """.trimIndent()
+                )
+            }
+        assertEquals("/traits/t1/seats", ex.path)
+        assertTrue(ex.message!!.contains("'director'"), "message must name the seat: ${ex.message}")
+    }
+
+    @Test
+    fun `probe -- a seat named Director (mixed case) is not reserved -- F3 is an exact-match check only`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    seats:
+                      - { name: Director, phase: work }
+                """.trimIndent()
+            )
+        assertEquals(listOf(SeatDefinition("Director", Role.WORK)), parsed.workItemSchemas.getValue("bug-fix").seats)
+    }
+
+    @Test
     fun `probe -- a seat named Unowned (mixed case) is not reserved -- F3 is an exact-match check only`() {
         val parsed =
             parse(
