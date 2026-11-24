@@ -7,8 +7,8 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.KeySourceConfig
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond

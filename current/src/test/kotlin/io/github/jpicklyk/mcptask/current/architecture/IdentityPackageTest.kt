@@ -8,8 +8,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Independent guard (test-author seat, item 0ce7924d / plan 4.1 R1): the identity code lives under
- * `infrastructure/identity/{jwt,did,bearer}`, the trust policy is extracted from `ActorAware` into
+ * Independent guard (test-author seat, item 0ce7924d / plan 4.1 R1): the identity code lives in the `identity` slice
+ * (`identity/`, its `internal/` layers), the trust policy is extracted from `ActorAware` into
  * `application/service/ActorTrustPolicy.kt`, and `CurrentMcpServer` no longer defaults `appConfig`.
  *
  * Oracles: O-PLAN = plan v4-phase3-core.md 4.1 R1; O-SCOPE = the item's task-scope sections 1-3; O-AR58 = AR-58 edge 1
@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
 class IdentityPackageTest {
     // region shared matchers
 
-    private val identityPrefix = "infrastructure/identity/"
+    private val identityPrefix = "identity/"
 
     private fun isUnderIdentity(path: String): Boolean = GuardSupport.normalizedPath(path).startsWith(identityPrefix)
 
@@ -48,7 +48,7 @@ class IdentityPackageTest {
 
     private val nimbusds = Regex("""(?<![A-Za-z0-9_])com\.nimbusds\b""")
 
-    /** Paths of sources outside `infrastructure/identity/` whose code lines import or FQN-reference `com.nimbusds`. */
+    /** Paths of sources outside `identity/` whose code lines import or FQN-reference `com.nimbusds`. */
     private fun nimbusdsOutsideIdentity(sources: List<GuardSupport.Source>): List<String> =
         sources.filter { !isUnderIdentity(it.path) && it.hasCodeMatch(nimbusds) }.map { it.path }
 
@@ -65,13 +65,13 @@ class IdentityPackageTest {
     // region S1-S3 nimbusds confinement
 
     @Test
-    fun `S1 com nimbusds is imported only from infrastructure identity and is used there`() {
+    fun `S1 com nimbusds is imported only from the identity slice and is used there`() {
         val sources = GuardSupport.productionSources()
 
         val outside = nimbusdsOutsideIdentity(sources)
         assertTrue(
             outside.isEmpty(),
-            "com.nimbusds referenced outside infrastructure/identity/:\n" + outside.joinToString("\n") { "  $it" }
+            "com.nimbusds referenced outside identity/:\n" + outside.joinToString("\n") { "  $it" }
         )
 
         val users = sources.filter { it.hasCodeMatch(nimbusds) }.map { it.path }
@@ -98,14 +98,14 @@ class IdentityPackageTest {
     @Test
     fun `S2 the identity path predicate rejects prefix traps and accepts normalized Windows paths`() {
         val line = "import com.nimbusds.jose.JWSObject"
-        for (path in listOf("infrastructure/identityx/A.kt", "infrastructure/Identity/A.kt", "interfaces/identity/A.kt", "identity/A.kt")) {
+        for (path in listOf("identityx/A.kt", "Identity/A.kt", "interfaces/identity/A.kt", "infrastructure/identity/A.kt")) {
             assertEquals(listOf(path), nimbusdsOutsideIdentity(listOf(synthetic(path, line))), "not identity, must be flagged: $path")
         }
-        for (path in listOf("infrastructure/identity/A.kt", "infrastructure/identity/jwt/A.kt")) {
+        for (path in listOf("identity/A.kt", "identity/internal/wire/jwt/A.kt")) {
             assertEquals(emptyList(), nimbusdsOutsideIdentity(listOf(synthetic(path, line))), "identity, must be allowed: $path")
         }
-        val windows = "C:\\w\\current\\src\\main\\kotlin\\io\\github\\jpicklyk\\mcptask\\current\\infrastructure\\identity\\jwt\\A.kt"
-        assertTrue(isUnderIdentity(windows), "backslash path must normalize to infrastructure/identity/: $windows")
+        val windows = "C:\\w\\current\\src\\main\\kotlin\\io\\github\\jpicklyk\\mcptask\\current\\identity\\internal\\wire\\jwt\\A.kt"
+        assertTrue(isUnderIdentity(windows), "backslash path must normalize to identity/: $windows")
     }
 
     @Test
@@ -148,23 +148,31 @@ class IdentityPackageTest {
 
     // region S5 file inventory
 
-    private val base = "io.github.jpicklyk.mcptask.current.infrastructure.identity"
+    private val base = "io.github.jpicklyk.mcptask.current.identity"
 
     /** Mapped path (relative to the production root) to the package the file must declare. */
     private val inventory: Map<String, String> =
         buildMap {
-            for (n in listOf("CredentialResolver", "KeySourceUrlPolicy", "ScopeClaimParser")) {
-                put("infrastructure/identity/$n.kt", base)
+            for (n in listOf("CredentialResolver", "ApiAuthConfig", "BearerTokenStore", "JwksApiVerifier")) {
+                put("identity/$n.kt", base)
             }
-            for (n in listOf("ApiAuthConfig", "ApiAuthConfigLoader", "BearerTokenStore")) {
-                put("infrastructure/identity/bearer/$n.kt", "$base.bearer")
-            }
-            for (n in listOf("JwksApiVerifier", "JwksKeySetProvider", "TokenLifetimeCap")) {
-                put("infrastructure/identity/jwt/$n.kt", "$base.jwt")
+            put("identity/internal/app/KeySourceUrlPolicy.kt", "$base.internal.app")
+            put("identity/internal/app/ScopeClaimParser.kt", "$base.internal.app")
+            put("identity/internal/wire/ApiAuthConfigLoader.kt", "$base.internal.wire")
+            for (n in listOf("JwksKeySetProvider", "TokenLifetimeCap")) {
+                put("identity/internal/wire/jwt/$n.kt", "$base.internal.wire.jwt")
             }
         }
 
-    private val formerDirs = listOf("infrastructure/config/", "interfaces/api/v1/auth/", "domain/model/")
+    private val formerDirs =
+        listOf(
+            "infrastructure/config/",
+            "interfaces/api/v1/auth/",
+            "domain/model/",
+            "infrastructure/identity/",
+            "infrastructure/identity/bearer/",
+            "infrastructure/identity/jwt/"
+        )
 
     /** Former-location paths still occupied by a file bearing one of the moved file names. */
     private fun leftBehind(sources: List<GuardSupport.Source>): List<String> {
@@ -184,7 +192,7 @@ class IdentityPackageTest {
     }
 
     @Test
-    fun `S5 none of the moved file names remains in infrastructure config, interfaces auth or domain model`() {
+    fun `S5 none of the moved file names remains in a former identity location`() {
         val remaining = leftBehind(GuardSupport.productionSources())
         assertTrue(remaining.isEmpty(), "moved files still at their former location:\n" + remaining.joinToString("\n") { "  $it" })
     }
@@ -214,7 +222,7 @@ class IdentityPackageTest {
 
     private val jwksKeyCache = Regex("""\bJwksKeyCache\b""")
     private val securityForbiddenImport =
-        Regex("""io\.github\.jpicklyk\.mcptask\.current\.(?:infrastructure\.(?:config|identity)|platform\.(?:settings|yaml))\b""")
+        Regex("""io\.github\.jpicklyk\.mcptask\.current\.(?:infrastructure\.(?:config|identity)|identity|platform\.(?:settings|yaml))\b""")
 
     private fun securityOffenders(sources: List<GuardSupport.Source>): List<String> =
         sources
@@ -233,7 +241,7 @@ class IdentityPackageTest {
         assertTrue(mentions.isEmpty(), "code lines still mention JwksKeyCache: $mentions")
         val replacement = Regex("""\bDefaultJwksKeySetProvider\b""")
         assertTrue(
-            sources.any { it.path == "infrastructure/identity/jwt/JwksKeySetProvider.kt" && it.hasCodeMatch(replacement) },
+            sources.any { it.path == "identity/internal/wire/jwt/JwksKeySetProvider.kt" && it.hasCodeMatch(replacement) },
             "control: its replacement DefaultJwksKeySetProvider must be declared in JwksKeySetProvider.kt"
         )
     }
@@ -262,10 +270,17 @@ class IdentityPackageTest {
                 synthetic("platform/security/Y.kt", "val i = $root.identity.jwt.Z()"),
                 synthetic("platform/security/Z.kt", "// import $root.config.AppConfig"),
                 synthetic("platform/security/W.kt", "import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig"),
-                synthetic("platform/security/V.kt", "import io.github.jpicklyk.mcptask.current.platform.yaml.YamlSupport")
+                synthetic("platform/security/V.kt", "import io.github.jpicklyk.mcptask.current.platform.yaml.YamlSupport"),
+                synthetic("platform/security/U.kt", "import io.github.jpicklyk.mcptask.current.identity.CredentialResolver")
             )
         assertEquals(
-            setOf("platform/security/X.kt", "platform/security/Y.kt", "platform/security/W.kt", "platform/security/V.kt"),
+            setOf(
+                "platform/security/X.kt",
+                "platform/security/Y.kt",
+                "platform/security/W.kt",
+                "platform/security/V.kt",
+                "platform/security/U.kt"
+            ),
             securityOffenders(seeded).toSet()
         )
     }
@@ -413,7 +428,7 @@ class IdentityPackageTest {
         sources.filter { isUnderIdentity(it.path) && it.hasCodeMatch(interfacesRef) }.map { it.path }
 
     @Test
-    fun `S9 no infrastructure identity file imports or references interfaces`() {
+    fun `S9 no identity slice file imports or references interfaces`() {
         val sources = GuardSupport.productionSources()
         val identity = sources.filter { isUnderIdentity(it.path) }
         assertTrue(identity.size >= 15, "vacuity: expected >= 15 identity files, found ${identity.size}")
@@ -426,14 +441,14 @@ class IdentityPackageTest {
         val iface = "io.github.jpicklyk.mcptask.current.interfaces"
         val seeded =
             listOf(
-                synthetic("infrastructure/identity/A.kt", "import $iface.api.v1.auth.Principal"),
-                synthetic("infrastructure/identity/jwt/B.kt", "import $iface.api.*"),
-                synthetic("infrastructure/identity/did/C.kt", "val p = $iface.mcp.X()"),
-                synthetic("infrastructure/identity/bearer/D.kt", " * [$iface.api.X]"),
+                synthetic("identity/A.kt", "import $iface.api.v1.auth.Principal"),
+                synthetic("identity/internal/wire/jwt/B.kt", "import $iface.api.*"),
+                synthetic("identity/internal/wire/C.kt", "val p = $iface.mcp.X()"),
+                synthetic("identity/internal/app/D.kt", " * [$iface.api.X]"),
                 synthetic("infrastructure/config/E.kt", "import $iface.api.X")
             )
         assertEquals(
-            setOf("infrastructure/identity/A.kt", "infrastructure/identity/jwt/B.kt", "infrastructure/identity/did/C.kt"),
+            setOf("identity/A.kt", "identity/internal/wire/jwt/B.kt", "identity/internal/wire/C.kt"),
             identityReachingInterfaces(seeded).toSet()
         )
     }

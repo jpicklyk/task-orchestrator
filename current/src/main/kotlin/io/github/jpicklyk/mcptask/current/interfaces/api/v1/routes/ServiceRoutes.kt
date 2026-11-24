@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.ConfigSupport
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.envelopeReqId
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelopeError
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.Json
  *   200 OK when the database is reachable or 503 when it is not.
  *
  * Auth note: `/health` intentionally bypasses the auth plugin — the route is registered
- * OUTSIDE the [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth]
+ * OUTSIDE the [io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth]
  * plugin scope (see `CurrentMcpServer.runHttpTransport` for the routing topology).
  *
  * @param repositoryProvider Used by `/health` to probe the database. Optional to allow

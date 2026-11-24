@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthHttpFixture
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthReply
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpSessionPrincipals
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.test.RawSseConnection

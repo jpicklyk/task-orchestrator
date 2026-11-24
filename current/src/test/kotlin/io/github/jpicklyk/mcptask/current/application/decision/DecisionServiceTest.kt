@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.decision
 
 import io.github.jpicklyk.mcptask.current.application.api.AnswerProvenance
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig

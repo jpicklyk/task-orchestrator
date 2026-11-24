@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.SURFACE_REST
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsRea
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.platform.rest.etag.etagForVersion

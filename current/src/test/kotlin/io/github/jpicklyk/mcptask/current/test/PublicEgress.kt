@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.EgressGuard
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.EgressGuard
 import java.net.InetAddress
 
 /**

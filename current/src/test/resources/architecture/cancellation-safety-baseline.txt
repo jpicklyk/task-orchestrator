@@ -6,7 +6,7 @@ bootstrap/CurrentMcpServer.kt 9
 infrastructure/config/GlobalConfigFile.kt 3
 infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
-infrastructure/identity/bearer/BearerTokenStore.kt 1
+identity/BearerTokenStore.kt 1
 platform/shutdown/ShutdownCoordinator.kt 1
 platform/sqlite/StartupCompaction.kt 1
 platform/sqlite/StartupIntegrity.kt 1

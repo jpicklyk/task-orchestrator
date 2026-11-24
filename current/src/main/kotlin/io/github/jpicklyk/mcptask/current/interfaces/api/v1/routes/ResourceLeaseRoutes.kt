@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -20,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
+import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelope
 import io.ktor.server.application.ApplicationCall

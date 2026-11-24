@@ -4,13 +4,13 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
@@ -52,7 +52,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * mode, wired through the REAL production functions ([installMcpStreamableHttp] +
  * [installRestApiRoutes]), exactly as [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpRestAuthBypassTest]
  * does. Unlike `EventRoutesTest` (which calls `eventRoutes(...)` directly), this suite proves the
- * FULL wiring: [ApiBearerAuth][io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth]
+ * FULL wiring: [ApiBearerAuth][io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth]
  * is an application-level plugin that intercepts every request, and the SSE route is only reachable
  * because `installRestApiRoutes` adds `"/api/v1/events"` to its `publicPaths` -- a set matched
  * against the DECODED PATH ONLY (no query string). Before the fix, that set was matched against

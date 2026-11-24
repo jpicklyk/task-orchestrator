@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.restContext
@@ -530,7 +530,7 @@ class SeatlessResponseGoldenTest {
      * derived from the SAME [ApiAuthConfig.Bearer] passed as `apiConfig`, or every request 401s. */
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig
-    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
+    ): Map<io.github.jpicklyk.mcptask.current.identity.HashBytes, BearerTokenStore.TokenEntry> =
         (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     @Test

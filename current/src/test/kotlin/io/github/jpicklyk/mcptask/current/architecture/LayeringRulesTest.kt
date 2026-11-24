@@ -176,7 +176,7 @@ class LayeringRulesTest {
     fun `S4b platform tool envelope and rest count as interfaces`() {
         listOf("tool", "envelope", "rest").forEach { folder ->
             val path = "platform/$folder/A.kt"
-            assertEquals(emptyList(), imports(path, "$root.application.api.X", "$root.infrastructure.identity.X", "io.ktor.server.X"), path)
+            assertEquals(emptyList(), imports(path, "$root.application.api.X", "$root.infrastructure.config.X", "io.ktor.server.X"), path)
             assertEquals(listOf("$root.bootstrap.X"), imports(path, "$root.bootstrap.X"), path)
             val target = "$root.platform.$folder.X"
             assertEquals(listOf(target), imports("application/service/A.kt", target), "application -> platform/$folder")

@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -56,7 +56,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * - O1/O2 `current/docs/api-rest.md` SS3 (`tags_include` is item-level, exact CSV membership, no
  *   ancestor walk, empty = no constraint) and SS21 (replay applies the same filter as live fan-out).
  * - O3 [AccessScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
- * - O4 [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] KDoc (exact
+ * - O4 `allowsItemTags` KDoc (exact
  *   membership, no prefix/substring; empty `tagsInclude` = no constraint).
  * - O5 the item's `diagnosis` note (fail-closed: no repository wired + tag-scoped token -> 403;
  *   a lookup failure, including a deleted item, excludes rather than admits).

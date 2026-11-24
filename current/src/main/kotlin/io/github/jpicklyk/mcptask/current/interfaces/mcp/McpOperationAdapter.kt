@@ -59,7 +59,7 @@ class McpOperationAdapter(
     private val callLog: CallLogSink = CallLogSink.NONE,
     private val clock: Clock = Clock.SYSTEM,
     /**
-     * The access of a call by MCP session: production passes [McpSessionPrincipals.access] over HTTP and the local
+     * The access of a call by MCP session: production passes `McpSessionPrincipals.access` over HTTP and the local
      * principal's access over stdio; the parity harness passes the REST principal's. The default is the local access.
      */
     private val access: (sessionId: String?) -> CallAccess = { CallAccess.LOCAL }
@@ -84,7 +84,7 @@ class McpOperationAdapter(
 
     /**
      * The session id the client sees: over Streamable HTTP, the transport's id, the one the SDK echoes in
-     * `Mcp-Session-Id` and the one [McpBearerAuth] binds the principal under. The SDK's own `ServerSession.sessionId`
+     * `Mcp-Session-Id` and the one `McpBearerAuth` binds the principal under. The SDK's own `ServerSession.sessionId`
      * (the `ClientConnection.sessionId` a tool handler receives) is an unrelated random UUID, so looking the binding up
      * by it never finds one. Null for a transport without a session id (stdio); the caller then keeps the SDK's id.
      */

@@ -101,7 +101,7 @@ class P5bWriteUnitGuardsTest {
          * The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt),
          * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again,
          * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged),
-         * and with the six identity files re-keyed to their R1 paths under infrastructure/identity (moved unchanged, counts unchanged),
+         * and with the six identity files re-keyed to their paths in the identity slice (moved unchanged, counts unchanged),
          * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged),
          * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged).
          */
@@ -115,7 +115,7 @@ class P5bWriteUnitGuardsTest {
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1
             infrastructure/config/GlobalConfigFile.kt 3
-            infrastructure/identity/jwt/JwksKeySetProvider.kt 5
+            identity/internal/wire/jwt/JwksKeySetProvider.kt 5
             infrastructure/config/YamlConfigDocumentParser.kt 1
             infrastructure/config/YamlStatusLabelService.kt 1
             platform/sqlite/DatabaseManager.kt 5
@@ -127,8 +127,8 @@ class P5bWriteUnitGuardsTest {
             infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             platform/shutdown/ShutdownCoordinator.kt 1
-            infrastructure/identity/bearer/BearerTokenStore.kt 2
-            infrastructure/identity/jwt/JwksApiVerifier.kt 6
+            identity/BearerTokenStore.kt 2
+            identity/JwksApiVerifier.kt 6
             interfaces/api/v1/mapping/Mappers.kt 1
             interfaces/api/v1/routes/DependencyRoutes.kt 2
             interfaces/api/v1/routes/DependencyWriteRoutes.kt 4

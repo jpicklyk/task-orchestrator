@@ -52,7 +52,7 @@ enum class FtsIntegrityMode {
  * source location.
  *
  * Validation that throws on misconfiguration (the REST API auth config) intentionally stays in its
- * existing loader class ([io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader]);
+ * existing loader class (`ApiAuthConfigLoader`);
  * it already accepts an injectable `envResolver`. The
  * composition root passes [envResolver] into it so it reads from the same source as this
  * snapshot, preserving its fail-fast behavior unchanged.
@@ -105,7 +105,7 @@ data class AppConfig(
     val resourceLeasesEnforced: Boolean = true,
     /** `RETENTION_CALL_LOG_DAYS` / `RETENTION_EVENTS_DAYS` / `RETENTION_AUDIT_EVENTS_DAYS` / `RETENTION_LEASE_HISTORY_DAYS` ([RetentionSettings.parse]); an invalid value fails startup. */
     val retention: RetentionSettings = RetentionSettings.DEFAULT,
-    /** `MCP_SESSION_IDLE_TIMEOUT_MINUTES` (default 120): idle time after which the SDK closes an MCP session; also the idle TTL of [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals]. A blank, zero, negative or non-integer value fails startup. */
+    /** `MCP_SESSION_IDLE_TIMEOUT_MINUTES` (default 120): idle time after which the SDK closes an MCP session; also the idle TTL of `McpSessionPrincipals`. A blank, zero, negative or non-integer value fails startup. */
     val mcpSessionIdleTimeout: Duration = DEFAULT_MCP_SESSION_IDLE_TIMEOUT,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,

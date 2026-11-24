@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
@@ -78,7 +78,7 @@ class RuleBudgetStashTest {
 
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig,
-    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
+    ): Map<io.github.jpicklyk.mcptask.current.identity.HashBytes, BearerTokenStore.TokenEntry> =
         (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     private fun Application.configureProductionApp(

@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.BindOutcome
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.fakeSdkSessions
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.BindOutcome
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpSessionPrincipals
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.fakeSdkSessions
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind

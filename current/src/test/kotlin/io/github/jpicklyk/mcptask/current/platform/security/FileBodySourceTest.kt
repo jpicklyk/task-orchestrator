@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.api.docs.DocKind
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.api.docs.KnowledgeToolServices
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource

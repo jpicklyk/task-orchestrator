@@ -7,13 +7,13 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
@@ -60,7 +60,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * Independent tests (test-author seat, item b9527ef9) for the SSE authentication path of `GET /api/v1/events` after the bearer
- * pipeline became one [io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver] (scenarios S8, S6 on the
+ * pipeline became one [io.github.jpicklyk.mcptask.current.identity.CredentialResolver] (scenarios S8, S6 on the
  * SSE path, S11 on the SSE path and the S4 and S3 probes that reach `/events`).
  *
  * Oracles: `api-rest.md` section 1 failure table (missing or non-Bearer header: 401 `invalid_request`; bad or expired token: 401
