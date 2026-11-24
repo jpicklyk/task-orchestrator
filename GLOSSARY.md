@@ -126,7 +126,6 @@ It is project config and independent of the session mode.
 Distinct from: session mode, which says which layer the user's session plays.
 Don't call it: orchestration mode (the session mode).
 In code: `extensions.claude-code.steering`; the old key `extensions.claude-code.orchestration.mode` is read as a deprecated alias through 4.x.
-In code: today `extensions.claude-code.orchestration.mode`. To be renamed `extensions.claude-code.steering`, with the old key still read as a deprecated alias.
 
 ## Decisions
 
