@@ -390,8 +390,8 @@ merge, step 8):
    )"
    ```
 7. **Merge gate** - run front door "Merge gate" (merge method, green checks, fallback merge,
-   state `MERGED` confirmed) first. The method is `--merge` when every branch commit subject is
-   conventional and item-tagged, else `--squash`; the branch is never rebased to qualify. Only after the PR is `MERGED`:
+   state `MERGED` confirmed) first. The method is `--merge` when every first-parent commit subject
+   is conventional and item-tagged, else `--squash`; the branch is never rebased to qualify. Only after the PR is `MERGED`:
    ```bash
    git checkout main
    git pull origin main
