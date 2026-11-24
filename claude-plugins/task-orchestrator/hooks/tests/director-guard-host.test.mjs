@@ -440,11 +440,11 @@ test('S11: director SKILL.md drops the "does not see other MCP servers" claim an
   assert.ok(doc.includes('model-effort'));
 });
 
-test('S11: the run-wave resumeFromRunId row says a director does not make the call and the coordinator does', () => {
+test('S11: the run-wave resumeFromRunId row says a director does not make the call and the orchestrator does', () => {
   const doc = readFileSync(join(PLUGIN, 'skills', 'run-wave', 'SKILL.md'), 'utf8');
   const rows = doc.split(/\r?\n/).filter((l) => l.includes('resumeFromRunId'));
   assert.ok(rows.length >= 1, 'a row names resumeFromRunId');
-  assert.ok(rows.some((l) => l.includes('director') && l.includes('coordinator')), 'a resumeFromRunId row names director and coordinator');
+  assert.ok(rows.some((l) => l.includes('director') && l.includes('to the orchestrator')), 'a resumeFromRunId row names director and the orchestrator');
 });
 
 // ---- probes -------------------------------------------------------------------------------------------------

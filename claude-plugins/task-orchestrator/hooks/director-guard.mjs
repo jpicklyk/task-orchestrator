@@ -56,7 +56,7 @@ export const DIRECTOR_SKILL_ALLOW = Object.freeze([...DIRECTOR_SKILL_NAMES, 'tas
 
 /**
  * Bare names (the segment after the last `__`) of host MCP tools a director session may call: the
- * coordinator tiers' session tools, the tier-1 launch profile calls (get_settings, set_session_output_style) and
+ * orchestrator placements' session tools, the tier-1 launch profile calls (get_settings, set_session_output_style) and
  * the desktop UI tools. None reads a file, a shell or a screen.
  */
 export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style']);
@@ -92,7 +92,7 @@ const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|note
 const HOST_TOKEN = 'task-orchestrator';
 
 const REMEDY =
-  'Delegate the work through a background `Agent` (`run_in_background: true`; in Code Mode every `Agent` call is background) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
+  'Delegate the work through a background `Agent` (`run_in_background: true`; in Code Mode every `Agent` call is background) or `SendMessage` to the orchestrator of the run, or leave director mode with `/task-orchestrator:director off`.';
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const toolInputOf = (input) => (isPlainObject(input.tool_input) ? input.tool_input : {});
@@ -287,7 +287,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     const ti = toolInputOf(input);
     const resumes = Object.hasOwn(ti, 'scriptPath') || Object.hasOwn(ti, 'resumeFromRunId');
     if (!resumes && ti.name === ALTITUDE_SAFE_WORKFLOW && isPlainObject(ti.args) && ti.args.altitudeSafe === true) return null;
-    return denyReason('Workflow', `only \`${ALTITUDE_SAFE_WORKFLOW}\` with an object \`args\` carrying \`altitudeSafe: true\` runs, and never with a \`scriptPath\` or \`resumeFromRunId\` (a resume goes to the coordinator)`);
+    return denyReason('Workflow', `only \`${ALTITUDE_SAFE_WORKFLOW}\` with an object \`args\` carrying \`altitudeSafe: true\` runs, and never with a \`scriptPath\` or \`resumeFromRunId\` (a resume goes to the run's orchestrator)`);
   }
   const mcp = typeof tool === 'string' ? MCP_NAME.exec(tool) : null;
   if (mcp !== null) {

@@ -5,7 +5,7 @@
     "levels": ["low", "medium", "high", "xhigh", "max"]
   },
   "classes": {
-    "coordinator": { "model": "opus", "effort": "medium", "use": "Run and wave coordinators, orchestration sessions" },
+    "coordinator": { "model": "opus", "effort": "medium", "use": "A run's orchestrator, orchestration sessions" },
     "planning": { "model": "opus", "effort": "high", "use": "Planner seats, specifications, task scope" },
     "planning-high-stakes": { "model": "fable", "effort": "high", "use": "Architecture decisions and other high-stakes planning" },
     "implementation": { "model": "sonnet", "effort": "medium", "use": "Well-specified implementation work" },

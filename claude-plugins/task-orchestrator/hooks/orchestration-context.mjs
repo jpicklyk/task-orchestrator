@@ -141,7 +141,7 @@ ${VISUAL}`;
 
 const CODE_MODE_SECTION = `## Code Mode
 
-This session runs in Code Mode: every tool is a global inside a \`REPL\` script. Run each run-wave coordinator step through its recipe in the \`task-orchestrator:run-wave\` skill's \`references/code-mode.md\`, and take Task Orchestrator call shapes from \`skills/_generated/call-shapes-js.md\`. Keep seat prompts, tokens and note bodies inside the script and return only a projection.`;
+This session runs in Code Mode: every tool is a global inside a \`REPL\` script. Run each run-wave orchestrator step through its recipe in the \`task-orchestrator:run-wave\` skill's \`references/code-mode.md\`, and take Task Orchestrator call shapes from \`skills/_generated/call-shapes-js.md\`. Keep seat prompts, tokens and note bodies inside the script and return only a projection.`;
 
 function buildOrchestrationContext(mode) {
   if (mode === 'schema') return SCHEMA_CONTEXT;

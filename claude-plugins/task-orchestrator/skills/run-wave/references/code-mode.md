@@ -1,6 +1,6 @@
 # Code Mode recipes for run-wave
 
-In a Code Mode session the model sees only `REPL` and `Poll`; every tool is a global inside a `REPL` script. The steps, rules, checkpoints and reports in `SKILL.md`, `method-b.md` and `post-run.md` are unchanged. This reference gives one script per mechanical coordinator step, so the mechanical bytes (seat prompts, tokens, the Workflow args, note bodies, helper output) stay in the script and the model sees only a projection. The Coverage table at the end lists every step of the three documents with its recipe, or `prose` where no script applies.
+In a Code Mode session the model sees only `REPL` and `Poll`; every tool is a global inside a `REPL` script. The steps, rules, checkpoints and reports in `SKILL.md`, `method-b.md` and `post-run.md` are unchanged. This reference gives one script per mechanical orchestrator step, so the mechanical bytes (seat prompts, tokens, the Workflow args, note bodies, helper output) stay in the script and the model sees only a projection. The Coverage table at the end lists every step of the three documents with its recipe, or `prose` where no script applies.
 
 Tool call shapes are in [call-shapes-js.md](../../_generated/call-shapes-js.md): find the select or op by its anchor (for example `#runs_write-open`) and use that line; it is not copied here. A call the server answers `ok: true` resolves to a JSON string; any other answer throws, and the thrown message ends with the error envelope as one JSON line.
 
@@ -219,7 +219,7 @@ const elementCode = (r) => {
   return (e ? e.code : r.code) || 'failed';
 };
 const initState = (plan, method) => ({ contract: 'run-wave/state-v1', runId: plan.args.runId, phase: 'planned', method, turns: 0, stages: {}, outs: {} });
-// Turn-boundary protocol: the run's hints.phase (coordinator token) and state.json both record the phase. Returns {ok: true} or {ok: false, r} with the failed answer.
+// Turn-boundary protocol: the run's hints.phase (run token) and state.json both record the phase. Returns {ok: true} or {ok: false, r} with the failed answer.
 const setPhase = async (plan, phase) => {
   const up = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase update --run-phase ' + phase);
   if (up.ref) return { ok: false, r: up.ref };
@@ -299,7 +299,7 @@ const adoptNotes = async (plan, only) => {
   }
   return { ops: out, held, skipped };
 };
-// The coordinator report: the report helper prints the block, SendMessage carries it to REPORT_TO. Returns {event, sent, needs, wait} (plus block when REPORT_TO is null), never the block otherwise.
+// The orchestrator report: the report helper prints the block, SendMessage carries it to REPORT_TO. Returns {event, sent, needs, wait} (plus block when REPORT_TO is null), never the block otherwise.
 // The files each event reads are named by the helper's contract (SKILL.md Reporting); `files` overrides a path.
 const sendReport = async (event, files) => {
   const plan = await readJson(RUN_DIR + '/plan.json');
@@ -338,9 +338,9 @@ async function r1() {
   const ROOT_ID = '<rootId>';
   const ANCESTOR_ID = null; // the parent UUID, or null with ITEM_IDS
   const ITEM_IDS = null; // ['<id>', ...] for an explicit item list, else null
-  const METHOD = 'B'; // 'A' only for a Workflow-capable coordinator (Step 0 F1)
+  const METHOD = 'B'; // 'A' only for a Workflow-capable orchestrator (Step 0 F1)
   const MODE = null; // 'shared' or 'per-item' (the --mode argument), else null
-  const ALTITUDE_SAFE = false; // true for a director tier 2 coordinator (--altitude-safe)
+  const ALTITUDE_SAFE = false; // true for a director tier 2 orchestrator (--altitude-safe)
   const SHARED_WORKTREE = null; // { path: '<worktree>', branch: '<branch>' } for --worktree and --branch (shared mode only), else null
   const SCOPES_FILE = null; // after a needs.scopes return: the file holding {<id>: {files, dependsOn?}}
   const EXTRA = { scopes: undefined, carryIns: undefined }; // the hand fallback only
@@ -503,7 +503,7 @@ A `{resume}` return sends the model to the Resume matrix of `SKILL.md` with the 
 
 ## R2: Steps 4, 5 and 5a: worktrees, open, parent check, pointer, pre-entered start, Method A assign
 
-Copies `plan-draft.json` (only when `plan.json` is absent) and the snapshot into `<scratchpad>/run-wave/<runId>/`, creates the `meta.worktreesToCreate` worktrees with `git -C <args.repoRoot>` (a path that is already a worktree is reused; a branch that exists is added without `-b`), sends `run-ops --phase open`, binds the server run id and writes the coordinator token. It then runs the Step 5 parent check and writes the pointer line (target: `meta.scopeId`, else the single item; the key is `run-pointers` when the target's schema declares it, else `session-tracking`, skipped on a seat-less item whose stage owns that note; written under the coordinator token when the target is a run member, token-less otherwise). Under `entryMode: pre-entered` it starts every queue-role item and stops (`{stopped: 'pre-entered', notEntered}`) before any assign when one did not enter. Method A then assigns every schema seat whose token file is absent in one atomic call; Method B skips the assign (R5 assigns per batch). The last step records phase `planned` (both methods; R4 and R5 record `launched`). A rerun on a bound plan whose `tokens/coordinator.token` exists skips open and bind and rewrites the pointer's `parent=` field in place. Returns counts, `parent`, `parentMissing` and the worktree counts only.
+Copies `plan-draft.json` (only when `plan.json` is absent) and the snapshot into `<scratchpad>/run-wave/<runId>/`, creates the `meta.worktreesToCreate` worktrees with `git -C <args.repoRoot>` (a path that is already a worktree is reused; a branch that exists is added without `-b`), sends `run-ops --phase open`, binds the server run id and writes the run token. It then runs the Step 5 parent check and writes the pointer line (target: `meta.scopeId`, else the single item; the key is `run-pointers` when the target's schema declares it, else `session-tracking`, skipped on a seat-less item whose stage owns that note; written under the run token when the target is a run member, token-less otherwise). Under `entryMode: pre-entered` it starts every queue-role item and stops (`{stopped: 'pre-entered', notEntered}`) before any assign when one did not enter. Method A then assigns every schema seat whose token file is absent in one atomic call; Method B skips the assign (R5 assigns per batch). The last step records phase `planned` (both methods; R4 and R5 record `launched`). A rerun on a bound plan whose `tokens/coordinator.token` exists skips open and bind and rewrites the pointer's `parent=` field in place. Returns counts, `parent`, `parentMissing` and the worktree counts only.
 
 ```js
 async function r2() {
@@ -707,7 +707,7 @@ async function r4() {
 await r4()
 ```
 
-Send the `planned` report (R10) before this script, and tell the user the result arrives later. A tier-2 coordinator sends `--run-phase planned` (R2 already did) and does not call `Workflow` here.
+Send the `planned` report (R10) before this script, and tell the user the result arrives later. A tier-2 orchestrator sends `--run-phase planned` (R2 already did) and does not call `Workflow` here.
 
 ## R5: Method B dispatch
 
@@ -817,17 +817,17 @@ async function r6() {
 await r6()
 ```
 
-The loop is serial on purpose: do not turn it into `Promise.all`. A second failed re-emit is recorded as `stopped: "invalid envelope"` through a second pass with the envelope omitted and `n` incremented; do not ask a third time. A stage that stopped `awaiting_decision` needs the `decision` report at once (`SendMessage` to the session the report names), never an answer from the coordinator.
+The loop is serial on purpose: do not turn it into `Promise.all`. A second failed re-emit is recorded as `stopped: "invalid envelope"` through a second pass with the envelope omitted and `n` incremented; do not ask a third time. A stage that stopped `awaiting_decision` needs the `decision` report at once (`SendMessage` to the session the report names), never an answer from the orchestrator.
 
 ## R7: post-run Steps 0 to 3
 
-Loads the result, records phase `notified`, sweeps the seats, verifies, audits notes and builds and records provenance. It never advances: Step 3's notes come first, R8 sends the Step 4 advance. It returns findings only: `failing` is the shorts that failed verify (`ok: false`) or the notes audit (also saved as `failing.json`, which R8 reads), `paused` is true when the phase update answered `run_paused` (the answer is in `paused.json`: send the `paused` report with R10), and `decisionIds` lists the `decisionId`s the result carries (send the `decision` report). Step 3 item 2: it runs `dispatch-meta` and `provenance`, writes `dispatch-meta.json`, `provenance.json` and `verify.json` into the run folder, then writes each item's provenance line to its `delegation-metadata` note under the coordinator token with `expectedVersion: 0` (a `version_conflict` is reported as `present` and the note is never overwritten) where the item's schema declares that key; an item whose schema does not declare it keeps its line in `provenance.json` for the report (post-run.md Step 3). The run-level layer line goes token-less to the non-member target parent when that parent declares `delegation-metadata`, replacing the line that carries the same `run=<runId>`; otherwise it stays in `provenance.json` as well. `unownedDocs` lists the `docs sweep unowned` warnings of verify: R9 refuses to dispatch while they have no owner. For Method A, the notification's result goes to `result.json` first: paste the result object as a literal like R6; when the notification is cut short, set `OUTPUT_FILE` to the task output file it names (or rely on the `state.taskOutputFile` R4 recorded) and the script saves that file's `result` member. For Method B the script saves the state document itself, and the helper converts it when it reads `result.json`. Step 3 item 1 (`session-tracking`) is written by hand and stays prose.
+Loads the result, records phase `notified`, sweeps the seats, verifies, audits notes and builds and records provenance. It never advances: Step 3's notes come first, R8 sends the Step 4 advance. It returns findings only: `failing` is the shorts that failed verify (`ok: false`) or the notes audit (also saved as `failing.json`, which R8 reads), `paused` is true when the phase update answered `run_paused` (the answer is in `paused.json`: send the `paused` report with R10), and `decisionIds` lists the `decisionId`s the result carries (send the `decision` report). Step 3 item 2: it runs `dispatch-meta` and `provenance`, writes `dispatch-meta.json`, `provenance.json` and `verify.json` into the run folder, then writes each item's provenance line to its `delegation-metadata` note under the run token with `expectedVersion: 0` (a `version_conflict` is reported as `present` and the note is never overwritten) where the item's schema declares that key; an item whose schema does not declare it keeps its line in `provenance.json` for the report (post-run.md Step 3). The run-level layer line goes token-less to the non-member target parent when that parent declares `delegation-metadata`, replacing the line that carries the same `run=<runId>`; otherwise it stays in `provenance.json` as well. `unownedDocs` lists the `docs sweep unowned` warnings of verify: R9 refuses to dispatch while they have no owner. For Method A, the notification's result goes to `result.json` first: paste the result object as a literal like R6; when the notification is cut short, set `OUTPUT_FILE` to the task output file it names (or rely on the `state.taskOutputFile` R4 recorded) and the script saves that file's `result` member. For Method B the script saves the state document itself, and the helper converts it when it reads `result.json`. Step 3 item 1 (`session-tracking`) is written by hand and stays prose.
 
 ```js
 async function r7() {
   const RESULT_LITERAL = null; // Method A: the pasted result object
   const OUTPUT_FILE = null; // Method A, notification cut short: the task output file path (pretty-printed JSON)
-  const COORDINATOR_LABEL = null; // tier 2 and 2b: the label the director dispatched this coordinator under
+  const COORDINATOR_LABEL = null; // tier 2 and 2b: the label the director dispatched this orchestrator under
   const state = await readJson(RUN_DIR + '/state.json');
   const plan = await readJson(RUN_DIR + '/plan.json');
   const CT = await readToken(RUN_DIR + '/tokens/coordinator.token');
@@ -954,7 +954,7 @@ Send the `paused` report (R10) when `paused` is true and the `decision` report w
 
 ## R8: post-run Step 4 batched advance
 
-Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the coordinator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line (entries separated by `;` or a line break) with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and so is an item with no such line whose spec note (`task-scope`, `diagnosis` or `specification`) has a State matrix with a `live-owed:` cell (rule `live-checks`); the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). A multi-element `advance` that answers `partial_failure` applied the elements that passed, but its error tail keeps only the failing entries, each with its `index` (at most 10), and `summary {ok, failed}`: the script maps each entry to its op by `index`, never by position, treats an op with no entry as passed, and never claims a passed element's answer, which the tail does not carry. When `summary.failed` is larger than the entries listed (the cap cut some), it reads each op without an entry back with `items_read` (a failed transition leaves the item in `work`). The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
+Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the orchestrator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line (entries separated by `;` or a line break) with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and so is an item with no such line whose spec note (`task-scope`, `diagnosis` or `specification`) has a State matrix with a `live-owed:` cell (rule `live-checks`); the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). A multi-element `advance` that answers `partial_failure` applied the elements that passed, but its error tail keeps only the failing entries, each with its `index` (at most 10), and `summary {ok, failed}`: the script maps each entry to its op by `index`, never by position, treats an op with no entry as passed, and never claims a passed element's answer, which the tail does not carry. When `summary.failed` is larger than the entries listed (the cap cut some), it reads each op without an entry back with `items_read` (a failed transition leaves the item in `work`). The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
 
 ```js
 async function r8() {
@@ -1090,11 +1090,11 @@ async function r9() {
 await r9()
 ```
 
-The review-wave launch, the fix cycle after a Fail, the wave parent review and the Step 6 human checkpoints stay prose (a Code Mode coordinator has no `Workflow` tool). Run Step 0b's sweep again before closing: R11 does it.
+The review-wave launch, the fix cycle after a Fail, the wave parent review and the Step 6 human checkpoints stay prose (a Code Mode orchestrator has no `Workflow` tool). Run Step 0b's sweep again before closing: R11 does it.
 
-## R10: coordinator report
+## R10: orchestrator report
 
-Sends one coordinator report: the `report` helper prints the block, `SendMessage` carries it to `REPORT_TO` (`main`; with `REPORT_TO` null the block is returned for the user). The kit's `sendReport` reads the files its event needs from the run folder (`planned`: none; `decision`: `result.json` and the run view; `paused`: the run view and `paused.json`; `closed`: `result.json` and `close.json`) and never passes `--needs`: the helper builds the `needs:` line itself from the plan (`SKILL.md` Step 0 F6). The return is only `event`, `sent`, `needs` and `wait`; `wait` is true for `decision` and `paused`, and for `planned` when `needs` is not `nothing`: the coordinator then waits for the director's message before anything else (for `planned`, `approved` goes on to R5 and `stop` goes to R11 with `REASON = 'cancelled'`).
+Sends one orchestrator report: the `report` helper prints the block, `SendMessage` carries it to `REPORT_TO` (`main`; with `REPORT_TO` null the block is returned for the user). The kit's `sendReport` reads the files its event needs from the run folder (`planned`: none; `decision`: `result.json` and the run view; `paused`: the run view and `paused.json`; `closed`: `result.json` and `close.json`) and never passes `--needs`: the helper builds the `needs:` line itself from the plan (`SKILL.md` Step 0 F6). The return is only `event`, `sent`, `needs` and `wait`; `wait` is true for `decision` and `paused`, and for `planned` when `needs` is not `nothing`: the orchestrator then waits for the director's message before anything else (for `planned`, `approved` goes on to R5 and `stop` goes to R11 with `REASON = 'cancelled'`).
 
 ```js
 async function r10() {
@@ -1106,7 +1106,7 @@ await r10()
 
 ## R11: post-run Step 7 close
 
-Runs the Step 0b sweep, writes `changed-files.txt` (`git -C <worktree> diff --name-only <baseSha>..HEAD` of each worktree) and selects the declared post-run steps with `post-run-steps`. When steps come back and `STEPS_DONE` is false the script returns `{steps: [{id, rule}], skipped}` and closes nothing: run each step per the rule it names (`config` `op` `rules`), set `STEPS_DONE` true and run it again. Otherwise it renders `run-ops --phase close` and sends it as `call('runs_write', ...)`, the MCP tool global under the coordinator token, never over REST: the retrospective trigger is a hook on that tool call, so a REST close is invisible to it. With `REASON` `'cancelled'` (a stop before launch, nothing ran) it closes without returning the declared steps. `invalid_run_state` means a seat is still active: the script sweeps again and closes once more. It saves the answer as `close.json` and sends the `closed` report through the kit's `sendReport`. `REASON` is `null` for the usual close (`completed` or `failed` from the result), `'cancelled'` for a director stop and `'abandoned'` for a Resume re-plan of an unrecoverable run.
+Runs the Step 0b sweep, writes `changed-files.txt` (`git -C <worktree> diff --name-only <baseSha>..HEAD` of each worktree) and selects the declared post-run steps with `post-run-steps`. When steps come back and `STEPS_DONE` is false the script returns `{steps: [{id, rule}], skipped}` and closes nothing: run each step per the rule it names (`config` `op` `rules`), set `STEPS_DONE` true and run it again. Otherwise it renders `run-ops --phase close` and sends it as `call('runs_write', ...)`, the MCP tool global under the run token, never over REST: the retrospective trigger is a hook on that tool call, so a REST close is invisible to it. With `REASON` `'cancelled'` (a stop before launch, nothing ran) it closes without returning the declared steps. `invalid_run_state` means a seat is still active: the script sweeps again and closes once more. It saves the answer as `close.json` and sends the `closed` report through the kit's `sendReport`. `REASON` is `null` for the usual close (`completed` or `failed` from the result), `'cancelled'` for a director stop and `'abandoned'` for a Resume re-plan of an unrecoverable run.
 
 ```js
 async function r11() {
@@ -1158,7 +1158,7 @@ After a successful close the script deletes `<scratchpad>/run-wave/<runId>/token
 
 ## Coverage
 
-Every step of `SKILL.md`, `method-b.md` and `post-run.md` has a recipe or is prose. A `prose` row has no script: the model does it from the step's own text (judgment, a human checkpoint, a tool a Code Mode coordinator lacks, or a one-off write).
+Every step of `SKILL.md`, `method-b.md` and `post-run.md` has a recipe or is prose. A `prose` row has no script: the model does it from the step's own text (judgment, a human checkpoint, a tool a Code Mode orchestrator lacks, or a one-off write).
 
 | Step | Recipe |
 |---|---|

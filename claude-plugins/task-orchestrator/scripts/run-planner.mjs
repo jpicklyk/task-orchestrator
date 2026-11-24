@@ -244,7 +244,7 @@ function runPlan(args) {
   const worktree = flagValue(args, '--worktree', undefined);
   const branch = flagValue(args, '--branch', undefined);
   // --altitude-safe: the run returns the scrubbed altitude-safe result (counts and pointers only),
-  // for a director session that makes the Workflow call itself (coordinator tier 2).
+  // for a director session that makes the Workflow call itself (orchestrator placement 2).
   const altitudeSafe = args.includes('--altitude-safe');
 
   const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad, worktree, branch, altitudeSafe });

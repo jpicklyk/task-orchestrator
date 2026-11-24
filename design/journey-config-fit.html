@@ -1,0 +1,302 @@
+<title>Journey Config Fit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, summary first; the requirement table is the evidence and scrolls in its own frame. Same tokens as the Strategic Journey Map so the design set reads as one. Grade colours: expressible = good, awkward = partial, impossible = missing, elsewhere = muted. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --sunk:#e9ecf1; --ink:#18202c; --muted:#5a6577; --line:#d3d9e2;
+  --accent:#2f5fd0; --accent-soft:#e3eafb;
+  --good:#1f8a5b; --partial:#b7791f; --missing:#c43d3d; --other:#5a6577;
+  --good-bg:#e4f4ec; --partial-bg:#fbf0dc; --missing-bg:#fbe5e5; --other-bg:#e9ecf1;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47;
+  --good:#4cc38a; --partial:#e0a84a; --missing:#f07a7a; --other:#9aa5b5;
+  --good-bg:#16302a; --partial-bg:#33281a; --missing-bg:#3a1f22; --other-bg:#1f2833; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#1a2029; --sunk:#151a22; --ink:#e6eaf0; --muted:#9aa5b5; --line:#2c3542;
+  --accent:#7aa2ff; --accent-soft:#1d2a47;
+  --good:#4cc38a; --partial:#e0a84a; --missing:#f07a7a; --other:#9aa5b5;
+  --good-bg:#16302a; --partial-bg:#33281a; --missing-bg:#3a1f22; --other-bg:#1f2833; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:52px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:70ch}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+section{display:flex;flex-direction:column;gap:16px}
+.lede{color:var(--muted);font-size:16px}
+code{font-family:var(--mono);font-size:.88em;background:var(--sunk);padding:1px 5px;border-radius:4px}
+.tally{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.tile b{font:600 28px/1 var(--display);font-variant-numeric:tabular-nums}
+.tile span{color:var(--muted);font-size:13px}
+.tile.E b{color:var(--good)} .tile.W b{color:var(--partial)} .tile.X b{color:var(--missing)} .tile.O b{color:var(--other)}
+.chip{display:inline-block;font:600 11px/1 var(--mono);letter-spacing:.04em;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.chip.E{background:var(--good-bg);color:var(--good)} .chip.W{background:var(--partial-bg);color:var(--partial)}
+.chip.X{background:var(--missing-bg);color:var(--missing)} .chip.O{background:var(--other-bg);color:var(--other)}
+.gaps{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.gap{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--partial);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.gap.X{border-left-color:var(--missing)}
+.gap .meta{font:500 12px/1.4 var(--mono);color:var(--muted)}
+.gap p{font-size:14px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font:600 12px/1.3 var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--sunk);position:sticky;top:0}
+td.num{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters button{font:500 13px/1 var(--body);padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.filters button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stacks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.stack{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.stack ul{margin:0;padding-left:18px;font-size:14px}
+pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font:12.5px/1.5 var(--mono)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.two>div{min-width:0;display:flex;flex-direction:column;gap:8px}
+ol.q{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;max-width:80ch}
+ul.plain{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:80ch}
+.note{color:var(--muted);font-size:13px}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:12px">
+  <span class="eyebrow">Design set · layer below the journeys</span>
+  <h1>Journey Config Fit</h1>
+  <p class="lede">Can a project's configuration express what each of the eight user journeys needs: seven for software development, one for keeping a knowledge base? Every journey stage was turned into a statement of what the config must be able to say, then graded against the config language as it is today. A critic re-checked each grade against source, a designer wrote one real config per development journey, and a third pass worked the knowledge base through the knowledge endpoint to find where the development design leaks into it.</p>
+  <p class="note">Sources: the Strategic Journey Map (v11), a catalogue of the config model built from <code>config.schema.json</code>, the parser and the plugin hooks, and the working files for requirements, fit, critique, sketches and the knowledge base, kept in <code>design/evidence/</code>. Grades below are reconciled across every pass.</p>
+</header>
+
+<section>
+  <h2>The short answer</h2>
+  <p>The config language carries most of the journeys already. Half of what looked missing exists under another mechanism, and a third of the requirements were never config questions at all. Seven real gaps remain. Five come from the development journeys, each with a working mechanism today that falls short. Two come from the knowledge base: a root cannot say what it is, and the note and link model still speaks the language of building. The certainty dial moved out of the list: it is judgement, held in conversation, not something a project declares.</p>
+  <div class="tally" id="tally"></div>
+</section>
+
+<section>
+  <span class="eyebrow">What the config language cannot say yet</span>
+  <h2>Real gaps</h2>
+  <p>Each gap is traced to the requirements and journeys that need it. "Today" is the nearest working mechanism, so the gap is the difference, not the whole feature.</p>
+  <div class="gaps" id="gaps"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Graded evidence</span>
+  <h2>Every requirement</h2>
+  <div class="filters" role="group" aria-label="Filter by grade">
+    <button type="button" id="f-all" data-g="all" aria-pressed="true">All</button>
+    <button type="button" id="f-E" data-g="E" aria-pressed="false">Expressible</button>
+    <button type="button" id="f-W" data-g="W" aria-pressed="false">Awkward</button>
+    <button type="button" id="f-X" data-g="X" aria-pressed="false">Impossible</button>
+    <button type="button" id="f-O" data-g="O" aria-pressed="false">Not config</button>
+  </div>
+  <div class="scroll"><table id="reqs"><thead><tr><th>#</th><th>The config must be able to say</th><th>Grade</th><th>Home</th><th>Why</th><th>Stages</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">How setup chooses a config</span>
+  <h2>A reference library, a few questions, one template</h2>
+  <p>Setup holds a library of templates and the use cases each supports. It asks a few questions, picks the template that fits and applies it. Most of the library exists: manage-schemas has ten workflow profiles, several outside software (a research pipeline, content production, support triage, document review), and a classifier that picks between them. Setup does not call it yet.</p>
+  <div class="stacks">
+    <div class="stack"><h3>1. Domain first</h3><p>Building software, research and knowledge, content, or support and operations. The domain decides which follow-up questions make sense and which templates are candidates. A personal knowledge system never sees a question about reviewers or test authors.</p></div>
+    <div class="stack"><h3>2. Then how much structure</h3><p>Within a domain: a base template, plus add-ons such as an acceptance gate, independent review, question and probe items, or background agents. Questions and probes are add-ons for any domain, since uncertainty is judgement, not a kind of project.</p></div>
+    <div class="stack"><h3>3. Questions about the work</h3><p>Two to four, each with a default, so "I don't know" still lands somewhere working:</p><ul><li>Do you want to approve results before they close?</li><li>Will background agents work in parallel?</li><li>Do you usually know the whole scope up front?</li></ul></div>
+  </div>
+  <h3>What makes it hold up over time</h3>
+  <ul class="plain">
+    <li><b>Steering is part of the template.</b> The hooks are written for software (sizing by file count, an implementer seat, a model table). A knowledge template sets steering to <code>schema</code> or <code>off</code>, or the hooks push software process onto note-taking.</li>
+    <li><b>Templates ship pre-built and tested, not composed live.</b> Each supported combination is a finished template validated in CI. Add-ons are only the few traits designed to combine safely, because of the traps below.</li>
+    <li><b>Setup records the template it applied, and its version.</b> That record is what "stay current" compares against when the plugin changes (gap 5).</li>
+    <li><b>Upgrades leave the user's edits alone.</b> The bundled-rules policy already does this: a copy matching a known old version is replaced, a customised copy is left and reported. Templates reuse it per type and per rule.</li>
+    <li><b>Picking is the easy part.</b> The ongoing cost is keeping templates correct as the plugin changes and merging upgrades into edited configs. Templates that need an open gap ship with today's workaround.</li>
+  </ul>
+  <div class="two">
+    <div><h3>The lightest template, whole</h3>
+<pre>project:
+  rootId: "&lt;anchor root id&gt;"
+work_item_schemas:
+  task:
+    notes:
+      - key: intent
+        role: queue
+        required: true
+        maxLength: 1500
+        description: "What this item changes and how
+          anyone can tell it is done."</pre></div>
+    <div><h3>A goal node with acceptance</h3>
+<pre>goal:
+  lifecycle: manual          # children change, no cascade
+  seats:
+    - { name: orchestrator, phase: review }
+  notes:
+    - key: goal              # revisable in any phase
+      role: queue
+      required: true
+      seat: orchestrator
+    - key: acceptance        # the user's verdict
+      role: review
+      required: true
+      seat: orchestrator
+# today any writer satisfies it (gap 1)</pre></div>
+  </div>
+  <h3>The knowledge-base template</h3>
+<pre>work_item_schemas:
+  topic:                     # a grouping; may nest
+    lifecycle: none
+    notes: [ { key: scope, role: queue, maxLength: 800 } ]
+  entry:                     # one idea, in the user's words
+    lifecycle: none
+    notes:
+      - { key: content,   role: queue, maxLength: 3000 }
+      - { key: source,    role: queue, maxLength: 600 }
+      - { key: relations, role: queue, maxLength: 1200 }  # gap 7
+  source:                    # an article, book or paper
+    lifecycle: none
+    notes: [ { key: summary, role: queue, maxLength: 2500 } ]
+note_limits: { mode: reject }
+extensions:
+  claude-code:
+    orchestration: { mode: off }   # gap 6: session start still speaks
+    retrospective: { mode: off }</pre>
+  <p class="note">On a knowledge connection setup registers only the knowledge entry, skips the director entry, creates a lifecycle-free anchor and pushes the config over REST, since the knowledge endpoint serves no config tool. Long-form synthesis is a versioned page document.</p>
+  <p class="note">Key names such as <code>goal</code>, <code>intent</code> or <code>question</code> belong to a template, not to Task Orchestrator. A method that prefers epic or story uses those names instead.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Found by writing real YAML</span>
+  <h2>Composition traps</h2>
+  <p>None of these is a missing feature. Each makes a correct-looking config behave wrongly. They are why setup applies pre-built, tested templates instead of composing blocks for users who never read the config.</p>
+  <ul class="plain">
+    <li><b>A trait that adds a seat makes the type seat-aware.</b> Every unseated required note on it becomes unowned, and run-wave then excludes the item.</li>
+    <li><b>A declared seat <code>rules</code> list replaces the defaults.</b> Adding one project rule means listing the plugin defaults again.</li>
+    <li><b>A <code>forceUp</code> or <code>forceDown</code> list in tier-policy replaces the plugin's whole list.</b></li>
+    <li><b>A per-root copy of a floor type replaces it whole</b> and stops receiving floor updates.</li>
+    <li><b>An auto parent closes when its children do,</b> so a retrospective "per accepted node" fires before the user accepts unless the node is manual or carries a required acceptance note.</li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">Guard rails from the knowledge base</span>
+  <h2>What the development design must not break</h2>
+  <p>Development stays the design centre. These are the rules it must keep so a knowledge base keeps working, each traced to a leak found on the knowledge endpoint.</p>
+  <ol class="q">
+    <li>A knowledge session gets no sizing tiers, model table, dispatch rules, run-wave routing or "materialize before implement" from any hook.</li>
+    <li>Plan mode in a knowledge session never orders materialisation or implementation.</li>
+    <li>A hook names only what the session's profile serves, or stays silent.</li>
+    <li>Setup checks which profile it is connected to before reading a missing call as an old server.</li>
+    <li>Setup registers no director entry for a user who asked only for a knowledge base.</li>
+    <li>A root whose template declares no seats gets no bundled build rules, and process rules never appear as knowledge hits.</li>
+    <li>No lifecycle-free item is ever listed or counted as queue, backlog, next or stalled work.</li>
+    <li>No skill picks a blocking edge by default when either end is lifecycle-free.</li>
+    <li>Capture, the board and dependency help offer no bug, feature, tech-debt, blocker or backlog framing on a root whose types are all lifecycle-free.</li>
+    <li>The knowledge journey runs end to end on the knowledge endpoint alone, with config delivered over REST.</li>
+    <li>Nothing deletes an entry or a page without the user's explicit yes; pruning prefers archive or a tag.</li>
+    <li>No new phase, gate, seat, decision class or detector is added to serve this journey.</li>
+    <li>Knowledge terms in the glossary stay method-neutral and borrow no build words.</li>
+    <li>The knowledge endpoint keeps serving no advance and no runs. A client that needs its own types gets a read of declared types, not the config tool.</li>
+  </ol>
+</section>
+
+<section>
+  <span class="eyebrow">Belongs elsewhere</span>
+  <h2>Follow-ups that are not config</h2>
+  <ul class="plain">
+    <li><b>Setup uses the profile library</b>, gains a light template, a knowledge-base template and a domain question, checks the connected profile first, and records what it applied (R21, R22, R46).</li>
+    <li><b>Knowledge-shaped skills</b>: capture that follows the template's types, a revisit digest in place of the board, and learn that explains the applied template (journey 8).</li>
+    <li><b>Glossary</b>: the opening line and Building item frame the tool as building; Lifecycle-free item and Link are candidate entries (glossary-alignment backlog).</li>
+    <li><b>Plugin skills for the parts a method-neutral skill needs</b>: the goal, the finding, the acceptance basis. A project marks a note by binding the part skill in its <code>skill</code> list, as this repo already does for its work breakdown (R24).</li>
+    <li><b>Director standing instructions</b> live in the project's own instructions, which a director session loads (R13).</li>
+    <li><b>Attention outside runs</b> is the board skill's reading, not a threshold in config (R26).</li>
+    <li><b>Which config change a proposal adopted</b> is a link the tool records, as it already links plan documents to items (R20).</li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">For our review</span>
+  <h2>Questions to settle</h2>
+  <ol class="q">
+    <li><b>Settled: the certainty dial is judgement.</b> It stays in conversation, clarified through questions; its outcomes are recorded, and human-only classes set its limits.</li>
+    <li><b>Settled: acceptance becomes a gate</b> in the server, satisfied the same way by every surface, with approval before the work as a conditional grant.</li>
+    <li><b>Settled: setup selects from a reference library</b>, domain first, with templates shipped pre-built and tested.</li>
+    <li><b>Settled: two domains.</b> Software development is primary; keeping a knowledge base is first class, on the knowledge endpoint. Intake and operations is dropped.</li>
+    <li><b>Open: is "a note satisfied only by an answered decision" the right smallest gate?</b> The alternative is a new acceptance step in the lifecycle, which costs more and touches every schema.</li>
+  </ol>
+</section>
+</div>
+
+<script>
+const GN={E:"Expressible",W:"Awkward",X:"Impossible",O:"Not config"};
+const R=[
+ ["R1","Item types whose notes differ, used at any depth","E","config","Any number of types, no parent or child type constraints. Phases are fixed, notes vary freely.","1.2 3.1 6.1"],
+ ["R2","A goal note that stays revisable while the node is open","E","config","No phase check on a note write; an orchestrator-seated queue note can be revised in any phase.","1.2 6.1"],
+ ["R3","Items that build nothing but block others","W","config","A blocked item stays out of next and still blocks; a type seated only by orchestrator gives run-wave nothing to run. Outside run-wave, next still offers it, and no type can be born blocked.","6.2 6.4 6.5"],
+ ["R4","Notes required before an item may start","E","config","The queue gate.","2.3 6.5"],
+ ["R5","A parent that stays open while children change, closed by the user","W","config","A manual lifecycle stops the cascade. That only the user closes it rests on gap 1.","1.2 3.1 6.7"],
+ ["R6","A small exploratory node whose output is a finding","E","config","A type with a required work note and no review notes.","6.4"],
+ ["R7","Reviewed phases, seats, their skills and rules","E","config","Declared fully. Seat skills and rules bind only inside runs and for subagents.","2.5 3.2 4.7"],
+ ["R8","Which types need the user's acceptance, judged against what","W","config","A required acceptance note already gates; a blocking decision under a human-only class is already a server-enforced human gate. Missing: the note being satisfied only by an answered decision of the right class. Settled: this becomes a gate (gap 1).","1.7 2.5 6.8 7.3"],
+ ["R9","What follows acceptance: a ship or release step","W","config","A release type ordered by blocks edges, or a run-profile post-merge step. No trigger fires on acceptance.","1.7 2.6"],
+ ["R10","Sending work back when acceptance fails","W","config","A reviewer Fail goes through a fix cycle; reopening one terminal child works. The user's own send-back has no path, and there is no review-to-work edge.","2.5"],
+ ["R11","Per decision class: who answers, severity, expiry","E","config","answerers, severity, expires_after, on_expiry, freeform. 'May answer but should ask' is director conduct, already in the director skill.","3.5 6.3 6.6"],
+ ["R12","When a seat proceeds on an assumption and when it blocks","O","rule","A project rule on the seat's rules list, plus the raise's own block flag.","6.6"],
+ ["R13","Standing instructions to the director per class","O","host instructions","Conduct. The director session loads the project's own instructions; no config surface needed.","3.6"],
+ ["R14","What plan approval sets in motion","W","config","Steering off silences the post-plan step, but also stops materializing. Nothing says 'materialize but do not build', or 'build only the refined items'.","2.4 3.2 6.5 7.3"],
+ ["R15","A standing-work policy for unattended draining","O","skill arguments","Filters and bounds are invocation arguments, like audit presets.","3.7"],
+ ["R16","Model and effort per class of work","W","plugin file","A trait's dispatch covers every phase and seat. Classes with no seat (coordinator, research, audit) have no project override.","3.2 4.7"],
+ ["R17","How work is ordered","O","held","Held at your request: next orderBy plus item priority and complexity. No proposal.","1.3 2.2 7.4"],
+ ["R18","A retrospective per closed run or per finished node","E","config","retrospective.boundary run or scope; scope fires per completed node. See the auto-parent trap.","3.8 5.1 6.9"],
+ ["R19","Process changes with history and rollback","O","server contract","Config history and rollback exist; landing a change in the right layer is the tune skill's job.","5.4 5.5"],
+ ["R20","Which config change a proposal adopted","O","tool contract","Config push has no reason field. A link from the proposal to the version it produced belongs to the tool.","5.6"],
+ ["R21","A choice among reference configs by kind of work","O","plugin asset","Settled: setup holds the reference library and picks a template from a few questions. Ten profiles and a classifier exist in manage-schemas; setup does not call them yet, and none is light.","1.1 7.1"],
+ ["R22","Which template and version setup applied","W","config","Reframed: the record is the template identity and version, not a feature list. Validation warns on removed keys today; nothing records what setup applied, so it cannot tell what changed (gap 5).","5.5 7.6"],
+ ["R23","Content in the graph, or a reference to an outside source","E","config","Note guidance sets the shape, a note skill binds the writer, maxLength with note_limits reject keeps it a reference.","Setup"],
+ ["R24","Which note plays a part the plugin's skills need","O","plugin design","A note's skill list can carry a part skill, as this repo does for its breakdown note. The plugin has no part skills yet for goal, finding or acceptance.","1.2 6.1 6.4 6.8"],
+ ["R25","Where captured work lands, and as which type","W","config","A project rule can state routing, as trait-selection does; the container is still the capture skill's guess.","4.1 4.2"],
+ ["R26","What the board counts as attention","O","skill","stall_after and expires_after cover runs and decisions. Outside runs, attention is the board's own reading.","1.6 2.1 3.4"],
+ ["R27","Audit presets by scope and budget","O","skill arguments","quick, standard and full are arguments.","2.8 4.3 5.7"],
+ ["R28","What counts as green: verify commands and known-red tests","E","plugin file","run-profile verify and knownRed, read by run-wave.","1.5 2.4 4.7"],
+ ["R29","Limits on parallel seats and retries","E","config","runs.budgets attempts_per_seat and max_active_seats, enforced by the server.","3.2 3.7 4.7"],
+ ["R30","Authorship independence for reviewed work","E","config","independence plus a note's independent_of; it attests rather than enforces unless require_verified is set.","2.5 6.8"],
+ ["R31","A parked or deferred state","W","config","The hold trigger plus a status label such as deferred. It works, but nothing names it.","4.2 6.7"],
+ ["R32","The certainty dial: how much deciding and acceptance one scope waives","O","conversation","Settled: judgement from the user or the agent, from domain knowledge and experience, clarified through questions. Its outcome is recorded (a ruling, an assumption, an acceptance grant), and human-only classes are the limits a project declares.","6.3 6.8 7.3"],
+ ["R33","Delivery shape: branches and PRs per scope, merge method","W","plugin file","branchPrefix and worktreeRoot only; the rest is a project skill or rule by convention.","1.5 2.6 3.2"],
+ ["R34","Recurring work: a monthly audit, an overnight drain","O","host","Scheduling belongs to the host, not to Task Orchestrator config.","2.8 3.7 4.3"],
+ ["R35","Entry types with no lifecycle that never appear in queue, next or completion views","E","config","lifecycle: none; such items are counted under no role.","8.2 8.6"],
+ ["R36","Notes that belong to no phase","X","server contract","A note entry's role is required and is queue, work or review. Workaround: every knowledge note is role queue.","8.2 8.8"],
+ ["R37","Lifecycle-free groupings under an anchor that is not a build item","W","config","A lifecycle-free topic type can hold entries at any depth; the anchor is still created as the floor's role-bearing project type.","8.1 8.2"],
+ ["R38","Which relations entries can have, and which a walk follows","X","server contract","Edges are blocks and relates_to only, with no relation word, and the graph walk ignores relates_to. Workaround: a relations note in text.","8.3 8.4"],
+ ["R39","What each kind of entry records, with a cap that keeps entries atomic","E","config","Note guidance and maxLength, with note_limits reject.","8.2 8.5"],
+ ["R40","Which content is an item with notes and which a page document","W","config","Pages exist but have no type, schema, tag or parent; the split is a guidance convention.","8.2 8.5"],
+ ["R41","Where a capture lands and which entry type it gets","W","config","A routing rule can be served and read with docs_read; capture reads it today through an orchestration-only call.","8.2"],
+ ["R42","An entry's maturity without a lifecycle: seedling, evergreen, archived","W","config","Tags only; status labels key on triggers a lifecycle-free item never fires; only documents archive.","8.6 8.7"],
+ ["R43","Steering for a knowledge session","W","config","orchestration.mode off silences the build core, plan mode and the dispatch guard, but not session-start's guidance; there is no knowledge value.","8.1-8.8"],
+ ["R44","Which bundled process rules a root receives","X","plugin","config-sync pushes every bundled build rule into every root on every session start, with no opt-out; they then show up as search hits.","8.4"],
+ ["R45","No retrospective for a root with no runs","E","config","retrospective.mode off, which also removes the per-turn REST read.","8.7"],
+ ["R46","Which template a root applied, so learn can explain it","W","config","Same cause as R22: nothing the plugin reads records it.","8.1 8.8"],
+ ["R47","Which tool profile a root is meant to be used through","X","config","The profile belongs to a connection; no config key names it, so setup and skills cannot choose calls that profile serves.","8.1 8.2 8.6"],
+ ["R48","A synthesis method bound to the synthesis page","W","config","A note's skill binding works on a lifecycle-free note; a page has no schema to bind to.","8.5"],
+ ["R49","Which document kinds count as knowledge in retrieval","O","tool contract","search has no document-kind filter, so rule documents mix into hits.","8.4"],
+ ["R50","How long before an entry counts as untouched","O","skill arguments","An argument of a revisit digest, like the audit presets.","8.6"]];
+const GAPS=[
+ ["W","1. Acceptance is not yet a gate","R8, R9, R5, R18","Journeys 1, 2, 6, 7","Settled: it becomes a gate in the server, and every surface satisfies it the same way: plan-mode approval or a plain yes in Claude, a skill on a harness with no plan mode. The smallest form: a required acceptance note satisfied only by an answered decision of the right class. Approval before the work is a conditional grant: it applies only if review passed, findings were disposed, the build is green and no decision is open. Opt-in per type, as the review phase is."],
+ ["W","2. The user cannot send work back","R10","Journeys 2, 6","Today: reviewer fix cycles, reopening one terminal child, or cancel then reopen. Missing: a review-to-work edge for the user's own verdict, which the acceptance gate needs."],
+ ["W","3. Building nothing is visible to run-wave only","R3","Journeys 3, 6","Today: a blocked item, or a type seated only by orchestrator. Missing: a mark that next honours too, so a question is never offered as build work."],
+ ["W","4. Plan approval has one fixed consequence","R14","Journeys 2, 3, 6, 7","Today: steering and tier thresholds shape the route, and off stops everything. Missing: a project's choice of materialize only, build all, or build the refined items."],
+ ["W","5. Nothing records which template setup applied","R22, R46","Journeys 5, 7, 8","Today: validation warnings on removed keys. Missing: the applied template and its version, which setup compares against when the plugin changes, which learn explains from, and the user's edits it must leave alone."],
+ ["X","6. A root cannot say it is a knowledge base","R43, R44, R47","Journey 8","Today: steering off silences most hooks. Missing: the profile a root is used through, so setup registers the right endpoint and skills call only what it serves; a steering value hooks honour from session start on; and an opt-out from bundled build rules for a root with no seats."],
+ ["X","7. Notes and links still speak the language of building","R36, R38","Journey 8","Today: every knowledge note is filed as queue, and relates_to is the only relation. Missing: notes outside any phase, and relation words a walk can follow. Both are tool-contract changes, so they wait until a knowledge user needs them."]];
+const n=g=>R.filter(r=>r[2]===g).length;
+document.getElementById("tally").innerHTML=[["E","expressible today"],["W","awkward: a workaround works"],["X","impossible today"],["O","not a config question"]].map(([g,t])=>`<div class="tile ${g}"><b>${n(g)}</b><span>${t}</span></div>`).join("");
+document.getElementById("gaps").innerHTML=GAPS.map(g=>`<div class="gap ${g[0]}"><div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><h3>${g[1]}</h3><span class="chip ${g[0]}">${GN[g[0]]}</span></div><div class="meta">${g[2]} · ${g[3]}</div><p>${g[4]}</p></div>`).join("");
+function draw(f){document.querySelector("#reqs tbody").innerHTML=R.filter(r=>f==="all"||r[2]===f).map(r=>`<tr><td class="num">${r[0]}</td><td><b>${r[1]}</b></td><td><span class="chip ${r[2]}">${GN[r[2]]}</span></td><td class="note">${r[3]}</td><td>${r[4]}</td><td class="num">${r[5]}</td></tr>`).join("");}
+document.querySelectorAll(".filters button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll(".filters button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));draw(b.dataset.g);}));
+draw("all");
+</script>

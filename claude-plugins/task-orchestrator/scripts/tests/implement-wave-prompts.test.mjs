@@ -802,7 +802,7 @@ test('S5 (AC5): the ERRORS part retries unavailable once, never retries run_paus
   assert.equal(errorLines.filter((l) => l.startsWith('run_paused')).length, 1, 'exactly one line starts with run_paused')
 })
 
-test('S5 (AC5): the server sends no paused member on a write success, so ERRORS carries none; run_at_capacity is coordinator-only and backed off; a withdrawn pause leaves the run paused', () => {
+test('S5 (AC5): the server sends no paused member on a write success, so ERRORS carries none; run_at_capacity is orchestrator-only and backed off; a withdrawn pause leaves the run paused', () => {
   const core = loadCore(SCRIPT_PATH)
   const item = makeItem('b1b1b1b1', stages.bugFixLike())
   const p = core.seatPrompt(makePlan([item]), item, stageOfSeat(item, 'implementer'), {})
@@ -811,7 +811,7 @@ test('S5 (AC5): the server sends no paused member on a write success, so ERRORS 
   assert.equal(/paused\s*:\s*\{\s*decisionId/.test(errors), false, 'no spacing variant of the paused member')
   assert.equal(/successful result carrying paused/i.test(errors), false, 'no success-carrying-paused sentence')
   assert.ok(errors.includes('run_at_capacity'))
-  assert.ok(/coordinator/.test(errors.split('\n').find((l) => l.startsWith('run_at_capacity')) || ''))
+  assert.ok(/orchestrator-only/.test(errors.split('\n').find((l) => l.startsWith('run_at_capacity')) || ''))
   assert.ok(/back(s)? off/.test(errors))
   assert.ok(/withdrawn pause decision leaves the run paused/.test(errors))
   assert.ok(/never resume or cancel an item yourself/.test(p), 'BLOCKED: only resume and cancel, never by the seat')
