@@ -837,17 +837,20 @@ sealed class DomainEvent {
 }
 
 /**
- * One side of an `item.pinned` event: the two pinned config version ids and the pinned base schema key and layer
- * (all null for a schema-free pin with no config).
+ * One side of an `item.pinned` event: the two pinned config version ids, the pinned base schema key and layer, and
+ * whether the pinned schema builds (all null for a schema-free pin with no config; [builds] is null whenever [key] is).
+ * A row written before [builds] existed has no `builds` key and does not say whether that pin built.
  */
 data class PinRef(
     val serverVersionId: UUID?,
     val rootVersionId: UUID?,
     val key: String?,
-    val layer: PinLayer?
+    val layer: PinLayer?,
+    val builds: Boolean?
 ) {
-    /** The wire shape: `{server, root, key, layer}`. */
-    fun payload(): Map<String, Any?> = mapOf("server" to serverVersionId, "root" to rootVersionId, "key" to key, "layer" to layer?.wire)
+    /** The wire shape: `{server, root, key, layer, builds}`. */
+    fun payload(): Map<String, Any?> =
+        mapOf("server" to serverVersionId, "root" to rootVersionId, "key" to key, "layer" to layer?.wire, "builds" to builds)
 }
 
 /** Which pin point wrote an `item.pinned` row. */
