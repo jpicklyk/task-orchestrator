@@ -216,9 +216,9 @@ config(op="rules", rootId)</pre>
         <tr><td>Orchestration context</td><td>A session-start hook delivers the orchestration core, including after a compact. Plans, delegates, tracks and reports.</td></tr>
         <tr><td>Orchestrate skill</td><td>On-demand tier table, delegation rules (an explicit model and effort on every dispatch, one effort level higher on a fix) and phase-owner dispatch rules. The class table is in <code>task-orchestrator:model-effort</code>.</td></tr>
         <tr><td>Ralph iteration prompt</td><td>The terse single-item rules each headless iteration runs under, appended to its system prompt.</td></tr>
-        <tr><td><code>extensions.claude-code.orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
-        <tr><td><code>extensions.claude-code.orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
-        <tr><td><code>extensions.claude-code.orchestration.mode: off</code></td><td>The orchestration hooks stay silent.</td></tr>
+        <tr><td><code>extensions.claude-code.steering: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
+        <tr><td><code>extensions.claude-code.steering: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
+        <tr><td><code>extensions.claude-code.steering: off</code></td><td>The orchestration hooks stay silent.</td></tr>
         <tr><td>Dispatch model guard</td><td>Denies an <code>Agent</code> dispatch that is missing a <code>model</code> or an effort, because the shipped agents inherit the caller's model and carry no effort.</td></tr>
         <tr><td>Dispatch hint</td><td>After an <code>advance</code> lands in work or review, tells the dispatcher the item's agent, model and effort.</td></tr>
         <tr><td>Phase guard</td><td>Records the items a subagent entered. When it tries to stop with required notes missing, sends it back with the keys named.</td></tr>
