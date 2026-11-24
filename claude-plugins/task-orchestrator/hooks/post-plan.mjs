@@ -2,8 +2,8 @@
 // PostToolUse ExitPlanMode — triggers the post-plan-workflow skill.
 // Gates (each emits `{}`): headless iteration / subagent / director session (suppressionReason) ->
 // knowledge session (lib/session-profile.mjs: knowledge-profile registration or a lifecycle-free root
-// config; the registration alone suffices) -> located config whose orchestration.mode is `off`. No
-// located config otherwise keeps the directive.
+// config; the registration alone suffices) -> located config whose steering is `off`. No located
+// config otherwise keeps the directive.
 import { emit } from "./lib/emit.mjs";
 import { readHookInput } from "./lib/stdin.mjs";
 import { suppressionReason } from "./execution-mode.mjs";

@@ -464,7 +464,7 @@ traits:
   <div class="grid2">
     <div class="rule"><h3><code>lifecycle</code> on a schema</h3><p class="small">Lowercase, one of four. <code>auto</code> (the default): a parent cascades to terminal when all its children are terminal. <code>manual</code>: every parent cascade is suppressed (start, terminal and reopen), so the parent is moved explicitly. <code>permanent</code>: never auto-terminates and never auto-reopens, and suppresses the same cascades.</p></div>
     <div class="rule"><h3><code>none</code> means no phases at all</h3><p class="small">A lifecycle-free item has no role. Its schema may declare notes but none required, and no seats. No trigger applies to it, it cannot be claimed, and it cannot be an endpoint of a <code>blocks</code> edge. It suits pages of knowledge or reference material.</p></div>
-    <div class="rule"><h3><code>extensions.claude-code</code></h3><p class="small">Plugin settings live under <code>extensions.&lt;tool&gt;</code>. The server stores the namespace and never reads it. The old top-level <code>orchestration</code> and <code>retrospective</code> sections are rejected in a new push; move them under <code>extensions.claude-code</code>.</p></div>
+    <div class="rule"><h3><code>extensions.claude-code</code></h3><p class="small">Plugin settings live under <code>extensions.&lt;tool&gt;</code>. The server stores the namespace and never reads it. The old top-level <code>orchestration</code> and <code>retrospective</code> sections are rejected in a new push; move the <code>orchestration.mode</code> value to <code>extensions.claude-code.steering</code> and <code>retrospective</code> under <code>extensions.claude-code</code>.</p></div>
   </div>
 </section>
 

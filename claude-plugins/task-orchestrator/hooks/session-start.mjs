@@ -274,7 +274,8 @@ The checked-out plugin version (\`${devVersion}\`) differs from the currently lo
 
 // Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` / the removed 3.x attribution
 // sections are ignored by the plugin and rejected by the server (config-sync validates, then pushes the
-// whole file). The first two move under `extensions.claude-code`; the attribution section is deleted.
+// whole file). The `orchestration` value moves to `extensions.claude-code.steering`, `retrospective` moves under
+// `extensions.claude-code`; the attribution section is deleted.
 // One line naming what was found.
 // The retired key is spelled literally here because this is a diagnostic for the removed key, not live use of
 // it (see current/docs/config-reference.md, the 3.x top-level keys section). actor-removal.test.mjs exempts
@@ -286,9 +287,9 @@ function buildConfigShapeNotice(loc) {
   const found = ['orchestration', 'retrospective', RETIRED_SECTION].filter((name) => readSection(loc.text, name) !== null);
   if (found.length === 0) return null;
   const names = found.map((n) => `\`${n}:\``).join(' and ');
-  const movable = found.filter((n) => n !== RETIRED_SECTION).map((n) => `\`${n}:\``).join(' and ');
   const actions = [];
-  if (movable) actions.push(`move ${movable} under \`extensions.claude-code\``);
+  if (found.includes('orchestration')) actions.push('move the `orchestration.mode` value to `extensions.claude-code.steering`');
+  if (found.includes('retrospective')) actions.push('move `retrospective:` under `extensions.claude-code`');
   if (found.includes(RETIRED_SECTION)) actions.push(`delete \`${RETIRED_SECTION}:\``);
   return `## Config Shape
 

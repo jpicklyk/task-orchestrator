@@ -109,7 +109,8 @@ function ctxOf(out) {
 }
 
 const BASE = 'project:\n  rootId: 11111111-1111-1111-1111-111111111111\n';
-const ext = (mode) => `${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: ${mode}\n`;
+const ext = (mode) => `${BASE}extensions:\n  claude-code:\n    steering: ${mode}\n`;
+const oldExt = (mode) => `${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: ${mode}\n`;
 const SCHEMA_CFG = ext('schema');
 const WORKFLOW_CFG = ext('workflow');
 
@@ -173,10 +174,9 @@ test('S4: a session_id without a marker, or empty/absent, injects', () => {
   }
 });
 
-test('S4: mode off in the extensions block and inline forms -> {}', () => {
+test('S4: steering off, in any case -> {}', () => {
   assert.deepEqual(run(ext('off'), { session_id: 's1' }), {});
-  assert.deepEqual(run(`${BASE}extensions:\n  claude-code:\n    orchestration: { mode: off }\n`, { session_id: 's1' }), {});
-  assert.deepEqual(run(`${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: OFF\n`, { session_id: 's1' }), {});
+  assert.deepEqual(run(ext('OFF'), { session_id: 's1' }), {});
 });
 
 test('S4: a top-level orchestration block is ignored - mode off there does NOT silence the hook', () => {
@@ -451,6 +451,83 @@ test('CM5: the section keeps the to-call, retired-name and last-numbered-princip
 test('CM6: both routed files exist under the plugin root', () => {
   assert.ok(existsSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'references', 'code-mode.md')));
   assert.ok(existsSync(join(PLUGIN_ROOT, 'skills', '_generated', 'call-shapes-js.md')));
+});
+
+// ---- steering key and the deprecated orchestration.mode alias (item 00f1dd53) ----------------------
+// Oracle: the item's specification. steering wins; the old key is read only when steering is absent;
+// one deprecation line per session while the old key is present (an own choice: also when steering
+// wins, since a stale key is clutter either way); values and default unchanged.
+
+const DEPRECATION = /orchestration\.mode.*deprecated.*steering/;
+
+test('00f1dd53: alias only - the old key still selects the mode, with one deprecation line', () => {
+  const fx = fixture(oldExt('schema'));
+  const first = exec(fx, { session_id: 'sess-alias' });
+  assert.match(ctxOf(first), /task-orchestrator:schema-workflow/);
+  assert.match(first.systemMessage, DEPRECATION);
+  assert.equal(first.systemMessage.split('\n').length, 1);
+  // same session again (a compact fires SessionStart too): no second line
+  const again = exec(fx, { session_id: 'sess-alias', source: 'compact' });
+  assert.match(ctxOf(again), /task-orchestrator:schema-workflow/);
+  assert.equal(again.systemMessage, undefined);
+  // a different session gets its own line
+  assert.match(exec(fx, { session_id: 'sess-other' }).systemMessage, DEPRECATION);
+});
+
+test('00f1dd53: alias off still silences the hook but the deprecation line is shown once', () => {
+  const fx = fixture(oldExt('off'));
+  const first = exec(fx, { session_id: 'sess-alias-off' });
+  assert.equal(first.hookSpecificOutput, undefined);
+  assert.match(first.systemMessage, DEPRECATION);
+  assert.deepEqual(exec(fx, { session_id: 'sess-alias-off' }), {});
+});
+
+test('00f1dd53: alias off in the inline form and in uppercase still silences the hook', () => {
+  const inline = run(`${BASE}extensions:
+  claude-code:
+    orchestration: { mode: off }
+`, { session_id: 'sess-alias-inline' });
+  assert.equal(inline.hookSpecificOutput, undefined);
+  assert.match(inline.systemMessage, DEPRECATION);
+  const upper = run(`${BASE}extensions:
+  claude-code:
+    orchestration:
+      mode: OFF
+`, { session_id: 'sess-alias-upper' });
+  assert.equal(upper.hookSpecificOutput, undefined);
+  assert.match(upper.systemMessage, DEPRECATION);
+});
+
+test('00f1dd53: steering only - selects the mode and prints no deprecation line', () => {
+  const out = run(ext('schema'), { session_id: 'sess-new' });
+  assert.match(ctxOf(out), /task-orchestrator:schema-workflow/);
+  assert.equal(out.systemMessage, undefined);
+});
+
+test('00f1dd53: both set - steering wins whichever comes first; the line is still shown once', () => {
+  const body = (a, b) => `${BASE}extensions:\n  claude-code:\n${a}${b}`;
+  const st = (m) => `    steering: ${m}\n`;
+  const old = (m) => `    orchestration:\n      mode: ${m}\n`;
+  for (const cfg of [body(st('schema'), old('off')), body(old('off'), st('schema'))]) {
+    const fx = fixture(cfg);
+    const first = exec(fx, { session_id: 'sess-both' });
+    assert.match(ctxOf(first), /task-orchestrator:schema-workflow/);
+    assert.match(first.systemMessage, DEPRECATION);
+    assert.equal(exec(fx, { session_id: 'sess-both' }).systemMessage, undefined);
+  }
+  assert.equal(run(body(st('off'), old('schema')), { session_id: 'sess-both2' }).hookSpecificOutput, undefined);
+});
+
+test('00f1dd53: neither set - workflow default, no deprecation line', () => {
+  const out = run(BASE, { session_id: 'sess-none' });
+  assert.match(ctxOf(out), /task-orchestrator:orchestrate/);
+  assert.equal(out.systemMessage, undefined);
+});
+
+test('00f1dd53: alias without a session id prints no line (the marker needs a session)', () => {
+  const out = run(oldExt('workflow'), {});
+  ctxOf(out);
+  assert.equal(out.systemMessage, undefined);
 });
 
 // a877f204 T5: a knowledge session (specification D1, D3) gets `{}` whatever the steering; an

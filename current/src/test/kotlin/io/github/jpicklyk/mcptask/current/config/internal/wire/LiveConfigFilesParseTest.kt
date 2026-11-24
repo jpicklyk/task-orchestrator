@@ -123,7 +123,7 @@ class LiveConfigFilesParseTest {
     }
 
     @Test
-    fun `S5 live dogfood config carries no top-level 3_x plugin key and keeps orchestration and retrospective under extensions`() {
+    fun `S5 live dogfood config carries no top-level 3_x plugin key and keeps steering and retrospective under extensions`() {
         val live = readUtf8(repoRoot().resolve(".taskorchestrator/config.yaml"))
         val keys = topLevelKeys(live)
 
@@ -132,7 +132,7 @@ class LiveConfigFilesParseTest {
         }
         val extensions = rawRootOf(live)["extensions"] as? Map<*, *> ?: throw AssertionError("live dogfood config must carry `extensions`")
         val claudeCode = extensions["claude-code"] as? Map<*, *> ?: throw AssertionError("extensions must carry `claude-code`: $extensions")
-        assertTrue("orchestration" in claudeCode.keys, "extensions.claude-code must carry orchestration: ${claudeCode.keys}")
+        assertTrue("steering" in claudeCode.keys, "extensions.claude-code must carry steering: ${claudeCode.keys}")
         assertTrue("retrospective" in claudeCode.keys, "extensions.claude-code must carry retrospective: ${claudeCode.keys}")
     }
 

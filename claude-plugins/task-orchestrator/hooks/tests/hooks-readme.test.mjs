@@ -2,7 +2,7 @@
 //
 // Oracle: task-scope AC10 - the section carries one table row per script registered in hooks-config.json
 // (two-way: no missing script, no extra row), with columns headless / subagent (`agent_id`) /
-// `orchestration.mode` / director, every cell stating the hook's behaviour at this version (non-injecting
+// `steering` / director, every cell stating the hook's behaviour at this version (non-injecting
 // hooks say so), plus a paragraph saying plugin keys live under `extensions.claude-code` and that top-level
 // 3.x keys are ignored. The registered-script set is read from hooks-config.json, never from the README.
 // Cell wording is cross-checked only where other tests pin the behaviour (S4, S6, S8, S9): the injecting
@@ -65,7 +65,7 @@ test('S12: the section exists and the table header has the four gating columns a
   assert.match(header[1], /headless/i);
   assert.match(header[2], /subagent/i);
   assert.match(header[2], /agent_id/);
-  assert.match(header[3], /orchestration\.mode/);
+  assert.match(header[3], /steering/);
   assert.match(header[4], /director/i);
 });
 

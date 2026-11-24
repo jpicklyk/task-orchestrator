@@ -774,8 +774,7 @@ them (`orchestration:`, `retrospective:`) is rejected by a push and only warned 
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow
+    steering: workflow
     retrospective:
       mode: dispatch
       minItems: 3
@@ -787,7 +786,7 @@ extensions:
 
 | Key | Values | Default | Read by |
 |-----|--------|---------|---------|
-| `orchestration.mode` | `workflow`, `schema`, `off` | `workflow` | the orchestration hooks (see "Orchestration") |
+| `steering` | `workflow`, `schema`, `off` | `workflow` | the orchestration hooks (see "Steering"); `orchestration.mode` is the deprecated alias |
 | `retrospective.mode` | `nudge`, `dispatch`, `off` | `nudge` | the retrospective hooks (see "Retrospective") |
 | `retrospective.minItems` | integer >= 0: terminal items that make a group worth a retrospective (`dispatchThreshold` is the older name, read when `minItems` is absent) | `3` | the retrospective hooks |
 | `retrospective.boundary` | `scope`, `run` | `scope` | the retrospective hooks |
@@ -852,24 +851,25 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 
 ---
 
-## Orchestration
+## Steering
 
-The `orchestration` setting selects how much orchestration behavior the plugin hooks inject into a session. It lives at `extensions.claude-code.orchestration`:
+The `steering` setting selects how much orchestration behavior the plugin hooks inject into a session. It lives at `extensions.claude-code.steering`:
 
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow   # workflow (default) | schema | off
+    steering: workflow   # workflow (default) | schema | off
 ```
 
-Default: `workflow` - applied when the block or `mode` key is absent, or the value is unrecognized.
+Default: `workflow` - applied when the key is absent, or the value is unrecognized.
 
-### Fields
+**Deprecated alias.** `extensions.claude-code.orchestration.mode` (block or inline form) is read only when `steering` is absent or unrecognized; `steering` wins when both are set. While the old key is present, `orchestration-context.mjs` prints one deprecation line per session. Rename it to `steering`.
+
+### Values
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `mode` | no | string | `workflow`, `schema`, or `off` (case-insensitive, quotes optional). Defaults to `workflow`; any other value falls back to the default. |
+| `steering` | no | string | `workflow`, `schema`, or `off` (case-insensitive, quotes optional). Defaults to `workflow`; any other value falls back to the default. |
 
 ### Modes
 

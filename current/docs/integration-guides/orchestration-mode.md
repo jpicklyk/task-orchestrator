@@ -28,18 +28,19 @@ The plugin delivers the orchestration core through a SessionStart hook, not an o
 | `dispatch-hint` PostToolUse hook (matcher `advance`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, `effort`), taken from the `dispatch` object of the `advance` result | After each `advance`, main session only |
 | `skills/ralph/iteration-system-prompt.md` | The rules for a headless ralph iteration | Appended to the system prompt of each `claude -p` iteration; the orchestration context stays inert there |
 
-The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`. That covers both enforcement hooks too. The orchestration context is also withheld from subagents and director sessions (`hooks/README.md`, Mode gating). Where each item's phase owner comes from is not a hook's call: the dispatch profile arrives in the `advance` `transition` result (`dispatch`) and in the `items_read` `select: "schema"` view of the item.
+The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `steering` is `off`. That covers both enforcement hooks too. The orchestration context is also withheld from subagents and director sessions (`hooks/README.md`, Mode gating). Where each item's phase owner comes from is not a hook's call: the dispatch profile arrives in the `advance` `transition` result (`dispatch`) and in the `items_read` `select: "schema"` view of the item.
 
-### The `orchestration.mode` key
+### The `steering` key
 
 Set it under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
 
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow   # workflow (default) | schema | off
+    steering: workflow   # workflow (default) | schema | off
 ```
+
+The old `extensions.claude-code.orchestration.mode` is still read as a deprecated alias when `steering` is absent or invalid; `steering` wins when both are set, and a session start prints one deprecation line while the old key is present.
 
 A top-level `orchestration:` block is ignored by the hooks (they read only `extensions.claude-code`), `session-start` prints a `## Config Shape` line naming it, and a 4.0 server rejects it on push. Until you move it, the hooks run in `workflow` mode.
 
