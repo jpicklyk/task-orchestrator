@@ -326,6 +326,46 @@ class LayeringRulesTest {
     }
 
     @Test
+    fun `S4c a slice domain file forbids its own slice top and application but reaches its own domain and the model`() {
+        val top = "$root.telemetry.TelemetryStoreProvider"
+        val app = "$root.telemetry.internal.app.CallLogStore"
+        val own = "$root.telemetry.internal.domain.Rule"
+        assertEquals(listOf(top, app), imports("telemetry/internal/domain/A.kt", top, app, own, "$root.model.item.X"))
+    }
+
+    @Test
+    fun `S4c a fully-qualified slice reference in a slice file counts on a code line`() {
+        val text =
+            """
+            val a = $root.telemetry.internal.sqlite.SqliteCallLogStore(db)
+            val b = $root.telemetry.internal.wire.CallLogWriter(u)
+            val c = $root.telemetry.TelemetryStoreProvider::class
+            val d = $root.telemetry.internal.app.CallLogStore::class
+            """.trimIndent()
+        assertEquals(
+            listOf("$root.telemetry.internal.sqlite.SqliteCallLogStore", "$root.telemetry.internal.wire.CallLogWriter"),
+            code("telemetry/internal/app/A.kt", text)
+        )
+        assertEquals(listOf("$root.telemetry.internal.wire.CallLogWriter"), code("telemetry/internal/sqlite/A.kt", text))
+        assertEquals(emptyList(), code("telemetry/A.kt", text), "slice-top forbids only bootstrap and the transports")
+    }
+
+    @Test
+    fun `S4c a wildcard import of a slice package is classified like the package`() {
+        assertEquals(
+            listOf("$root.telemetry.internal.sqlite.*", "$root.telemetry.internal.wire.*"),
+            imports(
+                "application/port/A.kt",
+                "$root.telemetry.internal.sqlite.*",
+                "$root.telemetry.internal.wire.*",
+                "$root.telemetry.internal.app.*"
+            )
+        )
+        assertEquals(listOf("$root.telemetry.*"), imports("model/item/A.kt", "$root.telemetry.*"))
+        assertEquals(emptyList(), imports("interfaces/mcp/A.kt", "$root.telemetry.internal.sqlite.*"))
+    }
+
+    @Test
     fun `S4c a reference that names no slice is not one`() {
         assertEquals(
             emptyList(),
@@ -338,7 +378,7 @@ class LayeringRulesTest {
         )
         assertEquals(
             emptyList(),
-            LayeringRules.violations("model/item/A.kt", listOf("$root.telemetry.X"), "").map { it.importedFqName },
+            LayeringRules.violations("model/item/A.kt", listOf("$root.telemetry.X"), "", emptySet()).map { it.importedFqName },
             "with no slice given, no reference names one"
         )
     }

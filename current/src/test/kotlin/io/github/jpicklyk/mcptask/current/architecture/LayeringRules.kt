@@ -30,10 +30,11 @@ package io.github.jpicklyk.mcptask.current.architecture
  * `interfaces` respectively; any other path under `<s>/` is itself a violation (slice shape), like a `platform/` folder with no
  * row. A reference to `<root>.<s>.internal.<l>..` takes the layer of `<l>` and `<root>.<s>.X` is slice-top (only for a slice
  * `<s>` in the `slices` set the caller passes, the first folders of the production files, so a look-alike package such as
- * `applicationx` is no slice); so the layer rules
- * above also hold between a slice and the legacy layers: `model` and `domain` forbid slice-top and every slice layer,
- * `application` forbids slice `infrastructure` and `interfaces`, `infrastructure` forbids slice `interfaces`, and slice-top
- * forbids only `bootstrap` and the transports.
+ * `applicationx` is no slice). The layer rules above then also hold for slice references, whichever slice they name,
+ * the file's own included: a file counting as `model` or `domain` (a slice's `internal/domain/` too) forbids slice-top and the
+ * slice layers `application`, `infrastructure` and `interfaces`, but not slice `domain`; `application` forbids slice
+ * `infrastructure` and `interfaces`; `infrastructure` forbids slice `interfaces`; and a slice-top file forbids only
+ * `bootstrap` and the transports.
  *
  * A rule is broken by an import or by a fully-qualified reference on a CODE line (an FQN needs no import). Comment lines
  * (trimmed lines starting with a line-comment marker, a block-comment opener or an asterisk, which covers KDoc bodies) are not code and are skipped.
@@ -79,7 +80,7 @@ object LayeringRules {
     private val SLICE_INTERNAL_LAYER =
         mapOf("domain" to "domain", "app" to "application", "sqlite" to "infrastructure", "wire" to "interfaces")
 
-    /** The layers of another slice that a file of each layer must not reach (see the class KDoc). */
+    /** The slice layers a file of each layer must not reach, in any slice including its own (see the class KDoc). */
     private val FORBIDDEN_SLICE_LAYERS =
         mapOf(
             "domain" to setOf(SLICE_TOP, "application", "infrastructure", "interfaces"),
@@ -192,7 +193,7 @@ object LayeringRules {
         path: String,
         imports: List<String>,
         text: String,
-        slices: Set<String> = emptySet()
+        slices: Set<String>
     ): List<Violation> {
         val forbidden = forbiddenPrefixesFor(path)
         val forbiddenSlice = FORBIDDEN_SLICE_LAYERS[layerOf(path)].orEmpty()
