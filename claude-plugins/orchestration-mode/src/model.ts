@@ -66,9 +66,11 @@ export const GLASS = { blur: 14, tint: '#7c4a03', opacity: 0.42 } as const
 export const ORCHESTRATOR_GLASS = { blur: 14, tint: '#0b3a6e', opacity: 0.42 } as const
 
 // ---------------------------------------------------------------------------------------------
-// The roster: the TO modes a user sees in a session of their own. Seats, ralph and workflow
-// orchestrators never run in a visible session, so they are never labelled. One entry per mode,
-// in footer order; a third mode is one more entry.
+// The roster: the footer labels a user sees in a session of their own. There are two session modes,
+// director mode and orchestration mode; the `orchestrator` entry is the orchestrator label, which
+// carries a run indicator while the session holds an open run (the indicator is not a mode of its
+// own). Seats, ralph and workflow orchestrators never run in a visible session, so they are never
+// labelled. One entry per label, in footer order.
 // ---------------------------------------------------------------------------------------------
 
 export type ModeName = 'director' | 'orchestrator'
@@ -76,9 +78,9 @@ export type ModeName = 'director' | 'orchestrator'
 export type ModeEntry = {
   /** The name drawn in the footer after FOOTER_PREFIX. */
   name: ModeName
-  /** The session marker file the task-orchestrator plugin writes for the mode. */
+  /** The session marker file the task-orchestrator plugin writes for the label (for `orchestrator`, the open-run marker). */
   marker: string
-  /** The backdrop id and glass set while this is the first roster mode on. */
+  /** The backdrop id and glass set while this is the first roster label on. */
   backdropId: string
   glass: { readonly blur: number; readonly tint: string; readonly opacity: number }
 }
@@ -444,9 +446,14 @@ const WAVE_LABEL = /^r-\d{8,14}-([0-9a-f]{6,})$/i
  * label, else its title, else the id prefix, cut to `max`.
  */
 export function runLabel(run: BoardRun, max = 24): string {
-  const wave = WAVE_LABEL.exec(run.label)
+  return shortRunLabel(run.label || run.title || run.id.slice(0, 8), max)
+}
 
-  return cut(wave?.[1] ?? (run.label || run.title || run.id.slice(0, 8)), max)
+/** A run label as the band and the footer draw it: a run-wave label's trailing short id, else the label, cut to `max`. */
+export function shortRunLabel(label: string, max = 24): string {
+  const wave = WAVE_LABEL.exec(label)
+
+  return cut(wave?.[1] ?? label, max)
 }
 
 /**

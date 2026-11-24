@@ -217,6 +217,12 @@ test('the footer always names the mode: orchestrator at rest, else the roster mo
     { values: { director: { since: '2026-11-07T14:02:00.000Z' }, orchestrator: null }, modes: 'director' },
     { values: { director: null, orchestrator: ORCH }, modes: 'orchestrator · run wave-8' },
     { values: { director: { since: 'x' }, orchestrator: ORCH }, modes: 'director & orchestrator · run wave-8' },
+    // The open run a hot-reloaded session still holds under the pre-rename `coordinator` key; the new key wins.
+    { values: { coordinator: ORCH }, modes: 'orchestrator · run wave-8' },
+    { values: { coordinator: ORCH, orchestrator: { ...ORCH, label: 'new-run' } }, modes: 'orchestrator · run new-run' },
+    // The footer shortens the run label as the band does.
+    { values: { orchestrator: { ...ORCH, label: 'r-202611101447-6e90e4d6' } }, modes: 'orchestrator · run 6e90e4d6' },
+    { values: { orchestrator: { ...ORCH, label: 'A run label that is far too long for one cell' } }, modes: 'orchestrator · run A run label that is far…' },
   ]
   let values: Record<string, unknown> = {}
   on('state.get', seedState(() => values))

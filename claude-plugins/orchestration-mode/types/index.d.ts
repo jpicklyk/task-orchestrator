@@ -111,6 +111,8 @@ declare module 'claude-code' {
     'orchestration-mode': {
       director: DirectorState
       orchestrator: OrchestratorState
+      /** The orchestrator state's key before it was renamed; read only, never written (see `readOrchestrator`). */
+      coordinator: OrchestratorState
       focus: FocusState
       bandHidden: boolean
       board: Board

@@ -16,7 +16,7 @@
     "backdrop": {
       "type": "boolean",
       "title": "Mode backdrop",
-      "description": "Tint the desktop app's backdrop while this session is in director or orchestrator mode. The footer label and toasts show either way.",
+      "description": "Tint the desktop app's backdrop while this session is in director mode or orchestration mode. The footer label and toasts show either way.",
       "default": true
     },
     "apiUrl": {
