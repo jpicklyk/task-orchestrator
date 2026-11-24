@@ -719,7 +719,7 @@ class ItemDeleteLinkCleanupTest {
         }
 
     @Test
-    fun `T6 a store fault at the item delete keeps the links into its notes`(): Unit =
+    fun `T6 a store fault at the item delete keeps the links into its notes and the retry cleans them`(): Unit =
         runBlocking {
             bystanders()
             val doomed = newItem(rootItem(), "doomed")
@@ -730,14 +730,53 @@ class ItemDeleteLinkCleanupTest {
             assertTrue(before.any { it.targets(noteRef(n)) }, "control: a link into the note")
             exec("CREATE TRIGGER t6_fault BEFORE DELETE ON work_items WHEN OLD.title = 'doomed' BEGIN SELECT RAISE(ABORT, 'inj'); END")
 
-            assertDeleteFails { items.delete(doomed.id, recursive = false, caller = null) }
+            assertDeleteFailsWith("inj") { items.delete(doomed.id, recursive = false, caller = null) }
 
             assertEquals(sorted(before), sorted(snapshot()), "the failed unit rolled every link change back")
             assertEquals(1, scalar("SELECT count(*) FROM work_items WHERE title = 'doomed'"), "control: the item is still there")
+
+            exec("DROP TRIGGER t6_fault")
+            items.delete(doomed.id, recursive = false, caller = null).value()
+            assertEquals(emptyList(), inbound(noteRef(n)), "control: without the fault the same delete removes the link")
         }
 
     @Test
-    fun `T7 note and item deletes with links into the note record the same event types as those without`(): Unit =
+    fun `T6b a fault on the root of a recursive delete keeps the links into a descendant's note and the retry cleans them`(): Unit =
+        runBlocking {
+            bystanders()
+            val doomed = newItem(rootItem(), "doomed")
+            val c = newItem(doomed, "C")
+            val a = newItem(rootItem(), "A")
+            val nC = upsertNote(c.id, "n", "plain")
+            derive(a, nC)
+            val before = snapshot()
+            assertTrue(before.any { it.targets(noteRef(nC)) }, "control: a link into the descendant's note")
+            exec("CREATE TRIGGER t6b_fault BEFORE DELETE ON work_items WHEN OLD.title = 'doomed' BEGIN SELECT RAISE(ABORT, 'inj'); END")
+
+            assertDeleteFailsWith("inj") { items.delete(doomed.id, recursive = true, caller = null) }
+
+            assertEquals(sorted(before), sorted(snapshot()), "no descendant-level cleanup survives the failed unit")
+            assertEquals(2, scalar("SELECT count(*) FROM work_items WHERE title IN ('doomed','C')"), "control: nothing was deleted")
+
+            exec("DROP TRIGGER t6b_fault")
+            items.delete(doomed.id, recursive = true, caller = null).value()
+            assertEquals(emptyList(), inbound(noteRef(nC)), "control: without the fault the same delete removes the link")
+        }
+
+    private suspend fun assertDeleteFailsWith(
+        reason: String,
+        block: suspend () -> Outcome<*>
+    ) {
+        val outcome = runCatching { block() }
+        val message =
+            outcome.exceptionOrNull()?.let { generateSequence(it) { t -> t.cause }.joinToString(" | ") { t -> t.message.orEmpty() } }
+                ?: (outcome.getOrNull() as? Outcome.Err)?.error?.message
+        assertNotNull(message, "the injected store fault must fail the delete, got: $outcome")
+        assertTrue(message.contains(reason), "the delete failed for the injected reason '$reason', got: $message")
+    }
+
+    @Test
+    fun `T7 note and item deletes with links into the note return the same result and record the same events as those without`(): Unit =
         runBlocking {
             bystanders()
             val a = newItem(rootItem(), "A")
@@ -756,25 +795,37 @@ class ItemDeleteLinkCleanupTest {
 
             assertTrue(noteLinkedEvents.isNotEmpty(), "control: a note delete emits events")
             assertEquals(notePlainEvents, noteLinkedEvents, "a link into the note adds no event to a note delete")
-            assertEquals(rPlain.key, rLinked.key)
+            assertEquals(
+                rPlain.copy(id = rLinked.id, itemId = rLinked.itemId, createdAt = rLinked.createdAt, modifiedAt = rLinked.modifiedAt),
+                rLinked,
+                "the deleted note returned is the same with and without a link into it"
+            )
             assertEquals(emptyList(), inbound(noteRef(nLinked)))
             assertEquals(emptyList(), inbound(noteRef(nPlain)))
 
             val x = newItem(rootItem(), "X")
+            val xc = newItem(x, "XC")
             val y = newItem(rootItem(), "Y")
+            val yc = newItem(y, "YC")
             val nx = upsertNote(x.id, "n", "plain")
+            val nxc = upsertNote(xc.id, "n", "plain")
             upsertNote(y.id, "n", "plain")
+            upsertNote(yc.id, "n", "plain")
             derive(a, nx)
+            derive(a, nxc)
             val m2 = eventTypes().size
-            items.delete(x.id, recursive = false, caller = null).value()
+            val itemLinked = items.delete(x.id, recursive = true, caller = null).value()
             val itemLinkedEvents = eventTypes().drop(m2)
             val m3 = eventTypes().size
-            items.delete(y.id, recursive = false, caller = null).value()
+            val itemPlain = items.delete(y.id, recursive = true, caller = null).value()
             val itemPlainEvents = eventTypes().drop(m3)
 
             assertTrue(itemLinkedEvents.isNotEmpty(), "control: an item delete emits events")
             assertEquals(itemPlainEvents, itemLinkedEvents, "a link into a removed note adds no event to an item delete")
+            assertEquals(1, itemPlain.descendantsDeleted, "control: the delete removed one descendant")
+            assertEquals(itemPlain.copy(id = itemLinked.id), itemLinked, "the item delete result is the same with and without links")
             assertEquals(emptyList(), inbound(noteRef(nx)))
+            assertEquals(emptyList(), inbound(noteRef(nxc)))
         }
 
     // ---------------------------------------------------------------- probes

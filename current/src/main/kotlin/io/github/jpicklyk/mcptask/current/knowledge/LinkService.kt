@@ -125,8 +125,8 @@ class LinkService(
      * Cleans up after an item-delete cascade removed [itemIds] and, through the notes foreign key, [noteIds]: every
      * link sourced from a removed note or item is deleted (all relations), and so is every resolved link INTO a
      * removed note (all relations) or a removed item except [LinkRelation.ADOPTED_BY] (an adoption outlives the
-     * adopting item). Matches on (kind, id)
-     * only, so links stamped with another root are cleaned too. Joins the ambient unit; records no event.
+     * adopting item). Matches on (kind, id) only, so links stamped with another root are cleaned too. Joins the ambient
+     * unit; records no event.
      */
     suspend fun onItemsDeleted(
         itemIds: Collection<UUID>,
