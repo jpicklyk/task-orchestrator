@@ -211,7 +211,8 @@ private fun criteria(
         createdBefore = select.createdBefore,
         roleChangedAfter = select.roleChangedAfter,
         roleChangedBefore = select.roleChangedBefore,
-        orderBy = select.orderBy?.let(::order) ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY
+        orderBy = select.orderBy?.let(::order) ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+        includeParents = select.includeParents ?: false
     )
 
 private fun role(role: SelectRole): Role =

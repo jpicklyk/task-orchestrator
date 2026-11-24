@@ -139,7 +139,8 @@ data class ClaimSelect(
     @Doc("Only items whose role changed at or before this instant.")
     @Serializable(with = IsoInstantSerializer::class)
     val roleChangedBefore: Instant? = null,
-    @Doc("Ranking of the matches: priority (default), oldest or newest.") val orderBy: SelectOrder? = null
+    @Doc("Ranking of the matches: priority (default), oldest or newest.") val orderBy: SelectOrder? = null,
+    @Doc("Also match parent items.") val includeParents: Boolean? = null
 )
 
 /** `advance` op `claim`: claim one item, by id or by selector. */

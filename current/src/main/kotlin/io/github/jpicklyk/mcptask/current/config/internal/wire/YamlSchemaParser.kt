@@ -80,8 +80,8 @@ internal object ConfigKeyCatalog {
     val TOP_LEVEL_MIGRATION_ONLY: Set<String> =
         setOf("schema_resolution", "retrospective", "actor_attribution", "orchestration")
 
-    val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
-    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
+    val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats", "builds")
+    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when", "builds")
     val NOTE_ENTRY: Set<String> =
         setOf(
             "key",
@@ -340,6 +340,7 @@ internal object YamlSchemaParser {
         val parsedTraits = parseTraits(root, warnings)
         val traitSeatsMap = parseTraitSeatsMap(root, warnings)
         val traitDescriptors = parseTraitDescriptors(root, warnings)
+        val traitBuilds = parseTraitBuilds(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val independence = parseIndependencePolicy(root, warnings)
@@ -397,6 +398,7 @@ internal object YamlSchemaParser {
             traitDispatchBySeat = traitDispatchBySeat,
             traitSeats = traitSeatsMap,
             traitDescriptors = traitDescriptors,
+            traitBuilds = traitBuilds,
             presentSections = presentSections,
         )
     }
@@ -459,6 +461,16 @@ internal object YamlSchemaParser {
                     parseEntry(raw, schemaName, index, "$schemaPath/notes/$index", warnings)
                 }
 
+            val builds =
+                when (val rawBuilds = schemaMap["builds"]) {
+                    null -> true
+                    is Boolean -> rawBuilds
+                    else -> {
+                        warnings.soft("$schemaPath/builds", "Schema '$schemaName' 'builds' must be a boolean; ignoring")
+                        true
+                    }
+                }
+
             val seats = parseSeatEntries(schemaMap["seats"], "Schema '$schemaName'", "$schemaPath/seats", warnings)
             validateSeatScope("Schema '$schemaName'", seats, "$schemaPath/seats")
 
@@ -479,7 +491,8 @@ internal object YamlSchemaParser {
                     lifecycleMode = lifecycleMode,
                     notes = entries,
                     defaultTraits = defaultTraits,
-                    seats = seats
+                    seats = seats,
+                    builds = builds
                 )
         }
 
@@ -565,6 +578,28 @@ internal object YamlSchemaParser {
             val appliesWhen = text("applies_when")
             if (description != null || appliesWhen != null) {
                 result[traitName] = TraitDescriptor(description, appliesWhen)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Parses each trait's optional `builds` boolean into a trait-name to value map. A trait that does not set it is
+     * absent from the result; a non-boolean value (including YAML null) is a soft finding and is ignored.
+     */
+    @Suppress("UNCHECKED_CAST") // SnakeYAML mapping nodes are untyped String-keyed maps; erasure leaves the cast unchecked
+    private fun parseTraitBuilds(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, Boolean> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        val result = mutableMapOf<String, Boolean>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any?> ?: continue
+            if (!rawMap.containsKey("builds")) continue
+            when (val value = rawMap["builds"]) {
+                is Boolean -> result[traitName] = value
+                else -> warnings.soft(ptr("traits", traitName, "builds"), "Trait '$traitName' 'builds' must be a boolean; ignoring")
             }
         }
         return result

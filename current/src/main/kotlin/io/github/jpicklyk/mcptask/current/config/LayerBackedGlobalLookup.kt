@@ -43,6 +43,8 @@ class LayerBackedGlobalLookup(
 
     override fun traitDescriptor(name: String): TraitDescriptor? = document.traitDescriptors[name]
 
+    override fun traitBuilds(name: String): Boolean? = document.traitBuilds[name]
+
     override fun resourceRegistry(): Map<String, ResourceDefinition> = document.resourceRegistry
 
     override fun noteLimitsMode(): String = document.noteLimitsMode ?: DEFAULT_NOTE_LIMITS_MODE

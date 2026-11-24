@@ -435,7 +435,9 @@ class WorkItemsV26GoldenTest {
                     "claim_assignment_id",
                     // V37 appends the typed blocked reason and its decision reference (nullable TEXT and BLOB)
                     "blocked_reason",
-                    "blocked_ref"
+                    "blocked_ref",
+                    // V38 appends the pinned builds flag (nullable INTEGER)
+                    "builds"
                 ),
                 cols.map { it.name },
                 "column list and order"

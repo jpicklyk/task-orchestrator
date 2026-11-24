@@ -131,6 +131,10 @@
                     "oldest",
                     "newest"
                   ]
+                },
+                "includeParents": {
+                  "type": "boolean",
+                  "description": "Also match parent items."
                 }
               }
             },

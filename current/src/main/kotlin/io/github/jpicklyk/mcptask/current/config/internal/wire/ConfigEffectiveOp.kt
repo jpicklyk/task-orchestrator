@@ -65,7 +65,14 @@ internal val configEffectiveOp =
                 val traits =
                     layered.traitNames().mapNotNull { name ->
                         val notes = layered.traitNotes(name) ?: return@mapNotNull null
-                        traitDto(name, notes, layered.traitDispatch(name), layered.traitResources(name), layered.traitDescriptor(name))
+                        traitDto(
+                            name,
+                            notes,
+                            layered.traitDispatch(name),
+                            layered.traitResources(name),
+                            layered.traitDescriptor(name),
+                            layered.traitBuilds(name),
+                        )
                     }
                 val dto =
                     EffectiveConfigDto(
@@ -109,13 +116,17 @@ private fun DispatchProfile.toDto(): DispatchProfileDto = DispatchProfileDto(age
 private fun ResourceRequirement.toDto(): ResourceRequirementDto =
     ResourceRequirementDto(key = key, mode = mode.name.lowercase(), ttlSeconds = ttlSeconds)
 
-/** `dispatch`, `resources`, `description` and `appliesWhen` are omitted (null), never empty, when the trait declares none. */
+/**
+ * `dispatch`, `resources`, `description` and `appliesWhen` are omitted (null), never empty, when the trait declares none;
+ * `builds` is emitted only when false.
+ */
 private fun traitDto(
     name: String,
     notes: List<NoteSchemaEntry>,
     dispatch: Map<Role, DispatchProfile>,
     resources: List<ResourceRequirement>,
-    descriptor: TraitDescriptor?
+    descriptor: TraitDescriptor?,
+    builds: Boolean?
 ): TraitDto =
     TraitDto(
         name = name,
@@ -131,7 +142,8 @@ private fun traitDto(
             },
         resources = if (resources.isEmpty()) null else resources.map { it.toDto() },
         description = descriptor?.description,
-        appliesWhen = descriptor?.appliesWhen
+        appliesWhen = descriptor?.appliesWhen,
+        builds = if (builds == false) false else null
     )
 
 private fun SchemaMatch.toDto(queriedType: String): EffectiveSchemaDto =
@@ -143,5 +155,6 @@ private fun SchemaMatch.toDto(queriedType: String): EffectiveSchemaDto =
         lifecycleMode = schema.lifecycleMode.name.lowercase(),
         hasReviewPhase = schema.hasReviewPhase(),
         notes = schema.notes.map { it.toDto() },
-        defaultTraits = schema.defaultTraits
+        defaultTraits = schema.defaultTraits,
+        builds = if (schema.builds) null else false
     )

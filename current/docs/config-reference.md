@@ -17,9 +17,9 @@ Every top-level key has one owner. The server validates what it owns and stores 
 
 | Key | Owner | Server file | Per-root push | Notes |
 |-----|-------|-------------|---------------|-------|
-| `work_item_schemas` | server | yes | yes | Note schemas by item `type`: `lifecycle`, `default_traits`, `notes`, `seats`. |
+| `work_item_schemas` | server | yes | yes | Note schemas by item `type`: `lifecycle`, `default_traits`, `notes`, `seats`, `builds`. |
 | `note_schemas` | server | yes | yes | The legacy 3.x form of `work_item_schemas`. Cannot appear in the same document as `work_item_schemas`. |
-| `traits` | server | yes | yes | Composable signals: `notes`, `resources`, `dispatch`, `seats`, and the text fields `description` and `applies_when`. |
+| `traits` | server | yes | yes | Composable signals: `notes`, `resources`, `dispatch`, `seats`, `builds`, and the text fields `description` and `applies_when`. |
 | `note_limits` | server | yes | yes | `mode`: `warn` or `reject`. |
 | `status_labels` | server | yes | yes | Trigger to label map; an explicit `null` clears a label. |
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
@@ -143,6 +143,19 @@ A trait may carry `description` (what it is for) and `applies_when` (when it app
 blank string is absent, and a non-string value is a parser finding and is dropped. They are served with the trait by
 `config` `effective` and never evaluated by the server. A per-root trait entry replaces the server's entry of the same
 name as a whole, so a per-root trait that omits them serves neither.
+
+### Schema and trait `builds`
+
+`builds: false` on a work item schema or on a trait marks items that are not work that builds (decision 0004), such as a
+plan or a design item. In the `queue` role, `items_read` `next` and an `advance` `claim` select skip them, with or
+without `includeParents`; a claim by `itemId` still claims them, and the other roles are unaffected. An item builds unless
+its schema or any of its traits (item traits, then `default_traits`) sets `builds: false`: false wins, and `builds: true`
+changes nothing. A trait that carries only `builds: false` still applies. A schema-free item (a type no schema resolves)
+always builds: its traits' `builds` is not read. A per-root trait entry replaces the server's
+entry whole, so a per-root trait that omits `builds` leaves it unset. A non-boolean value is a parser finding and is
+ignored. The value is part of the item's [schema pin](#schema-pins): a later push changes it only when the item re-pins
+(`repin`), and an item pinned before the flag was stored builds until it re-pins. `config` `effective` shows `builds: false` on a schema or
+trait that sets it.
 
 ### Seat rules
 
@@ -341,7 +354,8 @@ unknown `project.rootId` fails startup. An absent, empty or comment-only file im
 Every config version is immutable, so an item can resolve against the exact versions it started under. Each item is
 **pinned**: it records the server config version and its root's config version that were the heads when the pin was
 taken (none for a scope with no config or a reset head), the base schema its type resolved to under them (the schema
-key and whether the server or the root layer declared it; none when schema-free) and that schema's `lifecycle`.
+key and whether the server or the root layer declared it; none when schema-free), that schema's `lifecycle`, and its
+[`builds`](#schema-and-trait-builds) merged with the item's traits (none when schema-free).
 
 **What a pin governs.** A pinned item's schema (notes and gates), trait merge, seats, dispatch and resource
 requirements come from its pinned versions and its pinned base schema, so a later push, rollback or reset of either

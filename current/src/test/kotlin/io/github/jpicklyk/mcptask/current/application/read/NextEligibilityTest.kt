@@ -162,6 +162,20 @@ class NextEligibilityTest {
                 Priority.LOW -> 2
             }
 
+        /**
+         * Decision 0004 with task-scope R1-R3 (item 6aa122da), in the queue role only: a leaf (no child whose role is set; a
+         * lifecycle-free child does not count) unless [NextItemRecommender.Criteria.includeParents], and one whose pin does
+         * not say `builds: false`. A container or a non-building item is not a match at all.
+         */
+        private fun startable(
+            item: WorkItem,
+            c: NextItemRecommender.Criteria
+        ): Boolean {
+            if (c.role != Role.QUEUE) return true
+            val leaf = created.values.none { it.parentId == item.id && it.role != null }
+            return (leaf || c.includeParents) && item.pin?.builds != false
+        }
+
         /** R: the eligible items for [c], in order. */
         fun reference(c: NextItemRecommender.Criteria): List<WorkItem> {
             val parentId = c.parentId
@@ -184,7 +198,8 @@ class NextEligibilityTest {
                         (createdAfter == null || !item.createdAt.isBefore(createdAfter)) &&
                         (createdBefore == null || !item.createdAt.isAfter(createdBefore)) &&
                         (wantedTags == null || wantedTags.any { it.trim().lowercase() in tagTokens(item) }) &&
-                        (scope == null || (listOf(item) + ancestorsOf(item)).any { it.id in scope })
+                        (scope == null || (listOf(item) + ancestorsOf(item)).any { it.id in scope }) &&
+                        startable(item, c)
                 }
             val eligible =
                 matched.filter { item ->
@@ -222,6 +237,7 @@ class NextEligibilityTest {
             NextItemRecommender.Criteria(type = "t1"),
             NextItemRecommender.Criteria(role = Role.WORK),
             NextItemRecommender.Criteria(role = Role.REVIEW),
+            NextItemRecommender.Criteria(includeParents = true),
             NextItemRecommender.Criteria(createdAfter = t.minusSeconds(900), createdBefore = t.minusSeconds(500))
         )
 

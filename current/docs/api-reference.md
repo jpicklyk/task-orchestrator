@@ -643,7 +643,10 @@ mode (`since`, `recentTransitions`) has no form here: `history` serves the trans
 **`next`.** The items an agent could pick up now, ranked, with eligibility decided in SQL over the whole matching set
 (an eligible item is found however many ineligible ones rank ahead of it): the item has the `role` (default
 `queue`; `terminal` is `invalid_request` on `/role`), matches the filters, has no active claim, has no ancestor
-holding an active claim, and has no unsatisfied blocking dependency. `complexityMax` is 1 to 10 and excludes items
+holding an active claim, and has no unsatisfied blocking dependency. In `queue` only startable work matches
+(decision 0004): a leaf, meaning no child that has a role (a lifecycle-free child does not count; a terminal one does),
+whose pinned schema and traits do not set `builds: false`. `includeParents: true` also lists parents; a `builds: false`
+item stays out either way. In the other roles neither rule applies. `complexityMax` is 1 to 10 and excludes items
 without a complexity; `tags` matches any (case-insensitive); date bounds are inclusive and an inverted pair is
 `invalid_request`. `orderBy`: `priority` (default: high first, then lower complexity, unrated last), `oldest`
 (`createdAt` ascending) or `newest`; ties by id. `limit` 1 to 200, default **1**. `includeClaimed` turns the claim
@@ -653,7 +656,8 @@ adds `isClaimed` (a boolean, never the holder) to each entry. `fields`: `summary
 When the page is empty, `data.reason` says why only if items matched the filters: `claim_held` (matches exist but
 are under an active claim, their own or an ancestor claim) or `dependency_unmet` (matches are free of claims but wait
 on a blocker; with `includeClaimed`, always this). Nothing matched: no `reason`, and a drain worker should stop; a
-`reason` means wait and retry.
+`reason` means wait and retry. A parent or `builds: false` item is not a match, so a queue holding only those answers
+with no `reason`.
 
 ```json
 { "items": [ { "id": "550e8400", "type": "feature-task", "title": "Design login flow", "role": "queue", "priority": "high", "depth": 2, "version": 3 } ],
@@ -828,7 +832,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `next`** (orchestration profile only; capability `read`): One page of the items ready to pick up, ranked (default limit 1, max 200): in the role (default queue; not terminal), unclaimed, not under a claim by another agent, no unsatisfied blocker. includeClaimed lists claimed items too. Empty with reason claim_held or dependency_unmet when matches exist but none is ready. fields: summary, ancestors.
+**`items_read` select `next`** (orchestration profile only; capability `read`): One page of the items ready to pick up, ranked (default limit 1, max 200): in the role (default queue; not terminal), in queue a leaf that builds (includeParents lists parents), unclaimed, not under a claim by another agent, no unsatisfied blocker. includeClaimed lists claimed items too. Empty with reason claim_held or dependency_unmet when matches exist but none is ready. fields: summary, ancestors.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -847,6 +851,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | `roleChangedBefore` | string (date-time) | no | Role changed at or before (ISO 8601). |
 | `orderBy` | string: priority \| oldest \| newest | no | Ranking: priority (default: high first, then lower complexity), oldest or newest first. |
 | `includeClaimed` | boolean | no | Also list items under an active claim, each with isClaimed; default false. |
+| `includeParents` | boolean | no | Also list parent items; default false. |
 | `limit` | integer | no | Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. |
 | `cursor` | string | no | The page.next of the previous page; absent for the first page. |
 | `fields` | array of string | no | Extra members. get: createdAt, modifiedAt, roleChangedAt, ancestors. list: the same plus summary. schema: guidance. |
@@ -1290,7 +1295,9 @@ it is `not_claim_holder` unless the caller holds the active claim (recommended c
 heartbeat the holder id is the principal's audited id (`api:<id>` for a credential, `local` for the local principal); no policy can reject it. The holder's identity never appears in any error detail.
 
 `select` filters: `role` (default `queue`), `parentId`, `tags` (any), `priority`, `type`, `complexityMax`, `createdAfter`,
-`createdBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy` (`priority` default, `oldest`, `newest`). The best eligible
+`createdBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy` (`priority` default, `oldest`, `newest`), `includeParents`.
+In `queue` the selector matches only what `next` lists there: a leaf that builds, plus parents with `includeParents: true`; a
+claim by `itemId` claims a parent as before. The best eligible
 match (no active claim, no blocking ancestor claim by another actor, no unmet dependency) is claimed and `selected: true` is
 reported. A selector that finds nothing claimable is `ok` with `{claimed: false}` plus, when matching items exist but none can be
 claimed, `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and `excluded: {claimed, ancestorClaimed,
@@ -1389,6 +1396,7 @@ Errors: `ambiguous_id`, `dependency_unmet`, `forbidden`, `gate_blocked`, `idempo
 | `select.roleChangedAfter` | string (date-time) | no | Only items whose role changed at or after this instant. |
 | `select.roleChangedBefore` | string (date-time) | no | Only items whose role changed at or before this instant. |
 | `select.orderBy` | string: priority \| oldest \| newest | no | Ranking of the matches: priority (default), oldest or newest. |
+| `select.includeParents` | boolean | no | Also match parent items. |
 | `ttlSeconds` | integer | no | Claim lifetime in seconds, 1 to 86400; default 900. |
 | `claimRef` | string | no | Opaque caller reference (at most 64 characters), echoed in the result. |
 

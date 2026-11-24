@@ -355,7 +355,8 @@ class ItemsReadNextTest {
     fun `S11 each filter narrows to exactly the matching items and filters combine with AND`(): Unit =
         irApp(db.db, dir) { rig ->
             val t = seedTree(rig)
-            val scope = """"ancestorId":"${t.parent.id}""""
+            // k1 is the queue parent of grand: includeParents keeps it, since the subject here is the filters (decision 0004).
+            val scope = """"ancestorId":"${t.parent.id}","includeParents":true"""
 
             suspend fun expect(
                 label: String,
@@ -390,9 +391,10 @@ class ItemsReadNextTest {
         irApp(db.db, dir) { rig ->
             val t = seedTree(rig)
 
-            val direct = select(next(""","limit":200,"parentId":"${t.parent.id}""""))
-            val subtree = select(next(""","limit":200,"ancestorId":"${t.parent.id}""""))
-            val byPrefix = select(next(""","limit":200,"parentId":"${short(t.parent.id)}""""))
+            // k1 is the queue parent of grand: includeParents keeps it, since the subject here is the scoping (decision 0004).
+            val direct = select(next(""","limit":200,"includeParents":true,"parentId":"${t.parent.id}""""))
+            val subtree = select(next(""","limit":200,"includeParents":true,"ancestorId":"${t.parent.id}""""))
+            val byPrefix = select(next(""","limit":200,"includeParents":true,"parentId":"${short(t.parent.id)}""""))
 
             assertEquals(shorts(t.k1, t.k2), direct.ids(), direct.items.titles().toString())
             assertEquals(shorts(t.k1, t.k2, t.grand), subtree.ids(), subtree.items.titles().toString())
@@ -533,12 +535,13 @@ class ItemsReadNextTest {
             val root2 = rig.vwMake("Theirs", id = r2)
             rig.vwMake("Theirs-child", root2)
 
-            val scoped = select(next(""","limit":200"""), TEST_TOKEN)
+            // The roots are queue parents: includeParents keeps them, since the subject here is the scope (decision 0004).
+            val scoped = select(next(""","limit":200,"includeParents":true"""), TEST_TOKEN)
 
             assertEquals(shorts(root1, own), scoped.ids(), scoped.items.titles().toString())
             assertEquals(2, scoped.total)
             assertFalse("Theirs" in scoped.raw, scoped.raw)
-            assertEquals(4, select(next(""","limit":200""")).total, "control: unrestricted")
+            assertEquals(4, select(next(""","limit":200,"includeParents":true""")).total, "control: unrestricted")
         }
     }
 

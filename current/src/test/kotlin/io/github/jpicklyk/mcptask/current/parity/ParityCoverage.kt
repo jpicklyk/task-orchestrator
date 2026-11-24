@@ -405,7 +405,7 @@ object ItemsReadParityScenarios {
                 "next",
                 ParityKind.HAPPY,
                 reader,
-                """{"select":"next","limit":5}""",
+                """{"select":"next","limit":5,"includeParents":true}""",
                 200,
                 expectContains = listOf("Alpha root zephyrquux", "Beta root zephyrquux")
             ),
@@ -414,7 +414,7 @@ object ItemsReadParityScenarios {
                 "next",
                 ParityKind.SCOPE_FORBIDDEN,
                 rootScoped,
-                """{"select":"next","limit":5}""",
+                """{"select":"next","limit":5,"includeParents":true}""",
                 200,
                 expectContains = listOf("Alpha root zephyrquux"),
                 expectAbsent = listOf("Beta root")

@@ -57,6 +57,17 @@ internal object WorkViewSql {
         }
 
     /**
+     * True when the outer item has a child whose role is set (any role, terminal included): it is a container, not a
+     * leaf. A lifecycle-free child (NULL role) never counts. Served by the `parent_id` index.
+     */
+    fun hasLifecycleChild(): Op<Boolean> =
+        SqlOp {
+            append("EXISTS (SELECT 1 FROM work_items c WHERE c.parent_id = ")
+            append(WorkItemsTable.id)
+            append(" AND c.role IS NOT NULL)")
+        }
+
+    /**
      * True when the outer item lies strictly below an item returned by [claimedSeed] (a `SELECT work_items.id`
      * of the items whose claim shields their subtree). The subtree is walked DOWNWARD once from the few claimed
      * items (one recursive CTE over the `parent_id` index, `UNION` so cyclic data terminates), not upward per

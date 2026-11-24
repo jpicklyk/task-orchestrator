@@ -704,7 +704,7 @@ Fleet agents claim at the **feature level** (top-level items). Each claiming age
 
 ```
 Fleet agent work loop:
-  advance claim {select: {tags: ["feature"], role: "queue"}}   -> claim a feature
+  advance claim {select: {tags: ["feature"], role: "queue", includeParents: true}}   -> claim a feature
     -> advance transition {itemId: feature, trigger: "start"}
     -> advance transition {itemId: A, trigger: "start"}         [orchestrate, no claim]
     → ... wait for A to complete ...
@@ -730,7 +730,7 @@ Fleet agent work loop:
 
 Heartbeat: call `advance` `heartbeat` with the feature's `itemId` at the recommended cadence while orchestration is in progress. Each heartbeat refreshes `claimExpiresAt` without changing `originalClaimedAt`.
 
-**Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features. Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter skips sub-items in selector mode), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
+**Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features, and add `includeParents: true`: in `queue` a selector matches only leaves by default, so a feature that has children is otherwise never claimed (`queue_empty`). Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter skips sub-items in selector mode), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
 
 ### Summary Table
 
