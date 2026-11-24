@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.Reply
@@ -16,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -262,6 +264,54 @@ class NextStartableTest {
             assertFalse(repinned.repinned, "NULL builds equals the default, so the pin is unchanged")
             assertTrue(rows.none { it.type == "item.pinned" }, "no item.pinned row: ${rows.map { it.type }}")
             assertNull(rig.get(build).pin?.builds, "the stored pin is left as it was")
+        }
+
+    // ------------------------------------------------------------------ S1-S2 item.pinned records builds
+
+    @Test
+    fun `S1 a builds-only repin writes one row whose sides differ only in builds`(): Unit =
+        irApp(db.db, dir, yaml = STARTABLE_YAML) { rig ->
+            val plan = rig.svc("Plan", type = "plan-only")
+            val pin = checkNotNull(rig.get(plan).pin) { "fixture: the item is pinned" }
+            rig.raw.workItemRepository().update(rig.get(plan).copy(pin = pin.copy(builds = null)))
+
+            val (_, rows) =
+                rig.written {
+                    rig.ctx.itemCommandService
+                        .repin(plan.id, null)
+                        .orFail()
+                }
+
+            val pinned = rows.filter { it.type == "item.pinned" }
+            assertEquals(1, pinned.size, "one row: ${rows.map { it.type }}")
+            val row = pinned.single()
+            assertEquals("repin", row.payload()["reason"]?.jsonPrimitive?.content)
+            val from = row.payload()["from"]!!.jsonObject
+            val to = row.payload()["to"]!!.jsonObject
+            assertEquals(true, from.flag("builds"), "a NULL builds reads as true: $from")
+            assertEquals(false, to.flag("builds"), "$to")
+            for (key in listOf("server", "root", "key", "layer")) {
+                assertEquals(from[key], to[key], "$key is equal across sides")
+            }
+        }
+
+    @Test
+    fun `S2 a create row records builds on the to side and none on from`(): Unit =
+        irApp(db.db, dir, yaml = STARTABLE_YAML) { rig ->
+            suspend fun createRow(
+                type: String,
+                traits: List<String> = emptyList()
+            ): JsonObject {
+                val (_, rows) = rig.written { rig.svc("Item $type $traits", type = type, traits = traits) }
+                val row = rows.single { it.type == "item.pinned" }
+                assertEquals("create", row.payload()["reason"]?.jsonPrimitive?.content)
+                assertEquals(JsonNull, row.payload()["from"], "a create has no previous pin")
+                return row.payload()["to"]!!.jsonObject
+            }
+
+            assertEquals(true, createRow("test-item").flag("builds"))
+            assertEquals(false, createRow("plan-only").flag("builds"))
+            assertEquals(false, createRow("test-item", listOf("no-build")).flag("builds"))
         }
 
     // ------------------------------------------------------------------ T9-T10 claim select and empty answers
