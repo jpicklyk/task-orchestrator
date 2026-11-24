@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
 import io.github.jpicklyk.mcptask.current.dependency.DepsGraphRequest
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
-import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.TopoOrder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind

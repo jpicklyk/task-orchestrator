@@ -12,8 +12,8 @@ import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
-import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId

@@ -3,8 +3,8 @@
 package io.github.jpicklyk.mcptask.current.dependency
 
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
-import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.internal.app.CycleDetector
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.identity.internal.app
+package io.github.jpicklyk.mcptask.current.identity.internal.domain
 
 /**
  * Sane upper bound (~100 years) for `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`. Configuring a cap near [Long.MAX_VALUE] would overflow

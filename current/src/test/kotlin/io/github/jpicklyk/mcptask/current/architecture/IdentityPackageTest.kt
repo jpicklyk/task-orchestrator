@@ -156,7 +156,7 @@ class IdentityPackageTest {
             for (n in listOf("CredentialResolver", "ApiAuthConfig", "BearerTokenStore", "JwksApiVerifier")) {
                 put("identity/$n.kt", base)
             }
-            put("identity/internal/app/KeySourceUrlPolicy.kt", "$base.internal.app")
+            put("identity/internal/domain/KeySourceUrlPolicy.kt", "$base.internal.domain")
             put("identity/internal/app/ScopeClaimParser.kt", "$base.internal.app")
             put("identity/internal/wire/ApiAuthConfigLoader.kt", "$base.internal.wire")
             for (n in listOf("JwksKeySetProvider", "TokenLifetimeCap")) {

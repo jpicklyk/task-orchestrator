@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.identity.internal.wire
 
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.identity.internal.app.MAX_TOKEN_LIFETIME_SECONDS_CEILING
-import io.github.jpicklyk.mcptask.current.identity.internal.app.isLiteralLoopbackHost
-import io.github.jpicklyk.mcptask.current.identity.internal.app.parseAbsoluteUrl
+import io.github.jpicklyk.mcptask.current.identity.internal.domain.MAX_TOKEN_LIFETIME_SECONDS_CEILING
+import io.github.jpicklyk.mcptask.current.identity.internal.domain.isLiteralLoopbackHost
+import io.github.jpicklyk.mcptask.current.identity.internal.domain.parseAbsoluteUrl
 import io.github.jpicklyk.mcptask.current.platform.settings.EnvBoolean
 import org.slf4j.LoggerFactory
 import java.net.MalformedURLException

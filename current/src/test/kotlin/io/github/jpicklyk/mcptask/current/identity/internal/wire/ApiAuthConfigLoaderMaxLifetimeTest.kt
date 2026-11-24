@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.identity.internal.wire
 
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.identity.internal.app.MAX_TOKEN_LIFETIME_SECONDS_CEILING
+import io.github.jpicklyk.mcptask.current.identity.internal.domain.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue

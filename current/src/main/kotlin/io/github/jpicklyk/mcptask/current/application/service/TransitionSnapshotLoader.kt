@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.BlockerState
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ChildFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.IndependenceFacts

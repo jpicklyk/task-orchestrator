@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.identity.internal.app
+package io.github.jpicklyk.mcptask.current.identity.internal.domain
 
 import java.net.MalformedURLException
 import java.net.URI

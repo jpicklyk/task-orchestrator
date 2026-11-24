@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.graph
+package io.github.jpicklyk.mcptask.current.dependency.internal.domain
 
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType

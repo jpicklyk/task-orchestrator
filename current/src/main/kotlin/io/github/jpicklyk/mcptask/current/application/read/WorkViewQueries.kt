@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import io.github.jpicklyk.mcptask.current.model.item.ItemSlice
 import io.github.jpicklyk.mcptask.current.model.item.Role

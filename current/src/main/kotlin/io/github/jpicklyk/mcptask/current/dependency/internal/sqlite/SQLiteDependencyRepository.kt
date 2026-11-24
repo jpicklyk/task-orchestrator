@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.dependency.internal.sqlite
 
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType

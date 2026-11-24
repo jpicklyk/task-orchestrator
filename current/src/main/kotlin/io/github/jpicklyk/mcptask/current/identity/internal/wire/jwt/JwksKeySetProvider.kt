@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt
 
 import com.nimbusds.jose.jwk.JWKSet
-import io.github.jpicklyk.mcptask.current.identity.internal.app.requireHttpsOrLoopbackKeySource
+import io.github.jpicklyk.mcptask.current.identity.internal.domain.requireHttpsOrLoopbackKeySource
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.EgressGuard
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.client.HttpClient

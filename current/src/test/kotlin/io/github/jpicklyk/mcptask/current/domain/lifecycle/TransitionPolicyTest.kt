@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.error.Blocker
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
-import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

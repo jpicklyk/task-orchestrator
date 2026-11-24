@@ -22,7 +22,7 @@ const val AUTH_CLOCK_SKEW_SECONDS = 60L
  *    pass. `iat` is OPTIONAL per RFC 7519 §4.1.6, so its absence never fails the token on its own —
  *    only (a) applies then.
  *
- * `maxTokenLifetimeSeconds` is assumed already bounded to at most [io.github.jpicklyk.mcptask.current.identity.internal.app.MAX_TOKEN_LIFETIME_SECONDS_CEILING]
+ * `maxTokenLifetimeSeconds` is assumed already bounded to at most [io.github.jpicklyk.mcptask.current.identity.internal.domain.MAX_TOKEN_LIFETIME_SECONDS_CEILING]
  * by the caller's config loader (both loaders enforce this at parse time), so `maxTokenLifetimeSeconds
  * + AUTH_CLOCK_SKEW_SECONDS` below can never overflow [Long].
  *

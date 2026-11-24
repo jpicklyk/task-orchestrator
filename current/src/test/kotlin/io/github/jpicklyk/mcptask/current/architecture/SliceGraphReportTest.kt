@@ -334,7 +334,6 @@ class SliceGraphReportTest {
                 "domain/lifecycle/" to "lifecycle",
                 "domain/lifecycle/Trigger.kt" to MODEL,
                 "domain/lifecycle/SeatFacts.kt" to MODEL,
-                "domain/graph/" to "dependency",
                 // application/api
                 "application/api/BatchRunner.kt" to "server",
                 "application/api/ToolExecutionContext.kt" to "server",
