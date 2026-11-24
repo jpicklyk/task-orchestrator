@@ -363,6 +363,50 @@ work_item_schemas:
     // ------------------------------------------------------------------ S3 supersede
 
     @Test
+    fun `S10 two reissues count attempts 2 and 3 over the coordinator rows, keep one active row and bind the old row's principal`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val first = f.seats.openOrchestrator(f.run, ORCH).ok()
+            clock.advanceSeconds(5)
+
+            val second = f.seats.reissueOrchestrator(f.run.id, OTHER).ok()
+            clock.advanceSeconds(5)
+            val third = f.seats.reissueOrchestrator(f.run.id, OTHER).ok()
+
+            assertEquals(2, second.issued.seat.attempt)
+            assertEquals(3, third.issued.seat.attempt)
+            val rows = allSeatRows(f.run.id).filter { it["seat"] == "coordinator" }
+            assertEquals(listOf(1L, 2L, 3L), rows.map { it["attempt"] })
+            assertEquals(listOf("superseded", "superseded", null), rows.map { it["outcome"] })
+            assertEquals(1, rows.count { it["status"] == "active" }, "one active coordinator row")
+            assertEquals(ORCH, third.issued.seat.principalId, "bound to the superseded row's principal, not the fallback")
+            assertNull(f.seats.resolve(first.token, ORCH), "the first token is dead")
+            assertNull(f.seats.resolve(second.issued.token, ORCH), "the second token is dead")
+            assertEquals(third.issued.seat.id, f.seats.resolve(third.issued.token, ORCH)?.id, "control: the newest token resolves")
+        }
+
+    @Test
+    fun `S10 reissue of a closed run is run_closed and writes no row, of an unknown run not_found`(): Unit =
+        runBlocking {
+            val f = fixture(RunStatus.CLOSED)
+            assertEquals(
+                ErrorCode.RUN_CLOSED,
+                f.seats
+                    .reissueOrchestrator(f.run.id, ORCH)
+                    .err()
+                    .code
+            )
+            assertEquals(emptyList(), allSeatRows(f.run.id))
+            assertEquals(
+                ErrorCode.NOT_FOUND,
+                f.seats
+                    .reissueOrchestrator(UUID.randomUUID(), ORCH)
+                    .err()
+                    .code
+            )
+        }
+
+    @Test
     fun `S3 re-assigning a triple ends the old row superseded, counts attempt 2 and kills the old token`(): Unit =
         runBlocking {
             val f = fixture()

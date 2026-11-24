@@ -21,7 +21,7 @@ class EventClassAuditEnumerationTest {
     @Test
     fun `every run event type is enumerated in AUDIT_TYPES`() {
         val missing = DomainEvent.RUN_TYPES.filterNot { it in EventClasses.AUDIT_TYPES }
-        assertTrue(DomainEvent.RUN_TYPES.size == 6 && missing.isEmpty(), "run types missing from AUDIT_TYPES: $missing")
+        assertTrue(DomainEvent.RUN_TYPES.size == 7 && missing.isEmpty(), "run types missing from AUDIT_TYPES: $missing")
     }
 
     @Test

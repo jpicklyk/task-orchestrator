@@ -1112,6 +1112,17 @@ Profiles: director; capability `runs`.
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
 
+<a id="runs_write-reissue"></a>
+### `runs_write` op `reissue`
+
+Profiles: director; capability `runs`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `runId` | string | yes |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
+
 <a id="runs_write-mark"></a>
 ### `runs_write` op `mark`
 

@@ -32,7 +32,7 @@ import kotlinx.serialization.Serializable
  *   `scope.entered` the NEW one): the row's `root_id`, always present on a data event since P8 (a
  *   root item uses its own id). Absent only on control events. Never redacted.
  * @param runId The run a `run.*` event is about (`run.opened`, `run.updated`, `run.paused`, `run.resumed`,
- *   `run.ended`, `run.marked`); those events carry no [itemId]. On `seat.ended` and a `decision.*` event, the run it
+ *   `run.ended`, `run.marked`, `run.orchestrator_reissued`); those events carry no [itemId]. On `seat.ended` and a `decision.*` event, the run it
  *   belongs to (absent when the decision names none). Null (absent) for every other event type.
  * @param decisionId On a `decision.*` event, the decision request. Null (absent) for every other event type.
  * @param decisionClass On a `decision.*` event, its class (wire key `class`). Null (absent) otherwise.
@@ -85,8 +85,8 @@ object SyncLostReason {
  * - `ITEM_ADVANCED` -- role transition (the `item.transitioned` row); payload carries [ApiEvent.newRole].
  * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
  * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).
- * - `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked` -- run lifecycle, streamed
- *   under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
+ * - `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked`, `run.orchestrator_reissued` --
+ *   run lifecycle, streamed under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
  * - `seat.ended` -- a seat ended its own assignment (`runs_write end_seat`), with [ApiEvent.runId] and the member item's
  *   [ApiEvent.itemId] (item-scoped visibility, like `note.*`).
  * - `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` -- decision lifecycle

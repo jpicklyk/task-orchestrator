@@ -45,6 +45,12 @@ data class IssuedSeat(
     val token: String
 )
 
+/** A reissued run token: the new `coordinator` row and its token, and when the superseded token was last seen (null when never). */
+data class ReissuedOrchestrator(
+    val issued: IssuedSeat,
+    val supersededSeenAt: Instant?
+)
+
 /** An ended assignment as stored, and the items whose claims the end released. */
 data class SeatEndResult(
     val seat: RunSeat,
@@ -65,6 +71,7 @@ data class SeatEndResult(
  *
  * `open` creates the run-scoped `coordinator` pseudo-seat ([openOrchestrator]); its token is the run token, the only
  * credential of its kind. It is not a member seat: [activeCount] does not count it and a close's in-flight list never names it.
+ * [reissueOrchestrator] replaces a lost one: the old row ends `superseded`, so its token is refused from then on.
  *
  * Also the [RunSeatPort] the run close uses (delegated to the store).
  */
@@ -114,6 +121,45 @@ class SeatService(
                     )
                 )
             Outcome.Ok(IssuedSeat(stored, token))
+        }
+
+    /**
+     * Issues a new run token for [runId], open or paused (closed: `run_closed`), after the caller checked the run's scope
+     * and its permission. In one unit: the active `coordinator` row, when there is one, ends `superseded` and its holder's
+     * claims are released (reason `superseded`); the new row's attempt is one more than the highest over every
+     * `coordinator` row of the run; it is bound to the superseded row's principal, else the run's opener, else
+     * [fallbackPrincipal]. The run's own `coordinator_seen_at` is untouched. Records `run.orchestrator_reissued`. Two
+     * concurrent reissues serialize: the first caller's token is superseded by the second.
+     */
+    suspend fun reissueOrchestrator(
+        runId: UUID,
+        fallbackPrincipal: String
+    ): Outcome<ReissuedOrchestrator> =
+        unitOfWork.write(OP_REISSUE_ORCHESTRATOR) {
+            val run = stores.runStore().getById(runId) ?: return@write err(runNotFound(runId))
+            if (run.status == RunStatus.CLOSED) return@write err(RunService.runClosed(run))
+            val rows = store.list(run.id, null, true).filter { it.isOrchestrator }
+            val previous = rows.firstOrNull { it.isActive }
+            val attempt = (rows.maxOfOrNull { it.attempt } ?: 0) + 1
+            if (previous != null) {
+                store.end(previous.id, RunSeatOutcome.SUPERSEDED, now)
+                releaseClaimsOf(previous, ClaimReleaseReason.SUPERSEDED)?.let { return@write it }
+            }
+            val token = newToken()
+            val stored =
+                store.create(
+                    RunSeat(
+                        runId = run.id,
+                        itemId = null,
+                        seat = RunSeat.ORCHESTRATOR,
+                        attempt = attempt,
+                        principalId = previous?.principalId ?: run.openedBy ?: fallbackPrincipal,
+                        tokenHash = hash(token),
+                        assignedAt = now
+                    )
+                )
+            events.record(DomainEvent.RunOrchestratorReissued(run.id, run.rootId, attempt, previous?.id, previous?.lastSeenAt))
+            Outcome.Ok(ReissuedOrchestrator(IssuedSeat(stored, token), previous?.lastSeenAt))
         }
 
     // -------------------------------------------------------------------------
@@ -280,10 +326,10 @@ class SeatService(
     private suspend fun WriteScope<RunStoreProvider>.releaseClaimsOf(
         seat: RunSeat,
         reason: ClaimReleaseReason
-    ): Outcome<IssuedSeat>? {
+    ): Outcome.Err? {
         for (held in stores.workItemRepository().findHeldBy(seat.principalId, seat.id)) {
             val cleared = claimService.clearClaim(held.id, reason)
-            if (cleared is Outcome.Err) return Outcome.Err(cleared.error)
+            if (cleared is Outcome.Err) return cleared
         }
         return null
     }
@@ -298,6 +344,7 @@ class SeatService(
 
     companion object {
         private const val OP_OPEN_ORCHESTRATOR = "SeatService.openOrchestrator"
+        private const val OP_REISSUE_ORCHESTRATOR = "SeatService.reissueOrchestrator"
         private const val OP_ASSIGN = "SeatService.assign"
         private const val OP_END = "SeatService.endSeat"
         private const val OP_TOUCH = "SeatService.touch"

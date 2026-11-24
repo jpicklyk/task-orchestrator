@@ -3163,6 +3163,32 @@
             "unknown_parameter"
           ]
         },
+        "reissue": {
+          "anchor": "runs_write-reissue",
+          "profiles": [
+            "director"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "runId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "run_closed",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
         "mark": {
           "anchor": "runs_write-mark",
           "profiles": [],

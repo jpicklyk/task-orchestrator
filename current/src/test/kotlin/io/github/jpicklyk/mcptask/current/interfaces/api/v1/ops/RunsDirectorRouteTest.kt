@@ -236,6 +236,26 @@ class RunsDirectorRouteTest {
         }
 
     @Test
+    fun `reissue is refused for a service or agent token on the plain route, allowed for a human there and on the director route`(): Unit =
+        withApp {
+            val runId = client.open()
+            val reissue = ops.ops("""{"op":"reissue","runId":"$runId"}""")
+            for (token in listOf(coord, agent)) {
+                val refused = client.plain(reissue, token)
+                assertEquals(207, refused.status.value, token.id)
+                assertTrue("\"required\":\"director,human\"" in refused.text(), refused.text())
+            }
+            assertEquals(listOf("run.opened"), runEventTypes(), "the refused reissues recorded nothing")
+
+            val byHuman = client.plain(reissue, human)
+            assertEquals(200, byHuman.status.value, byHuman.text())
+            assertTrue(Regex("\"orchestratorToken\":\"[A-Za-z0-9_-]{43}\"").containsMatchIn(byHuman.text()), byHuman.text())
+            val viaDirector = client.director(reissue, coord)
+            assertEquals(200, viaDirector.status.value, viaDirector.text())
+            assertEquals(listOf("run.opened", "run.orchestrator_reissued", "run.orchestrator_reissued"), runEventTypes())
+        }
+
+    @Test
     fun `S13 a service token that is not the coordinator and an agent token follow the same path rule for pause and resume`(): Unit =
         withApp {
             val runId = client.open()

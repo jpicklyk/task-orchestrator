@@ -55,7 +55,7 @@ class DirectorVisibilityGuardTest {
             "deps_read" to setOf("list", "graph"),
             "report" to setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             "runs_read" to setOf("get", "list", "frontier", "decisions", "decision"),
-            "runs_write" to setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw")
+            "runs_write" to setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw")
         )
 
     @Serializable

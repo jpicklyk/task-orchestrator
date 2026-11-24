@@ -105,6 +105,12 @@ data class RunsResumeRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef
 )
 
+/** `runs_write reissue`: issues a new run token for an open or paused run. */
+@Serializable
+data class RunsReissueRequest(
+    @Doc(RUN_ID_DOC) val runId: IdRef
+)
+
 /** `runs_write assign`: the run's orchestrator assigns a seat of a member item and receives the seat token. */
 @Serializable
 data class RunsAssignRequest(
