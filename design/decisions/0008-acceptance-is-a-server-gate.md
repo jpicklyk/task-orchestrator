@@ -22,6 +22,6 @@ In Claude acceptance happens today through conversation or plan-mode approval, a
 - Over stdio a `human-only` decision cannot be answered, a limitation already accepted.
 - Without authentication the server records who said they accepted, not proof that a person did: provenance, not security.
 
-## Still open
+## Form
 
-The gate's smallest form: a required acceptance note satisfied only by an answered decision of the right class, or a new acceptance step in the lifecycle.
+Settled by [0012](0012-acceptance-gate-note-form.md): a required acceptance note satisfied only by an answered decision of a named class and option.

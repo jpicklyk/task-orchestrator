@@ -42,4 +42,6 @@ Each settled choice has a decision record; the [index](decisions/README.md) list
 - [0010](decisions/0010-two-domains.md) Two domains: software development and keeping a knowledge base.
 - [0004](decisions/0004-next-means-startable.md) `next` returns an item a build seat can start now; further changes are held.
 
-Still open: whether the acceptance gate is a note satisfied by an answered decision or a new lifecycle step (see 0008).
+- [0012](decisions/0012-acceptance-gate-note-form.md) The acceptance gate is a note satisfied by an answered decision.
+
+The [architecture breakdown](architecture-breakdown.md) turns these into work packages.

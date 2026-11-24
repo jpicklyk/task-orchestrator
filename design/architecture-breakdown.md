@@ -1,6 +1,6 @@
 # Architecture breakdown
 
-**Status:** Draft for the owner's review | **Date:** 2026-11-24
+**Status:** Reviewed; its three decisions are settled (2026-11-24). Each package becomes items only when the owner approves materializing it. | **Date:** 2026-11-24
 
 This document turns the settled design into work packages: what each one changes, which layer it lands in, what it depends on and in what order the packages can run. It is the bridge between the design documents in this folder and the work items that will carry the work. It is not an implementation plan: once the owner approves a package, it becomes a parent item, and its planner seat writes the plan.
 
@@ -64,11 +64,11 @@ Running in a separate session over container `f2b1432b`: the plugin and docs swe
 - **Records:** [0008](decisions/0008-acceptance-is-a-server-gate.md).
 - **Layer:** server (the gate), plugin (accept card, post-plan grant, ship step).
 - **Contents:**
-  - The gate, opt-in per type, in the form the owner picks (see "Decisions this breakdown needs").
+  - The gate, opt-in per type, as a required acceptance note satisfied only by an answered decision of a named class and option ([0012](decisions/0012-acceptance-gate-note-form.md)).
   - The conditional grant: plan approval in Auto mode records a grant; it satisfies the gate only when review passed, findings were disposed, the build is green at HEAD and no decision is open (the accept card's deterministic checks).
   - The accept mechanics skill: one card, a verbal yes or a send-back. Send-back reuses the fix cycle.
   - The ship seam: a run-profile `postRun` step with `when: accept`, running a project rule. Merge is armed only on acceptance.
-- **Depends on:** the gate form, then P2 if the form uses decisions.
+- **Depends on:** P2, since the gate reads answered decisions.
 - **Size:** M-L.
 
 ### P5 Profile-aware hooks
@@ -106,7 +106,7 @@ Running in a separate session over container `f2b1432b`: the plugin and docs swe
 
 - **Records:** entry-skills server change table.
 - **Layer:** server.
-- **Contents:** `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token. A sibling `rank` is listed in the change table, but the journey map's gap list says to defer it until asked; it stays out until the owner confirms.
+- **Contents:** `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token. A sibling `rank` stays out ([0013](decisions/0013-no-sibling-rank-yet.md)).
 - **Depends on:** nothing.
 - **Size:** M.
 
@@ -126,8 +126,7 @@ flowchart LR
   P5[P5 Profile-aware hooks] --> P6
   P8[P8 Shape support]
   P2 --> P3[P3 One board]
-  G{{Gate form}} --> P4[P4 Acceptance gate]
-  P2 --> P4
+  P2 --> P4[P4 Acceptance gate]
   P1 --> P7[P7 Entry skills]
   P3 --> P7
   P4 --> P7
@@ -135,18 +134,18 @@ flowchart LR
 ```
 
 - **Now, beside P0:** P1 phase 1, P5 and P8. None touches P0's files, and each removes a workaround or a leak on its own.
-- **After P0:** P2, then P3. P4 once the gate form is chosen.
+- **After P0:** P2, then P3 and P4.
 - **Then:** P6, and last P7, which consumes everything else.
 
-## Decisions this breakdown needs
+## Decisions settled for this breakdown (2026-11-24)
 
-1. **The acceptance gate's form** (P4). See the recommendation below.
-2. **Rank** (P8): keep it out, as the journey map says, or build it with the other shape support.
-3. **Where the template record lives** (P6): an `extensions.claude-code` key the plugin reads, or a server-side field. The plugin key is enough for setup and learn; a server field would let other harnesses read it.
+1. **The acceptance gate's form** (P4): a note satisfied by an answered decision, [0012](decisions/0012-acceptance-gate-note-form.md). The costing is below.
+2. **Rank** (P8): kept out, [0013](decisions/0013-no-sibling-rank-yet.md).
+3. **Where the template record lives** (P6): an `extensions.claude-code` key in the project config that the plugin reads. It is enough for setup and learn and needs no server change; a server field can follow if another harness needs to read it.
 
-## Gate form: recommendation
+## Gate form
 
-**Recommended: a note satisfied by an answered decision (form N).** The alternative, a new acceptance step in the lifecycle (form L), was costed against the code on 2026-11-24.
+**Chosen: a note satisfied by an answered decision (form N),** recorded in [0012](decisions/0012-acceptance-gate-note-form.md). The alternative, a new acceptance step in the lifecycle (form L), was costed against the code on 2026-11-24.
 
 | | Form N: note satisfied by a decision | Form L: new lifecycle step |
 |---|---|---|
@@ -160,7 +159,7 @@ Evidence: `TransitionSnapshotLoader.loadDetailed` builds every gate's view; `Gat
 
 **Main risk: "filled" is computed in at least five places outside the gate** (`PhaseNoteContext`, three sites in `ItemsReadContext`, `TransitionOp`). Each must move to one decision-aware function, with a test that compares what `context` reports against what `advance` allows, or `missing` and `canAdvance` will disagree with the real gate.
 
-**Questions the design settles before code** (each with my lean):
+**Questions P4's design settles before code** (each with the lean recorded in 0012):
 
 1. **Which answers satisfy it.** Options belong to each decision, not to the class, so a class match alone would let a "send back" answer satisfy the gate. Lean: the note entry names the class and the satisfying option keys, for example `satisfied_by: { decision_class: acceptance, options: [accept, accept-conditional] }`.
 2. **A stale answer after reopen.** Notes stay filled across a reopen, so an old acceptance would satisfy the second pass. Lean: the answer must be later than the item's last reopen. That needs a reopen time the loader can read: a field on the item, or the transition events.

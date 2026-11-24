@@ -29,3 +29,5 @@ File `NNNN-short-title.md`, numbered in order. Fields: **Status** (Accepted, Sup
 | [0009](0009-setup-applies-tested-templates.md) | Setup applies one pre-built, tested template from a reference library | Accepted | 2026-11-24 |
 | [0010](0010-two-domains.md) | Two domains: software development and keeping a knowledge base | Accepted | 2026-11-24 |
 | [0011](0011-no-sync-with-outside-tools.md) | No synchronisation with outside tools | Accepted | 2026-11-24 |
+| [0012](0012-acceptance-gate-note-form.md) | The acceptance gate is a note satisfied by an answered decision | Accepted | 2026-11-24 |
+| [0013](0013-no-sibling-rank-yet.md) | No sibling rank until a need appears | Accepted | 2026-11-24 |
