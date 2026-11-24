@@ -88,7 +88,7 @@ const PLUGIN = 'orchestration-mode'
 
 const director = atom({ plugin: 'orchestration-mode', key: 'director' } as const, null as DirectorState)
 const orchestrator = atom({ plugin: 'orchestration-mode', key: 'orchestrator' } as const, null as OrchestratorState)
-/** The orchestrator atom's key before the rename: a hot-reloaded session may still hold its state here. Read only. */
+/** The orchestrator atom's key before the rename: a hot-reloaded session may still hold its state here. Read as a fallback and cleared, never set. */
 const legacyOrchestrator = atom({ plugin: 'orchestration-mode', key: 'coordinator' } as const, null as OrchestratorState)
 const focus = atom({ plugin: 'orchestration-mode', key: 'focus' } as const, null as FocusState)
 const bandHidden = atom({ plugin: 'orchestration-mode', key: 'bandHidden' } as const, false)
