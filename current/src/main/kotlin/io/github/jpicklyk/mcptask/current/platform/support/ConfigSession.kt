@@ -14,10 +14,10 @@ import kotlin.coroutines.coroutineContext
  * memo holds the values it is handed without knowing their type, so platform names no config type: the unit runner
  * installs a fresh session per unit attempt, and the config resolver reads through it.
  *
- * **Scope: one tool call.** Installed into the coroutine context by [withConfigSession] at the
- * call boundary (the tool dispatcher's run step, `ToolDispatcher`, which every transport goes through -
- * one session per call) and torn down when that call
- * returns. A `CancellationException` from a read is never memoised: it is rethrown and the next
+ * **Scope: one unit attempt.** [withConfigSession] installs a session at the call boundary (the tool
+ * dispatcher's run step, `ToolDispatcher`, which every transport goes through), and the unit runner
+ * replaces it with a fresh one inside every unit attempt, so a read memoised in one unit is never
+ * seen by the next. A session is torn down when its scope returns. A `CancellationException` from a read is never memoised: it is rethrown and the next
  * lookup for the same key reads fresh. It is NOT shared across separate calls, and NOT shared with
  * coroutines started outside this element's structured-concurrency subtree - notably, a plain
  * `kotlinx.coroutines.runBlocking { ... }` invoked from inside a session-wrapped `execute` does
