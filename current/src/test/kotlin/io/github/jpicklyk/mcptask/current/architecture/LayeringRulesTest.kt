@@ -24,6 +24,17 @@ class LayeringRulesTest {
         text: String
     ) = LayeringRules.violations(path, emptyList(), text, slices).map { it.importedFqName }
 
+    // ------------------------------------------------------------------ package line
+
+    @Test
+    fun `a slice file's own package line is not read as a reference`() {
+        assertEquals(
+            emptyList(),
+            code("telemetry/internal/domain/Rule.kt", "package $root.telemetry.internal.domain\n\nclass Rule"),
+            "a domain file's package line names its own package, not slice-top",
+        )
+    }
+
     // ------------------------------------------------------------------ S1 R4 by import
 
     @Test
