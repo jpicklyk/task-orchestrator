@@ -117,7 +117,7 @@ In code: today `extensions.claude-code.orchestration.mode`. To be renamed `exten
 
 A server record raised when work needs a choice it should not make alone. It holds a question, options, and usually a recommended option, and it belongs to an item, a run or a root. Its answer records the chosen option, the rationale and who decided. An answer never moves the item: the orchestrator resumes it.
 
-Distinct from: open question, an item planned in advance to ask something; settling one usually means raising a decision. Also distinct from ruling, the outcome recorded on the work.
+Distinct from: an item that builds nothing, planned in advance to get something decided; settling one usually means raising a decision. Also distinct from ruling, the outcome recorded on the work.
 In code: today `runs_write` `raise`, `answer`, `ack` and `withdraw`, and `runs_read` `decisions` and `decision`. Proposed: `decisions_write` and `decisions_read`, served on every profile that needs them.
 
 ### Decision inbox
@@ -164,50 +164,28 @@ A settled choice recorded on the work it governs: the option taken and the reaso
 Distinct from: decision, the server record that asked; and from a review verdict, which judges finished work rather than settling a choice.
 Example: after a user answers a decision on a red test, the orchestrator's re-dispatch carries the ruling, and the test author's next pass follows it.
 
-## Incremental delivery
+## Readiness and acceptance
 
-These concepts come from the user-journey work (`plans/user-journey-map.html`) and are not yet in code. Each entry fixes the word before the code that introduces it.
+These concepts come from the user-journey work (`plans/user-journey-map.html`) and are not yet in code. Each entry fixes the word before the code that introduces it. Method words such as epic, story, charter or increment are not Task Orchestrator concepts: a project's schema may name its item types and notes that way, and the tool reads them only as types and notes.
 
-### Increment
+### Building item
 
-A container of stories built and accepted together against one charter. Stories may be added or dropped while it is open, and it closes when the user accepts it.
+An item a build seat produces work for, which is the default. An item marked to build nothing, such as a question to be ruled or a container, is never handed to a build seat by `next`; its `blocks` edges hold back the items that wait on it.
 
-Distinct from: run, one wave of seat dispatch; an increment usually spans several runs.
-Don't call it: iteration (ralph's loop), cycle (the fix cycle), sprint.
-In code: none yet.
-
-### Story
-
-A piece of an increment that can be built, reviewed and accepted on its own, cutting through every layer of the code it touches.
-
-Distinct from: open question, which decides something and builds nothing.
-Don't call it: slice (the codebase audit and the slice-first server layout both use that word).
-In code: none yet.
+Distinct from: a lifecycle-free item (`none`), which never transitions. An item that builds nothing still moves through its phases.
+In code: none yet (proposed `builds`, set on a schema or trait and pinned on the item).
 
 ### Refined
 
-A story's state when every queue-phase note its schema requires is filled, so the queue gate lets it start. A refined story can still be blocked.
+An item whose required queue-phase notes are all filled, so the queue gate lets it start. A refined item can still be blocked. The server computes it from the item's schema, whatever the schema calls the item or its notes.
 
 Distinct from: ready, which in run-wave and `next` means unblocked and claimable.
 Don't call it: ready.
-
-### Charter
-
-The goal, bounds and non-goals of an increment. It is written before the stories are shaped and checked again at acceptance.
-
-Distinct from: plan document. An adopted plan is frozen; a charter can be revised while the increment is open.
-In code: none yet (proposed as a queue note).
-
-### Open question
-
-An item that asks one thing to be decided, planned in advance. Its `blocks` edges run to the stories that cannot start until it is ruled. A shared question blocks two or more stories. Shared questions and irreversible choices are the only things settled before building starts.
-
-Distinct from: decision. Settling an open question usually raises a decision; a decision can also be raised in the middle of work with no open question behind it.
-In code: none yet.
+In code: none yet (proposed `refined`, which `next` filters on).
 
 ### Acceptance
 
-The user's verdict that an item or an increment delivers what was asked, judged against its charter and rulings, and either shipped or sent back.
+The user's verdict that an item delivers what was asked, judged against its own notes and the rulings on it, after which it is shipped or sent back. An item at any depth of the tree can be accepted.
 
 Distinct from: review, a seat's independent check of the work against its plan. Review comes before acceptance and does not replace it.
 In code: none yet.
