@@ -1,6 +1,6 @@
-// coordinator-report.mjs - the one formatter for the coordinator-to-director report block.
+// coordinator-report.mjs - the one formatter for the orchestrator-to-director report block.
 //
-// Pure, stdlib only. A coordinator (run-wave, ralph) never hand-writes a report: it passes ids,
+// Pure, stdlib only. A run's orchestrator (run-wave, ralph) never hand-writes a report: it passes ids,
 // counts and short reasons to formatCoordinatorReport and sends the string it returns. The block
 // carries ids (cut to 8 hex), counts and reasons cut to 120 characters, never a note body, seat
 // prose, diff or token: a field this function does not know is ignored.

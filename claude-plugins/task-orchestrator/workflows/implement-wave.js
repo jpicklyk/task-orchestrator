@@ -1372,7 +1372,7 @@ function promptErrors() {
     'run_paused {pauseReason, pauseDecisionId}: the run is paused on an attempt-cap or manual pause (a run-budget pause exists only on a stored 4.0.0 run). Never retry it; ' +
       'a director or a human answers the decision. Write nothing more and return status "stopped", reason "run_paused", ' +
       'decisionId = detail.pauseDecisionId when present. A withdrawn pause decision leaves the run paused until it closes.',
-    'run_at_capacity {active, max}: transient and coordinator-only (assign at maxActiveSeats); the coordinator backs off until a seat ends.',
+    'run_at_capacity {active, max}: transient and orchestrator-only (assign at maxActiveSeats); the orchestrator of the run backs off until a seat ends.',
     'Permanent, never retried: note_owned_by_other {ownerSeat} (the key belongs to another seat), seat_forbidden, ' +
       'not_claim_holder, decision_closed {decisionId, status}, forbidden (detail.required names who may), not_found ' +
       '(detail.kind seat or decision included), invalid_transition. Stop and put the code in reason. At ENTRY, follow the ' +
@@ -1639,7 +1639,7 @@ function promptRerunAndEntry(plan, item, stage) {
   if (stage.enters) {
     lines.push(`ENTRY: call items_read(select:"context", itemId:"${item.id}") first and read item.role.`)
     if (plan.entryMode === 'pre-entered') {
-      lines.push('entryMode is pre-entered: the coordinator already moved this item to work. Verify role is "work" and never call advance.')
+      lines.push('entryMode is pre-entered: the orchestrator of the run already moved this item to work. Verify role is "work" and never call advance.')
       lines.push(
         'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; ' +
           'else entry {"applied":false,"alreadyInPhase":false} and status "stopped".',

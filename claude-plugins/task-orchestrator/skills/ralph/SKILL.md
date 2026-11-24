@@ -209,10 +209,10 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `invalid_transition` | permanent | driver | `skip` | The item cannot be claimed or moved from its role (for example already terminal). Skip-listed for the rest of the loop. | skip |
 | `duplicate` | permanent | driver | `skip` | update addItems found the item in another open run. Skip-listed for the rest of the loop. | skip |
 | `gate_blocked` | permanent | iteration | `gate-blocked` | advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code. | gate |
-| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; a coordinator or human advances it. | gate |
+| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it. | gate |
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
-| `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
+| `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the run token the loop exits 2. | error |
 | `run_paused` | permanent | driver | `error` | The run paused (attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
 | `run_closed` | permanent | driver | `error` | The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing. | exit |
 | `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
@@ -235,7 +235,7 @@ The script's own exit code:
 | Code | Meaning |
 |---|---|
 | `0` | Loop ended normally (drained, iteration cap, gate or idle budget, run closed elsewhere). A paused run does not end the loop |
-| `2` | Error budget exhausted, or a REST call the loop depends on failed (run open, coordinator credential refused) |
+| `2` | Error budget exhausted, or a REST call the loop depends on failed (run open, run token refused) |
 | `64` | CLI argument error, no REST API URL, or no project root |
 | `70` | Could not read iteration prompt |
 | `130` / `143` | Interrupted by SIGINT / SIGTERM: iteration stopped, seat ended, run closed `cancelled` |
@@ -253,8 +253,8 @@ The script's own exit code:
 | Check the iteration prompt template | Read `skills/ralph/iteration-prompt.md` in this plugin |
 | Regenerate the outcome table after editing `OUTCOME_TABLE` | `node claude-plugins/task-orchestrator/scripts/render-ralph-prompts.mjs` (`--check` verifies) |
 
-**Under a director.** Ralph is a tier-3 coordinator (see `skills/director/references/coordinator-tiers.md`).
-It cannot `SendMessage`, so it prints the coordinator report instead: a `TO report:` block with event
+**Under a director.** Ralph is a tier-3 orchestrator (see `skills/director/references/coordinator-tiers.md`).
+It cannot `SendMessage`, so it prints the orchestrator report instead: a `TO report:` block with event
 `paused` when it starts waiting on a paused run (reason and decision id) and event `closed` after the
 final summary (counts, stopped items, close reason). A background agent that started ralph with Bash
 `run_in_background: true` relays each block to the director (`SendMessage` with `to: "main"`; Monitor on
@@ -332,7 +332,7 @@ When an item would need a fourth attempt, the server pauses the run on an attemp
 
 **Problem: the script exits 64 with "ralph on 4.0 needs the REST API"**
 
-Cause: no REST base URL resolved. The driver has no MCP client; every coordinator call (run open, assign, claim, end seat, close) goes over REST.
+Cause: no REST base URL resolved. The driver has no MCP client; every orchestrator call (run open, assign, claim, end seat, close) goes over REST.
 
 Solution: set `TASK_ORCHESTRATOR_API_URL` (for example `http://localhost:3001`) or `apiUrl` in `.taskorchestrator/client.json`, and `TASK_ORCHESTRATOR_API_TOKEN` when the server requires a credential.
 
@@ -348,13 +348,13 @@ Solution: make both reach the server as the same principal. Local mode (`API_AUT
 
 **Problem: where does the seat token live, and who can read it?**
 
-The seat token value lives in exactly one place: `<scratch-dir>/tokens/<iter>.implementer.token`, one line, written with mode `0o600` in a `0o700` directory, and deleted after the seat ends (a SIGKILLed driver leaves it). `--scratch-dir` defaults to `<tmpdir>/task-orchestrator/ralph/<label>`. The iteration gets the file's PATH (in `TASK_ORCHESTRATOR_SEAT_TOKEN_FILE` and in its prompt), never the value; the coordinator token stays in the driver's memory. File modes are advisory on Windows, so the scratch directory must be private to the user running the loop - do not point `--scratch-dir` at a shared or synced folder. Streamed iteration output, the iteration records and the summary mask every known token value as `[redacted-token]`. After the iteration reads the file, its own `claude -p` transcript holds the value for the seat's lifetime; the token dies at `end_seat`.
+The seat token value lives in exactly one place: `<scratch-dir>/tokens/<iter>.implementer.token`, one line, written with mode `0o600` in a `0o700` directory, and deleted after the seat ends (a SIGKILLed driver leaves it). `--scratch-dir` defaults to `<tmpdir>/task-orchestrator/ralph/<label>`. The iteration gets the file's PATH (in `TASK_ORCHESTRATOR_SEAT_TOKEN_FILE` and in its prompt), never the value; the run token stays in the driver's memory. File modes are advisory on Windows, so the scratch directory must be private to the user running the loop - do not point `--scratch-dir` at a shared or synced folder. Streamed iteration output, the iteration records and the summary mask every known token value as `[redacted-token]`. After the iteration reads the file, its own `claude -p` transcript holds the value for the seat's lifetime; the token dies at `end_seat`.
 
 ---
 
 **Problem: a warning says a run from an earlier ralph is still open**
 
-Cause: a driver killed with SIGKILL (or a crash) cannot close its run, and its coordinator token died with it. Its members are `duplicate` for a new run's `update addItems`, so the new loop skips them.
+Cause: a driver killed with SIGKILL (or a crash) cannot close its run, and its run token died with it. Its members are `duplicate` for a new run's `update addItems`, so the new loop skips them.
 
 Solution: close the stale run from a director or human credential: `runs_write(ops=[{op: "close", runId: "<run id from the warning>", reason: "abandoned"}])`, and delete `<scratch-dir>/tokens`. That ends its seats and releases their claims. Recovery is manual by design; SIGINT and SIGTERM are handled and always close the run.
 

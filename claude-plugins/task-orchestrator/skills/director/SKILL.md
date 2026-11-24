@@ -1,13 +1,13 @@
 ---
 name: director
-description: "Enters director mode: this session runs the board instead of the code. It shows open runs, their frontier, open decisions and rollups, answers decisions, and delegates every read or edit to background agents and coordinators. A guard hook blocks file reads, edits, foreground dispatches and most shell commands until you leave with off. Use when the user says: director mode, become the director, be the director, run the board, show open decisions, answer decisions, what needs my decision, or director off."
+description: "Enters director mode: this session runs the board instead of the code. It shows open runs, their frontier, open decisions and rollups, answers decisions, and delegates every read or edit to background agents and orchestrators. A guard hook blocks file reads, edits, foreground dispatches and most shell commands until you leave with off. Use when the user says: director mode, become the director, be the director, run the board, show open decisions, answer decisions, what needs my decision, or director off."
 argument-hint: "[off]"
 ---
 
 # Director
 
 The director watches runs and answers decisions. It does not read code, open files or read note
-bodies; coordinators and background agents do that and report. Why the layer exists, and when
+bodies; orchestrators and background agents do that and report. Why the layer exists, and when
 not to use it: [references/purpose.md](references/purpose.md).
 
 ## Entering and leaving
@@ -40,10 +40,10 @@ Calling the skill again refreshes the marker and the dashboard.
 - `Agent` runs only in the background: `run_in_background: true`. A foreground dispatch is denied,
   as its result would land here. Code Mode's `Agent` has no such field and is always background; the
   guard allows it after a `REPL` call.
-- `SendMessage` and `ListAgents` are never denied. Use them to talk to coordinators.
+- `SendMessage` and `ListAgents` are never denied. Use them to talk to orchestrators.
 
 When a call is denied, the reason starts with `Director altitude rule:`. Do not retry it in another form. Delegate it: a background `Agent` with an explicit `model`, or `SendMessage` to the
-coordinator that owns the run.
+orchestrator that owns the run.
 
 After a compaction the `director-context` hook re-injects a short reminder of this rule.
 Re-invoke `/task-orchestrator:director` for the dashboard.
@@ -60,13 +60,13 @@ The whole tool budget of a director session:
 | `items_read` | `blocked` under the project root, for blocked work; `overview` for counts |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
 | `Agent` | Background only (`run_in_background: true`; always so in Code Mode), with `model` set |
-| `SendMessage`, `ListAgents` | Talk to coordinators and other sessions |
+| `SendMessage`, `ListAgents` | Talk to orchestrators and other sessions |
 | `Skill` | Re-invoke this skill, or `off`; may also load `task-orchestrator:model-effort` |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director connection. Anything else (notes, items writes,
-`advance`, config) is a coordinator's job. `runs_write` `open` is in the director profile on purpose:
-a session that opens a run holds that run's coordinator token.
+`advance`, config) is an orchestrator's job. `runs_write` `open` is in the director profile on purpose:
+a session that opens a run holds that run's token.
 
 The guard enforces the altitude rule, not this whole budget: it does not deny `notes_write`, `items_write`
 or `advance`, so keep to the budget yourself. Only the hardened entry enforces the whole budget, through
@@ -168,15 +168,15 @@ Runs: 1 open, 1 paused
 Blocked: 2
   8aee "Director skill" blocked by dependency 4440ff65
   b31c "Api guard"      answered, needs resume (d-77aa)
-Coordinator tier: 2 (Workflow)
+Orchestrator placement: 2 (Workflow)
 ```
 
-In Code Mode: `Coordinator tier: 2 (Workflow), 2b (Code Mode)`.
+In Code Mode: `Orchestrator placement: 2 (Workflow), 2b (Code Mode)`.
 
-Add a coordinator cell to each run's line, from the frontier's `stalled`: show `coord idle (Method A)`
+Add an orchestrator cell to each run's line, from the frontier's `stalled`: show `coord idle (Method A)`
 when the run's `hints.method` is `A` and `hints.phase` is `launched` (nothing runs under the
-coordinator token during a Workflow), `coord idle, seats live` when any `inFlight` seat has
-`stalled: false`, nothing on a paused run, else `COORD STALLED`: `SendMessage` the coordinator, and
+run token during a Workflow), `coord idle, seats live` when any `inFlight` seat has
+`stalled: false`, nothing on a paused run, else `COORD STALLED`: `SendMessage` the orchestrator, and
 if it is gone, close the run and re-plan.
 
 Then ask which decision to take, or stop if none is open.
@@ -223,22 +223,22 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 {"tool": "runs_write", "op": "withdraw", "args": {"decisionId": "3f2a9c1e"}, "profile": "director"}
 ```
 
-Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
+Withdraw succeeds only for a decision this principal raised without a seat, or under the run
 token of the decision's run. With the one `local` principal (stdio, unauthenticated local mode) that covers every decision raised without a seat.
 Nobody can withdraw a server-raised attempt-cap decision.
-For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
+For a seat's decision, `SendMessage` the run's orchestrator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
 
 ## After the answer
 
-An answer never resumes the item. When the decision has an `itemId`, `SendMessage` the run's coordinator with
-the item id (ids only): it resumes the item and re-dispatches. With no live coordinator (the run is closed, or the
+An answer never resumes the item. When the decision has an `itemId`, `SendMessage` the run's orchestrator with
+the item id (ids only): it resumes the item and re-dispatches. With no live orchestrator (the run is closed, or the
 decision was raised outside a run), dispatch one background `Agent` with an explicit `model` to resume the item
 per `/status-progression`. The board then shows the entry as "answered, needs resume" until it does.
 
-## Coordinator tier
+## Orchestrator placement
 
-Probe once per entry and state the result as one board line. The tier says where coordinators
+Probe once per entry and state the result as one board line. The tier says where orchestrators
 run; it does not launch one. Tiers 1, 2 and 2b show in your own tool list (no calls). Tier 3 needs the
 `claude` CLI on the host, which no tool list shows: ask the user, or dispatch one background agent
 to run `claude --version` and report. The hardened entry has no shell, so only the agent can.
@@ -247,29 +247,29 @@ Poll pair.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
-| 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
-| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background coordinator may lack `Workflow` |
-| 2b | `REPL` and `Agent` (Code Mode) | A Code Mode coordinator subagent runs the whole run, Method B; its `Agent` prompt is the line `Run /task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.`; with 2 also present, 2 for Method A (coordinator-tiers.md) |
-| 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
-| 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
+| 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Orchestrators run as separate sessions; reach them with `SendMessage` |
+| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background orchestrator may lack `Workflow` |
+| 2b | `REPL` and `Agent` (Code Mode) | A Code Mode orchestrator subagent runs the whole run, Method B; its `Agent` prompt is the line `Run /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.`; with 2 also present, 2 for Method A (coordinator-tiers.md) |
+| 3 | Neither, but `claude -p` is available on the host | Orchestrators run as headless `claude -p` processes started by a background agent |
+| 4 | None of the above | No separate orchestrator: every read and edit goes through background `Agent` dispatches from this session |
 
 At tier 4, warn the user once: the altitude holds only while each delegated agent reports a
 summary, not raw file content, so ask each agent for a short summary.
 
-How to launch a coordinator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
-`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; a
-coordinator or background agent runs it, not you. A run of one or two items skips the
-coordinator layer: dispatch one background agent.
+How to launch an orchestrator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
+`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; an
+orchestrator or background agent runs it, not you. A run of one or two items needs no
+separate orchestrator: dispatch one background agent.
 
 ## Waking up
 
-On any wake-up (a `SendMessage` from a coordinator, a task notification, or the user returning
-after idle), read the run that woke you. A message starting `TO report:` is a coordinator report
+On any wake-up (a `SendMessage` from an orchestrator, a task notification, or the user returning
+after idle), read the run that woke you. A message starting `TO report:` is an orchestrator report
 (events `planned`, `decision`, `paused`, `closed`): act on the ids it names only, after the board
 read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
-user's approval (missing allow rules: coordinator-tiers.md step 2); then call `Workflow` with the returned `args` and `SendMessage` the coordinator
+user's approval (missing allow rules: coordinator-tiers.md step 2); then call `Workflow` with the returned `args` and `SendMessage` the orchestrator
 `launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim, or the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval, then `SendMessage` the coordinator `approved` or `stop`.
+result JSON verbatim, or the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval, then `SendMessage` the orchestrator `approved` or `stop`.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

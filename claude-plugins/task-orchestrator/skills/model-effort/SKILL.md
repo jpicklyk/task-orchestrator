@@ -12,7 +12,7 @@ edited. This table is generated from it.
 <!-- BEGIN GENERATED:dispatch-policy (do not edit; run _fragments/generate.mjs) -->
 | Class | Model | Effort | Use |
 |---|---|---|---|
-| `coordinator` | opus | medium | Run and wave coordinators, orchestration sessions |
+| `coordinator` | opus | medium | A run's orchestrator, orchestration sessions |
 | `planning` | opus | high | Planner seats, specifications, task scope |
 | `planning-high-stakes` | fable | high | Architecture decisions and other high-stakes planning |
 | `implementation` | sonnet | medium | Well-specified implementation work |
@@ -33,7 +33,7 @@ Models are Claude Code aliases (`opus`, `sonnet`, `haiku`, `fable`); each resolv
 ## Decision order
 
 For an item's seat: seat `dispatch`, then phase `dispatch`, then the policy class for that seat. Trait
-`dispatch` answers "this item needs more than its class". Work with no item seat (coordinators,
+`dispatch` answers "this item needs more than its class". Work with no item seat (orchestrators,
 retrospectives, bulk writes): the class alone decides.
 
 ## Tuning

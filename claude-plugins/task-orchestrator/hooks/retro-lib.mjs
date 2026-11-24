@@ -166,7 +166,7 @@ export function writeSessionState(sessionId, state) {
 
 /**
  * True when this session opened or closed `runId`. A run another session drove owes that session its
- * retrospective, not this one; a director session is no exception, since a coordinator running in its
+ * retrospective, not this one; a director session is no exception, since a run's orchestrator running in its
  * own session handles its own run.
  */
 export function ownsRun(state, runId) {

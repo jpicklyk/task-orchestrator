@@ -1,9 +1,9 @@
 # Decisions: raise, answer, resume
 
-The decision loop has five steps: **raise** (a seat or coordinator asks), **declare** (the class
+The decision loop has five steps: **raise** (a seat or orchestrator asks), **declare** (the class
 exists in config), **see** (the director board shows it), **answer** (a director or human rules),
-**resume** (the orchestrator or coordinator unblocks the item and re-dispatches). This page is the
-orchestrator and coordinator side (the orchestration connection). The director side is in
+**resume** (the orchestrator, or the run's orchestrator for a run member, unblocks the item and re-dispatches). This page is the
+orchestrator side (the orchestration connection). The director side is in
 `/task-orchestrator:director`.
 
 ## 1. Who does what
@@ -11,7 +11,7 @@ orchestrator and coordinator side (the orchestration connection). The director s
 | Actor | Does |
 |---|---|
 | A seat (implementer, reviewer, ...) | Raises under its own seat token, with `block: true`. May withdraw a decision it raised, under the same seat. Never resumes. |
-| Orchestrator or coordinator | Raises for a token-less agent that returned `awaiting_decision`; later resumes the item and re-dispatches. Withdraws a decision it raised; under the coordinator token, any decision of its run. |
+| Orchestrator (the user's session, or the run's orchestrator) | Raises for a token-less agent that returned `awaiting_decision`; later resumes the item and re-dispatches. Withdraws a decision it raised; under the run token, any decision of its run. |
 | Director or human | Answers. Withdraws only a decision this principal raised without a seat, never a seat's decision. The director has no `advance`, so it cannot resume. |
 
 Nobody withdraws a server-raised decision (`attempt-cap`, `run-budget`).
@@ -28,7 +28,7 @@ Raise with `block: true` so the item blocks as `awaiting_decision` in the same u
 - `dedupeKey` convention: `<short-id>:<raiser>:<kind>-<n>`. Re-raising the same key returns the
   existing decision, and when that decision is already answered nothing is blocked
   (`blocked: false`). A new deviation on the same item therefore needs a new `-<n>`.
-- Token: a seat passes its seat token. A coordinator passes the coordinator token for a member of
+- Token: a seat passes its seat token. An orchestrator passes the run token for a member of
   an open or paused run, and no token for an item outside a run.
 - Errors on `data.results[0].error`: `invalid_request` with `/class` (the class is not declared;
   the detail names the valid ones), `seat_forbidden`, `not_claim_holder`, `invalid_transition`
@@ -58,7 +58,7 @@ left out):
 {"tool": "advance", "op": "transition", "args": {"itemId": "c04baf7c", "trigger": "resume"}}
 ```
 
-Pass the coordinator token for a member of an open or paused run, and no token otherwise. A
+Pass the run token for a member of an open or paused run, and no token otherwise. A
 `resumable: false` entry with reason `awaiting_decision` means: ask the director to answer it.
 Reasons `manual` and `resource` are not decisions; see `/dependency-manager`.
 
@@ -71,7 +71,7 @@ and rationale when a director connection can read `runs_read` `decision`. A with
 "proceed per the queue notes". Then re-dispatch the phase owner. `agents/implementer.md` already
 treats `fix-decisions-*` as binding.
 
-## 6. Coordinators
+## 6. Run orchestrators
 
 `/task-orchestrator:run-wave` owns resume and re-dispatch: Step 2 (before the snapshot) and post-run
 Step 6. `/task-orchestrator:ralph` does not raise or resume yet: resume a ralph-blocked item by hand

@@ -38,11 +38,11 @@ function mentionsAll(label, text, needles) {
 
 // ---- S13: schema-workflow ------------------------------------------------------------------------
 
-test('S13: schema-workflow names the seat and run error codes, the paused result key, and the coordinator token', () => {
+test('S13: schema-workflow names the seat and run error codes, the paused result key, and the run token', () => {
   mentionsAll('schema-workflow', SCHEMA_WORKFLOW, [
     'seat_forbidden', 'run_paused', 'invalid_transition', 'paused', 'allowedSeats', 'pauseReason', 'pauseDecisionId', 'seatToken',
   ])
-  assert.match(SCHEMA_WORKFLOW, /coordinator token/i)
+  assert.match(SCHEMA_WORKFLOW, /run token/i)
 })
 
 test('S13: schema-workflow canAdvance context-table row says seat enforcement is excluded', () => {
@@ -67,9 +67,9 @@ test('S13: schema-workflow describes the open-run membership check with runs_rea
 
 // ---- S14: status-progression -----------------------------------------------------------------------
 
-test('S14: status-progression names seat_forbidden, run_paused, the frontier read and the coordinator token', () => {
+test('S14: status-progression names seat_forbidden, run_paused, the frontier read and the run token', () => {
   mentionsAll('status-progression', STATUS_PROGRESSION, ['seat_forbidden', 'run_paused', 'frontier', 'runs_read', 'pauseReason', 'seatToken'])
-  assert.match(STATUS_PROGRESSION, /coordinator token/i)
+  assert.match(STATUS_PROGRESSION, /run token/i)
 })
 
 test('S14: status-progression canAdvance row says seat enforcement is not checked', () => {
@@ -91,10 +91,10 @@ test('S15: batch-complete checks run membership and names the blocked, seat and 
   ])
 })
 
-test('S15: batch-complete lists open and paused runs and offers the coordinator token or close-first choices', () => {
+test('S15: batch-complete lists open and paused runs and offers the run token or close-first choices', () => {
   assert.match(BATCH_COMPLETE, /\bopen\b/)
   assert.match(BATCH_COMPLETE, /\bpaused\b/)
-  assert.match(BATCH_COMPLETE, /coordinator/i)
+  assert.match(BATCH_COMPLETE, /run's orchestrator/i)
   assert.match(BATCH_COMPLETE, /AskUserQuestion/)
 })
 
