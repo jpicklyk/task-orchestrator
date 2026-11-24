@@ -4,7 +4,7 @@
 
 ## Decision
 
-Acceptance, the user's verdict that an item delivers what was asked, is a gate in the server: an item of a gated type cannot reach terminal without an acceptance record. The gate is opt-in per type, as the review phase is. Every surface satisfies it the same way: plan-mode approval or a plain yes in Claude, or a skill on a harness with no plan mode. Plan approval in Auto mode, given before the work, is a conditional grant: it applies only if the review passed, its findings were disposed, the build is green at HEAD and no decision is open.
+Acceptance, the user's verdict that an item delivers what was asked, is a gate in the server: an item of a gated type cannot reach terminal without an acceptance record. The gate is opt-in per type, as the review phase is. Every surface satisfies it the same way: plan-mode approval or a plain yes in Claude, or a skill on a harness with no plan mode. Plan approval in Auto mode, given before the work, is a conditional grant: it applies only if the review passed, its findings were disposed, the build is green at HEAD and no decision is open. The server checks what it holds; build green and findings disposed are claims the accept skill records, each build claim naming the commit and the command.
 
 ## Context
 
@@ -24,4 +24,4 @@ In Claude acceptance happens today through conversation or plan-mode approval, a
 
 ## Form
 
-Settled by [0012](0012-acceptance-gate-note-form.md): a required acceptance note satisfied only by an answered decision of a named class and option.
+Settled by [0012](0012-acceptance-gate-note-form.md), which also holds the gate's behaviour.
