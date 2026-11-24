@@ -9,7 +9,7 @@
 // nothing and emits the one-time legacy-shape warning as a systemMessage.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not advance ->
-// headless iteration -> no located config -> orchestration.mode off -> subagent/seat (agent_id set;
+// headless iteration -> no located config -> steering off -> subagent/seat (agent_id set;
 // only the dispatcher needs the hint) -> no qualifying results.
 // Fail-open: any throw yields `{}` and exit 0.
 

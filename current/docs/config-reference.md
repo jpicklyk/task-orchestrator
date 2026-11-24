@@ -40,15 +40,14 @@ change without a server release. The Claude Code plugin keeps its settings under
 ```yaml
 extensions:
   claude-code:
-    orchestration:
-      mode: workflow
+    steering: workflow
     retrospective:
       mode: dispatch
 ```
 
 In 3.x three sections sat at the top level (`orchestration`, `retrospective`, `actor_attribution`). The strict
 parser no longer knows them there: pushing them at the top level is rejected (`/orchestration` and so on) and the
-fix is to move `orchestration` and `retrospective` under `extensions.claude-code`. `actor_attribution` has no new home:
+fix is to move the `orchestration.mode` value to `extensions.claude-code.steering` and `retrospective` under `extensions.claude-code`. `actor_attribution` has no new home:
 the 4.0 plugin removed the attribution hook that read it (the plugin reads no `actor_attribution` key), so delete the key.
 Documents already stored from 3.x keep loading (see [Parse modes](#parse-modes)).
 

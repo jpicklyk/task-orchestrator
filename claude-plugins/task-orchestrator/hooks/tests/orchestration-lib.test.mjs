@@ -280,3 +280,36 @@ test('S2: a second top-level block after extensions ends the section (no read pa
   assert.ok(s);
   assert.equal(scalar(s.lines, 'mode'), null);
 });
+// ---- steering key and the deprecated alias (item 00f1dd53) ----------------------------------------
+
+test('00f1dd53: steering is read under extensions.claude-code; each value, any case', () => {
+  for (const m of ORCHESTRATION_MODES) {
+    const r = parseOrchestrationConfig(nest(`steering: ${m.toUpperCase()}\n`));
+    assert.deepEqual(r, { mode: m, source: 'steering', deprecatedKeyPresent: false });
+  }
+});
+
+test('00f1dd53: alias only - read, source and deprecated flag reported (block and inline forms)', () => {
+  assert.deepEqual(parseOrchestrationConfig(nest('orchestration:\n  mode: off\n')), { mode: 'off', source: 'orchestration.mode', deprecatedKeyPresent: true });
+  assert.deepEqual(parseOrchestrationConfig(nest('orchestration: { mode: schema }\n')), { mode: 'schema', source: 'orchestration.mode', deprecatedKeyPresent: true });
+});
+
+test('00f1dd53: both set - steering wins in either order, deprecated flag still true', () => {
+  const a = parseOrchestrationConfig(nest('steering: schema\norchestration:\n  mode: off\n'));
+  const b = parseOrchestrationConfig(nest('orchestration:\n  mode: off\nsteering: schema\n'));
+  assert.deepEqual(a, { mode: 'schema', source: 'steering', deprecatedKeyPresent: true });
+  assert.deepEqual(b, a);
+});
+
+test('00f1dd53: neither set, or invalid values - workflow default', () => {
+  assert.deepEqual(parseOrchestrationConfig(nest('retrospective:\n  mode: off\n')), { mode: 'workflow', source: 'default', deprecatedKeyPresent: false });
+  assert.equal(parseOrchestrationConfig(nest('steering: bogus\n')).mode, 'workflow');
+  // invalid steering does not mask a valid alias
+  assert.equal(parseOrchestrationConfig(nest('steering: bogus\norchestration:\n  mode: off\n')).mode, 'off');
+});
+
+test('00f1dd53: steering outside claude-code (top level, other tool, nested deeper) is not read', () => {
+  assert.equal(modeOf('steering: off\n'), 'workflow');
+  assert.equal(modeOf('extensions:\n  other:\n    steering: off\n'), 'workflow');
+  assert.equal(modeOf('extensions:\n  claude-code:\n    retrospective:\n      steering: off\n'), 'workflow');
+});
