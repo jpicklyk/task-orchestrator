@@ -186,6 +186,7 @@ class FixtureTools {
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<CreateReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->
@@ -206,6 +207,7 @@ class FixtureTools {
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<RenameReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -221,6 +223,7 @@ class FixtureTools {
             destructive = true,
             capability = ApiCapability.WRITE_ITEMS,
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<PurgeReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -235,6 +238,7 @@ class FixtureTools {
             profiles = orchestration(),
             capability = ApiCapability.WRITE_ITEMS,
             services = ToolExecutionContext::class,
+            stores = RepositoryProvider::class,
             request = serializer<ResetReq>(),
             execute = { _, _, req -> Outcome.Ok("reset:${req.reason}") }
         )

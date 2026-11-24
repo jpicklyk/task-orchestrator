@@ -192,19 +192,25 @@ class OpsToolSpec<R>(
  * are lifted first), the [profiles] it is visible in (an empty set is REST-only), whether it is [destructive], the [capability] a caller
  * needs (required, no default: a new write op must never silently be READ-only), the [errors] it may return
  * beyond the common ones, and [execute], which runs inside the element's write unit. [P] is the store provider [execute]'s
- * scope exposes: the op's own slice provider, which the dispatcher's unit provider implements.
+ * scope exposes: the op's own slice provider, which the dispatcher's unit provider implements; [stores] is its class, and
+ * the dispatcher checks it against that provider when it is built (see [declaredStores]), which is what makes the cast in
+ * [decode] sound. [P] is contravariant: it appears only as the scope [execute] receives.
  */
-class OpSpec<S : Any, E : Any, R, P>(
+class OpSpec<S : Any, E : Any, R, in P : Any>(
     val name: String,
     val doc: String,
     val profiles: Set<ToolProfile>,
     val destructive: Boolean = false,
     val capability: ApiCapability,
     val services: KClass<S>,
+    private val stores: KClass<P>,
     val request: KSerializer<E>,
     val errors: Set<ErrorCode> = emptySet(),
     val execute: suspend WriteScope<P>.(S, CallContext, E) -> Outcome<R>
 ) {
+    /** The class of [P], read by [declaredStores] (the constructor property is private so [P] stays contravariant). */
+    internal val storeType: KClass<*> get() = stores
+
     /** Decodes one `ops[]` element into [request]; field pointers are relative to the element. */
     internal fun decode(
         decoder: RequestDecoder,
@@ -212,8 +218,8 @@ class OpSpec<S : Any, E : Any, R, P>(
     ): Outcome<BoundOp<R>> =
         decoder.decode(request, element, OP_RESERVED).map { value ->
             BoundOp(name) { lookup, ctx ->
-                // The dispatcher's unit exposes the server's full store provider, which implements every slice provider an
-                // op names as P; erasure leaves nothing to check at runtime.
+                // The dispatcher's unit exposes the server's full store provider; ToolDispatcher's init requires it to be an
+                // instance of every op's `stores` class (P), so the scope this restores to WriteScope<P> is one.
                 @Suppress("UNCHECKED_CAST")
                 execute.invoke(this as WriteScope<P>, lookup.get(services), ctx, value)
             }
@@ -231,7 +237,10 @@ class OpSpec<S : Any, E : Any, R, P>(
     }
 }
 
-/** A decoded `ops[]` element of op [op], ready to run inside a write unit. */
+/**
+ * A decoded `ops[]` element of op [op], ready to run inside a write unit. The scope is erased here (`<*>`): the dispatcher's
+ * unit does not know the op's provider type, and [OpSpec.decode] restores it.
+ */
 class BoundOp<R> internal constructor(
     val op: String,
     val run: suspend WriteScope<*>.(ToolServiceLookup, CallContext) -> Outcome<R>
@@ -242,6 +251,16 @@ fun ToolSpec.declaredServices(): List<Pair<String, KClass<*>>> =
     when (this) {
         is SelectToolSpec -> selects.map { "$name.${it.name}" to it.services }
         is OpsToolSpec<*> -> ops.map { "$name.${it.name}" to it.services }
+    }
+
+/**
+ * Every op of this tool as `tool.op` paired with the store provider class it declares as [OpSpec] `P`, in registration order;
+ * a select declares none. The dispatcher requires its unit's provider to be an instance of each.
+ */
+fun ToolSpec.declaredStores(): List<Pair<String, KClass<*>>> =
+    when (this) {
+        is SelectToolSpec -> emptyList()
+        is OpsToolSpec<*> -> ops.map { "$name.${it.name}" to it.storeType }
     }
 
 /** A tool's selects or ops visible to [view] ([ToolView.sees]), in registration order. */

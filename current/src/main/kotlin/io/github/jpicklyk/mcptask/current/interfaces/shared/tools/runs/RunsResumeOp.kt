@@ -23,6 +23,7 @@ internal val runsResumeOp =
         profiles = director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsResumeRequest>(),
         errors =
             setOf(

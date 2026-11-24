@@ -51,6 +51,7 @@ internal val configRulesOp =
         profiles = orchestration(),
         capability = ApiCapability.READ,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigRulesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),
         execute = { env, ctx, req ->

@@ -23,6 +23,7 @@ internal val runsPauseOp =
         profiles = director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsPauseRequest>(),
         errors =
             setOf(

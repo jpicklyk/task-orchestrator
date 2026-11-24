@@ -31,6 +31,7 @@ internal val configResetOp =
         destructive = true,
         capability = ApiCapability.WRITE_CONFIG,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigResetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

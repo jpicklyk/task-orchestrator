@@ -29,6 +29,7 @@ internal val heartbeatOp =
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         services = LifecycleToolServices::class,
+        stores = LifecycleStoreProvider::class,
         request = serializer<HeartbeatRequest>(),
         errors =
             setOf(

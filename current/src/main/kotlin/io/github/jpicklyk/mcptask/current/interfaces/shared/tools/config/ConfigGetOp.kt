@@ -33,6 +33,7 @@ internal val configGetOp =
         profiles = orchestration(),
         capability = ApiCapability.READ,
         services = ConfigToolServices::class,
+        stores = ConfigStoreProvider::class,
         request = serializer<ConfigGetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

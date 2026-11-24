@@ -7,7 +7,10 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.request.RequestDecoder
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.declaredServices
@@ -15,6 +18,8 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.mockk.mockk
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -35,6 +40,9 @@ class ToolServiceRegistryTest {
 
     /** A services holder no registry serves. */
     private class UnregisteredServices
+
+    /** A store provider type that no [RepositoryProvider] implements. */
+    private interface UnimplementedStoreProvider
 
     /** Every select and op of [buildToolSpecs], with the holder type it declares. */
     private fun declared(): List<Pair<String, KClass<*>>> = buildToolSpecs().flatMap { it.declaredServices() }
@@ -59,6 +67,27 @@ class ToolServiceRegistryTest {
                     data = { null }
                 )
             )
+        )
+
+    private fun specNamingUnimplementedStores(): OpsToolSpec<String> =
+        OpsToolSpec(
+            name = "fx_unprovided",
+            description = "A tool whose op names a store provider the server's provider does not implement.",
+            ops =
+                listOf(
+                    OpSpec<RunToolServices, FixtureTools.CreateReq, String, UnimplementedStoreProvider>(
+                        name = "unprovided",
+                        doc = "Unprovided.",
+                        profiles = emptySet(),
+                        capability = ApiCapability.WRITE_ITEMS,
+                        services = RunToolServices::class,
+                        stores = UnimplementedStoreProvider::class,
+                        request = serializer<FixtureTools.CreateReq>(),
+                        execute = { _, _, _ -> Outcome.Ok("never") }
+                    )
+                ),
+            codec = FixtureTools.StringCodec,
+            element = { buildJsonObject { put("value", it) } }
         )
 
     @Test
@@ -132,6 +161,18 @@ class ToolServiceRegistryTest {
             }
         assertContains(failure.message.orEmpty(), "fx_orphan.orphan")
         assertContains(failure.message.orEmpty(), UnregisteredServices::class.qualifiedName.orEmpty())
+    }
+
+    @Test
+    fun `a dispatcher refuses at construction an op whose store provider the unit provider does not implement`() {
+        val env = sqliteContext()
+        val specs = buildToolSpecs() + specNamingUnimplementedStores()
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, specs)
+            }
+        assertContains(failure.message.orEmpty(), "fx_unprovided.unprovided")
+        assertContains(failure.message.orEmpty(), UnimplementedStoreProvider::class.qualifiedName.orEmpty())
     }
 
     @Test

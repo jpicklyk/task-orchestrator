@@ -34,6 +34,7 @@ internal val depsDeleteOp =
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
         services = DependencyToolServices::class,
+        stores = DependencyStoreProvider::class,
         request = serializer<DepsDeleteRequest>(),
         errors =
             setOf(

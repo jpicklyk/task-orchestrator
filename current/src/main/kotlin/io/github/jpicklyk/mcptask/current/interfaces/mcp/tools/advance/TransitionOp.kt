@@ -55,6 +55,7 @@ internal val transitionOp =
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         services = LifecycleToolServices::class,
+        stores = LifecycleStoreProvider::class,
         request = serializer<TransitionRequest>(),
         errors =
             setOf(

@@ -29,6 +29,7 @@ internal val runsCloseOp =
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsCloseRequest>(),
         errors =
             setOf(

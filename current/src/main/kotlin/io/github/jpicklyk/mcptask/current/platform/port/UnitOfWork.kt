@@ -31,7 +31,8 @@ import kotlin.coroutines.CoroutineContext
  * connection intact); it still rethrows. A joined write, and any SQL fault, always poison the unit.
  *
  * [S] is the store provider its scopes expose. A caller types its unit with the provider of its own slice, so it sees
- * only the stores that slice may read; a declaration that reads no scope store takes `UnitOfWork<*>`.
+ * only the stores that slice may read; a declaration that reads no scope store takes `UnitOfWork<*>`. `<*>` also marks a scope
+ * whose provider type is erased and restored by a checked cast (`BoundOp`, `OpSpec.decode`).
  */
 interface UnitOfWork<out S> {
     suspend fun <T> write(

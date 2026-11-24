@@ -58,6 +58,7 @@ internal val claimOp =
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
         services = LifecycleToolServices::class,
+        stores = LifecycleStoreProvider::class,
         request = serializer<ClaimRequest>(),
         errors =
             setOf(

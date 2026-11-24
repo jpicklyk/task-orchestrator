@@ -25,6 +25,7 @@ internal val runsUpdateOp =
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsUpdateRequest>(),
         errors =
             setOf(

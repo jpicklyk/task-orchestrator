@@ -84,6 +84,7 @@ class ToolSurfaceGuardsTest {
                                     },
                             capability = ApiCapability.WRITE_ITEMS,
                             services = ToolExecutionContext::class,
+                            stores = RepositoryProvider::class,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
                         )
@@ -252,6 +253,7 @@ class ToolSurfaceGuardsTest {
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
                             services = ToolExecutionContext::class,
+                            stores = RepositoryProvider::class,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -285,6 +287,7 @@ class ToolSurfaceGuardsTest {
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
                             services = ToolExecutionContext::class,
+                            stores = RepositoryProvider::class,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -317,6 +320,7 @@ class ToolSurfaceGuardsTest {
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
                             services = ToolExecutionContext::class,
+                            stores = RepositoryProvider::class,
                             request = serializer<NakedReq>(),
                             execute = {
                                 _,

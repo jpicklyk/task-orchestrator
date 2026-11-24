@@ -34,6 +34,7 @@ internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemW
         profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
         services = WorkflowToolServices::class,
+        stores = WorkflowStoreProvider::class,
         request = serializer<RepinItemRequest>(),
         errors =
             setOf(

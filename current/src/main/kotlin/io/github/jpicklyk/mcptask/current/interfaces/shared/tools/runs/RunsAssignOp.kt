@@ -35,6 +35,7 @@ internal val runsAssignOp =
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
+        stores = RunStoreProvider::class,
         request = serializer<RunsAssignRequest>(),
         errors =
             setOf(
