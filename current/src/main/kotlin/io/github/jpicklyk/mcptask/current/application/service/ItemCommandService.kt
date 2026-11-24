@@ -154,8 +154,9 @@ data class ItemDeleteResult(
  *   like a child completion ([AdvanceService.cascadeInUnit]), in the same unit.
  * - **Events** are recorded here, through the unit's sink: `item.created`, `item.updated`, two `item.reparented`
  *   rows per move, `item.deleted`, and the `note.deleted` / `dependency.removed` rows (cause `cascade`) a delete's
- *   foreign-key cascade implies. The same delete also removes, through [LinkService.onItemsDeleted], the links the removed
- *   notes and items were the source of and the resolved links into the removed items (except `adopted_by`); no event.
+ *   foreign-key cascade implies. The same delete also removes, through [LinkService.onItemsDeleted], the links the
+ *   removed notes and items were the source of and the resolved links into the removed notes and items (except
+ *   `adopted_by` into an item); no event.
  *   Every document anchored to a removed item (by its `root_item_id`, archived and adopted ones included) is deleted
  *   first through [DocumentService.deleteAnchoredTo], with its link cleanup and one `document.deleted` row each,
  *   recorded before that item's `item.deleted`.
