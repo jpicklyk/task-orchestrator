@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthHttpFixture
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -9,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.platform.call.AUDIT_ID_PREFIX
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.platform.call.LOCAL_VERIFIER
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind

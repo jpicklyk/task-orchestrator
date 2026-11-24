@@ -1,12 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.BlockerState
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ChildFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.IndependenceFacts
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode

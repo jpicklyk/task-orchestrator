@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
-import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.Cascade
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.Structural
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.User

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.rest.correlation
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.github.jpicklyk.mcptask.current.platform.call.auditClaim
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogFields
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetryFa
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.rest.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent

@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.HeartbeatRequest
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome

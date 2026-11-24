@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.Resolved
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.ApiTokenVerdict
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.VerifiedApiToken
+import io.github.jpicklyk.mcptask.current.identity.ApiTokenVerdict
+import io.github.jpicklyk.mcptask.current.identity.CredentialResolver
+import io.github.jpicklyk.mcptask.current.identity.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.identity.Resolved
+import io.github.jpicklyk.mcptask.current.identity.TrustDecision
+import io.github.jpicklyk.mcptask.current.identity.VerifiedApiToken
 
 /** The credential [raw] establishes, or null for anything but [TrustDecision.Trusted] (rejected or unavailable). */
 suspend fun CredentialResolver.resolveOrNull(raw: String): Resolved? = (resolve(raw) as? TrustDecision.Trusted)?.resolved

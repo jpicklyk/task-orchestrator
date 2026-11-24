@@ -2,10 +2,10 @@ package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

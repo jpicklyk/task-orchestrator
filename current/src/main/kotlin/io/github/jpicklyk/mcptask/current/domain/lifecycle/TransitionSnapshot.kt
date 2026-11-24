@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
+import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode

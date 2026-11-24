@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.model.item
 
 /**
- * Ordering strategy for [io.github.jpicklyk.mcptask.current.application.port.ClaimStore.findEligible].
+ * Ordering strategy for [io.github.jpicklyk.mcptask.current.claim.ClaimStore.findEligible].
  *
  * - [PRIORITY_THEN_COMPLEXITY] - the `items_read` `next` ranking (default): HIGH > MEDIUM > LOW,
  *   then complexity ascending (quick wins first).

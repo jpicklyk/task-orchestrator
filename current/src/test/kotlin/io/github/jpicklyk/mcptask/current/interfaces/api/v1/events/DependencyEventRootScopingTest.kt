@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
+import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -36,7 +38,7 @@ import kotlin.time.Duration.Companion.seconds
  * cache-only `resolveRootsCached` (the interface was non-suspend), so a `dependency.added` /
  * `dependency.removed` event for an item whose root was never cached carried `rootsResolved =
  * false` and was withheld from every root-scoped SSE subscriber. The fix makes 8 of 10
- * [io.github.jpicklyk.mcptask.current.application.port.DependencyStore] methods `suspend`
+ * [io.github.jpicklyk.mcptask.current.dependency.DependencyStore] methods `suspend`
  * and switches the decorator to the suspend `resolveRoots`, which does a real DB lookup
  * ([io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChains])
  * on a cache miss instead of giving up.

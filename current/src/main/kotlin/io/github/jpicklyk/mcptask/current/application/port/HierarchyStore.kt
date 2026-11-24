@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.item.AncestorChain
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AncestorChains
 import java.util.UUID
 
 /**
@@ -26,7 +27,7 @@ const val MAX_TRAVERSAL_DEPTH: Int = 1000
  * `depth`) is still written by the item store's insert/update; the descendant restamp after a reparent
  * lives here.
  */
-interface HierarchyStore {
+interface HierarchyStore : AncestorChains {
     /**
      * Find all descendants of the given item (children, grandchildren, etc.) recursively.
      * Does not include the item itself.
@@ -55,7 +56,7 @@ interface HierarchyStore {
      * indistinguishable from a genuinely shallow item. Callers that make a safety decision on chain
      * completeness must use [findAncestorChainsDetailed] instead.
      */
-    suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>>
+    override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>>
 
     /**
      * [findAncestorChains] with an explicit completeness signal per item.

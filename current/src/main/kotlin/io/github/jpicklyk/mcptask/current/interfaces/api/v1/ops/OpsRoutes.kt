@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.OPS_CALL_INFO
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.OpsCallInfo
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.REQ_ID_HEADER

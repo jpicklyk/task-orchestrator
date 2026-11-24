@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
+import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager

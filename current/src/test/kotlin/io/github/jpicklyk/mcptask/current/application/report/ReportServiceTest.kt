@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope

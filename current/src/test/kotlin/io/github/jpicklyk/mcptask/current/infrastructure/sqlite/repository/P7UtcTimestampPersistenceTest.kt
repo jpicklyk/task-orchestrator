@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind

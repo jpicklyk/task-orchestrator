@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

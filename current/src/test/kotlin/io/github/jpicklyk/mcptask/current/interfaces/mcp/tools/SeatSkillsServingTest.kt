@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld

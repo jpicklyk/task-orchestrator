@@ -2,16 +2,16 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthHttpFixture
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpAuthReply
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN_ID
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthHttpFixture
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthReply
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions

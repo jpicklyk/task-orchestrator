@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.service.ok
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.Run

@@ -2,9 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
@@ -14,6 +12,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document.SqliteDocumentStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document.SqliteLinkStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search.SqliteSearchEngine

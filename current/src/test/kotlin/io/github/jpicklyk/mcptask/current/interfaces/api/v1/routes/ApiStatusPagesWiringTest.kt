@@ -3,8 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -67,7 +67,7 @@ class ApiStatusPagesWiringTest {
 
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig
-    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
+    ): Map<io.github.jpicklyk.mcptask.current.identity.HashBytes, BearerTokenStore.TokenEntry> =
         (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     private fun Application.productionRestAppWithThrowingRoutes(composition: CompositionResult) {

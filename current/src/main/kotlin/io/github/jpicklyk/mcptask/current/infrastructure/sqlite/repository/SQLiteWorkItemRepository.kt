@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.ClaimStore
+import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SqliteClaimStore
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.time.SystemClock

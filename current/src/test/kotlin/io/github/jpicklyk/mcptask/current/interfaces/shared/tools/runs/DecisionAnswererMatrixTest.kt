@@ -5,9 +5,9 @@ import io.github.jpicklyk.mcptask.current.application.decision.admits
 import io.github.jpicklyk.mcptask.current.application.decision.isDirector
 import io.github.jpicklyk.mcptask.current.application.decision.isHuman
 import io.github.jpicklyk.mcptask.current.application.decision.required
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry

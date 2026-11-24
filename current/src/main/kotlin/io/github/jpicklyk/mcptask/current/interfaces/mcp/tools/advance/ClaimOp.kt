@@ -5,12 +5,12 @@ import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimSelect
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectOrder
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
-import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.DisplacedClaim
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder

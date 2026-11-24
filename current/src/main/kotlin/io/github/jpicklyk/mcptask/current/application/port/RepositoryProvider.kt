@@ -1,5 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.claim.ClaimItems
+import io.github.jpicklyk.mcptask.current.claim.ClaimStore
+import io.github.jpicklyk.mcptask.current.claim.ClaimStoreProvider
+import io.github.jpicklyk.mcptask.current.claim.LeaseStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
@@ -14,6 +20,7 @@ import java.time.Instant
  * default bodies, so a provider that supplies only the composite stores (mocks) needs no change.
  */
 interface RepositoryProvider :
+    ClaimStoreProvider,
     ConfigStoreProvider,
     DependencyStoreProvider,
     ItemStoreProvider,
@@ -36,6 +43,8 @@ interface RepositoryProvider :
     override fun hierarchyStore(): HierarchyStore = workItemRepository()
 
     override fun claimStore(): ClaimStore = workItemRepository()
+
+    override fun claimItems(): ClaimItems = workItemRepository()
 
     /**
      * Full-text candidate retrieval over every searchable corpus. Not part of the work-item composite;

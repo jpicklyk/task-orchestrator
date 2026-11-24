@@ -1,0 +1,130 @@
+package io.github.jpicklyk.mcptask.current.event.internal.wire
+
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.ActorClaimDto
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * A single real-time event emitted over the SSE stream at `GET /api/v1/events`.
+ *
+ * **Event-ID namespace:** This ID counter is INDEPENDENT from the `/mcp` SSE channel managed by
+ * `mcpStreamableHttp`'s `EventStore`. Clients MUST NOT reuse `Last-Event-ID` values across the
+ * two channels — the two namespaces have no relation.
+ *
+ * **Payload contract:** Minimal by design. Dashboards should re-fetch the full item details
+ * via the read API when they need field-level data. The payload keeps the bus lightweight.
+ *
+ * @param id For a data event, the `seq` of the `events` row it projects: monotonic, durable across
+ *   restarts and shared by every process writing the same database (above 1e12 since V20). For a
+ *   control event, an id below every event that follows it on the connection.
+ * @param event The event type string (e.g. `item.created`, `item.advanced`, `auth.expired`).
+ * @param itemId The primary work-item UUID affected, or null for bus-level events (`sync.lost`,
+ *   `auth.expired`).
+ * @param modifiedAt ISO-8601 string of when the write occurred, or null for bus-level events.
+ * @param newRole For `item.advanced`, the new role string (`queue`, `work`, `review`, `terminal`,
+ *   `blocked`). Null for all other event types.
+ * @param reason Machine-readable cause code. Currently set only on [ApiEventType.SYNC_LOST]
+ *   events — one of [SyncLostReason]. Null (and, because the SSE encoder runs with
+ *   `explicitNulls = false`, absent from the JSON) for every other event type.
+ * @param actor Who performed the write (`{id, kind, parent?}`; never proof or verification), or
+ *   null (absent) when no actor was resolved, for bus-level events, or when redacted on egress.
+ * @param rootId The depth-0 ancestor of the affected item (for `scope.left` the OLD root, for
+ *   `scope.entered` the NEW one): the row's `root_id`, always present on a data event since P8 (a
+ *   root item uses its own id). Absent only on control events. Never redacted.
+ * @param runId The run a `run.*` event is about (`run.opened`, `run.updated`, `run.paused`, `run.resumed`,
+ *   `run.ended`, `run.marked`); those events carry no [itemId]. On `seat.ended` and a `decision.*` event, the run it
+ *   belongs to (absent when the decision names none). Null (absent) for every other event type.
+ * @param decisionId On a `decision.*` event, the decision request. Null (absent) for every other event type.
+ * @param decisionClass On a `decision.*` event, its class (wire key `class`). Null (absent) otherwise.
+ * @param severity On a `decision.*` event, its stored severity. Null (absent) otherwise.
+ */
+@Serializable
+data class ApiEvent(
+    val id: Long,
+    val event: String,
+    val itemId: String? = null,
+    val modifiedAt: String? = null,
+    val newRole: String? = null,
+    val reason: String? = null,
+    val actor: ActorClaimDto? = null,
+    val rootId: String? = null,
+    val runId: String? = null,
+    val decisionId: String? = null,
+    @SerialName("class") val decisionClass: String? = null,
+    val severity: String? = null,
+)
+
+/**
+ * Cause codes carried in [ApiEvent.reason] on a [ApiEventType.SYNC_LOST] event.
+ *
+ * - [QUEUE_OVERFLOW] — the client fell behind and its per-connection queue overflowed; events
+ *   were dropped mid-stream.
+ * - [BUFFER_EVICTED] -- the client resumed with a `Last-Event-ID` further behind the newest seq
+ *   than the replay window (`API_SSE_BUFFER_SIZE`); the events in between are not replayed.
+ * - [UNKNOWN_EVENT_ID] -- the client resumed with a `Last-Event-ID` that is not a seq of this
+ *   database: greater than the newest seq, below the seq floor (every id the pre-4.0 in-memory
+ *   ring buffer issued), or unparsable as a number.
+ *
+ * In all three cases the client must re-fetch full state via the read API; the gap is not
+ * recoverable from the stream.
+ */
+object SyncLostReason {
+    const val QUEUE_OVERFLOW = "queue_overflow"
+    const val BUFFER_EVICTED = "buffer_evicted"
+    const val UNKNOWN_EVENT_ID = "unknown_event_id"
+}
+
+/**
+ * All event-type string constants emitted by [ApiEventBus].
+ *
+ * - `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` — work-item CRUD via [WorkItemRepository].
+ * - `NOTE_UPSERTED`, `NOTE_DELETED` — note writes via [NoteStore].
+ * - `NOTE_OWNERSHIP_TRANSFERRED`: a note changed owner, by an ADMIN `takeover` or by the first 4.0 upsert of an unowned
+ *   (pre-4.0) note; carries the note's [ApiEvent.itemId].
+ * - `DEPENDENCY_ADDED`, `DEPENDENCY_REMOVED` — dependency changes via [DependencyStore].
+ * - `ITEM_ADVANCED` -- role transition (the `item.transitioned` row); payload carries [ApiEvent.newRole].
+ * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
+ * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).
+ * - `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked` -- run lifecycle, streamed
+ *   under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
+ * - `seat.ended` -- a seat ended its own assignment (`runs_write end_seat`), with [ApiEvent.runId] and the member item's
+ *   [ApiEvent.itemId] (item-scoped visibility, like `note.*`).
+ * - `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` -- decision lifecycle
+ *   (`DomainEvent.DECISION_TYPES`), with [ApiEvent.decisionId], [ApiEvent.decisionClass] and [ApiEvent.severity] and the
+ *   decision's [ApiEvent.runId] / [ApiEvent.itemId] when it names them; never an actor. An item-less one is anchored to
+ *   its root like `run.*`.
+ * - `SYNC_LOST` — the client has an unrecoverable gap: its per-connection queue overflowed, or it
+ *   resumed with a `Last-Event-ID` outside the replay window or not issued by this database. The
+ *   cause is carried in [ApiEvent.reason] ([SyncLostReason]). Client should re-fetch full state.
+ * - `AUTH_EXPIRED` — the connection's bearer token (or JWT) has expired. Client must reconnect
+ *   with a fresh credential.
+ *
+ * [CONTROL_EVENTS] names the subset that carries stream-control meaning rather than a data change.
+ * Consumers applying an event-type filter (the `?types=` query parameter on `GET /api/v1/events`)
+ * MUST NOT filter these out — a client that suppressed `sync.lost` would silently keep operating
+ * on incomplete state.
+ */
+object ApiEventType {
+    const val ITEM_CREATED = "item.created"
+    const val ITEM_UPDATED = "item.updated"
+    const val ITEM_DELETED = "item.deleted"
+    const val NOTE_UPSERTED = "note.upserted"
+    const val NOTE_DELETED = "note.deleted"
+    const val NOTE_OWNERSHIP_TRANSFERRED = "note.ownership_transferred"
+    const val DEPENDENCY_ADDED = "dependency.added"
+    const val DEPENDENCY_REMOVED = "dependency.removed"
+    const val ITEM_ADVANCED = "item.advanced"
+    const val SCOPE_ENTERED = "scope.entered"
+    const val SCOPE_LEFT = "scope.left"
+    const val SYNC_LOST = "sync.lost"
+    const val AUTH_EXPIRED = "auth.expired"
+
+    /**
+     * Stream-control event types, exempt from the `?types=` filter on `GET /api/v1/events`.
+     *
+     * These are not data-change notifications: suppressing them would leave a client believing it
+     * has a contiguous stream when it does not ([SYNC_LOST]) or still authenticated when it is not
+     * ([AUTH_EXPIRED]).
+     */
+    val CONTROL_EVENTS: Set<String> = setOf(SYNC_LOST, AUTH_EXPIRED)
+}

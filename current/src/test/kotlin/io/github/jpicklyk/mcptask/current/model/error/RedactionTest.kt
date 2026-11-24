@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.model.error
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.CascadeSummary
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier

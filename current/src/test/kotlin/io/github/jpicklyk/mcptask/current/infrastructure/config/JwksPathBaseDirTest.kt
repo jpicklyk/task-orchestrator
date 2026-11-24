@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySourceConfig
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.KeySourceConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir

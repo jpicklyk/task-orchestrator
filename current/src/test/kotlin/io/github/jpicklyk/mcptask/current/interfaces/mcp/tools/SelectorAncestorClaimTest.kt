@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
-import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
+import io.github.jpicklyk.mcptask.current.model.item.ItemSlice
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

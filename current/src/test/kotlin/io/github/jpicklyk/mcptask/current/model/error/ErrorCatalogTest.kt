@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.model.error
 
 import com.lemonappdev.konsist.api.Konsist
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject

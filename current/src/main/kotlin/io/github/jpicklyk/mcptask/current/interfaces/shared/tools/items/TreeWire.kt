@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
-import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
+import io.github.jpicklyk.mcptask.current.dependency.DepType
+import io.github.jpicklyk.mcptask.current.dependency.UnblockAt
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.SerialName

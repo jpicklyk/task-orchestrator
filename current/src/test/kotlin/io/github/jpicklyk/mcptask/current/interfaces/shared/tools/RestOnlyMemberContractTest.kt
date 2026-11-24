@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.parity.FixtureParityCatalog

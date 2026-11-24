@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.toKeySource
+import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.toKeySource
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf

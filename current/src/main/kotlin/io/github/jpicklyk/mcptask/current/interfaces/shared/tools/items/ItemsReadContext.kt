@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
 import io.github.jpicklyk.mcptask.current.application.read.ContextView
 import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
+import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger

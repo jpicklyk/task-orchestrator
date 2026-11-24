@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.platform.tool
 
-import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.call.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 

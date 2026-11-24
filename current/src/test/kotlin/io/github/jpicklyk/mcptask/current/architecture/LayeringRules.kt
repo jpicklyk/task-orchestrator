@@ -213,7 +213,14 @@ object LayeringRules {
                 found += Violation(path, name)
             }
         }
-        text.lineSequence().filter { isCodeLine(it) && !it.trim().startsWith("import ") }.forEach { line ->
+        // A file's own `package` line names its own package, never a dependency, so it is skipped like an import line.
+        val referenceLines =
+            text.lineSequence().filter {
+                isCodeLine(it) &&
+                    !it.trim().startsWith("import ") &&
+                    !it.trim().startsWith("package ")
+            }
+        referenceLines.forEach { line ->
             forbidden.forEach { prefix ->
                 if (line.contains(prefix)) {
                     Regex("(?<![A-Za-z0-9_.])" + Regex.escape(prefix) + "(\\.[A-Za-z0-9_]+)+").findAll(line).forEach { match ->
