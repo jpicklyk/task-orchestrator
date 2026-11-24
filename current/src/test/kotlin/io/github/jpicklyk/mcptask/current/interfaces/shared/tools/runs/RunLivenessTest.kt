@@ -43,7 +43,7 @@ class RunLivenessTest {
 
     private fun run(
         stallAfterSeconds: Int = stall,
-        coordinatorSeenAt: Instant?,
+        orchestratorSeenAt: Instant?,
         status: RunStatus = RunStatus.OPEN
     ): Run =
         Run(
@@ -54,7 +54,7 @@ class RunLivenessTest {
             openedAt = now.minusSeconds(10_000),
             closedBy = if (status == RunStatus.CLOSED) "api:opener" else null,
             closedAt = if (status == RunStatus.CLOSED) now.minusSeconds(5_000) else null,
-            coordinatorSeenAt = coordinatorSeenAt,
+            orchestratorSeenAt = orchestratorSeenAt,
             stallAfterSeconds = stallAfterSeconds
         )
 
@@ -158,24 +158,24 @@ class RunLivenessTest {
 
     @Test
     fun `S8a the coordinator is stalled strictly after the run own threshold, never the default`() {
-        assertFalse(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = ago(120)), now), "exactly 120 s")
-        assertTrue(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = ago(120, 1)), now), "120 s and 1 ms")
+        assertFalse(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = ago(120)), now), "exactly 120 s")
+        assertTrue(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = ago(120, 1)), now), "120 s and 1 ms")
         // the default is 600: a run pinned at 120 is stalled at 121 s, a run pinned at 900 is not stalled at 700 s
-        assertTrue(RunLiveness.isCoordinatorStalled(run(stallAfterSeconds = 120, coordinatorSeenAt = ago(121)), now))
-        assertFalse(RunLiveness.isCoordinatorStalled(run(stallAfterSeconds = 900, coordinatorSeenAt = ago(700)), now))
-        assertTrue(RunLiveness.isCoordinatorStalled(run(stallAfterSeconds = 900, coordinatorSeenAt = ago(901)), now))
+        assertTrue(RunLiveness.isOrchestratorStalled(run(stallAfterSeconds = 120, orchestratorSeenAt = ago(121)), now))
+        assertFalse(RunLiveness.isOrchestratorStalled(run(stallAfterSeconds = 900, orchestratorSeenAt = ago(700)), now))
+        assertTrue(RunLiveness.isOrchestratorStalled(run(stallAfterSeconds = 900, orchestratorSeenAt = ago(901)), now))
     }
 
     @Test
     fun `S8a a coordinator never seen is not stalled`() {
-        assertFalse(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = null), now))
-        assertTrue(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = ago(10_000)), now), "control: seen long ago")
+        assertFalse(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = null), now))
+        assertTrue(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = ago(10_000)), now), "control: seen long ago")
     }
 
     @Test
     fun `S10 a closed run coordinator is never stalled, the identical open run one is`() {
         val seenLongAgo = ago(100_000)
-        assertTrue(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = seenLongAgo, status = RunStatus.OPEN), now), "control: open")
-        assertFalse(RunLiveness.isCoordinatorStalled(run(coordinatorSeenAt = seenLongAgo, status = RunStatus.CLOSED), now))
+        assertTrue(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = seenLongAgo, status = RunStatus.OPEN), now), "control: open")
+        assertFalse(RunLiveness.isOrchestratorStalled(run(orchestratorSeenAt = seenLongAgo, status = RunStatus.CLOSED), now))
     }
 }

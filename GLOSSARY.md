@@ -64,7 +64,7 @@ The layer that drives work forward. It plans and sizes work, dispatches seats, a
 
 Distinct from: director, which decides and never drives. The user's session is an orchestrator in orchestration mode, but a background agent handed a run is also an orchestrator, of that run.
 Don't call it: coordinator, run coordinator, lead. ("Coordinator" was the name for an orchestrator scoped to one run.)
-In code: the run-scoped form is still named for the old term: `RunSeat.COORDINATOR`, `RunPermissions`, the `coordinatorToken` field, the `coordinator_seen_at` column.
+In code: `RunSeat.ORCHESTRATOR` (its stored value is still `coordinator`), `RunPermissions`, the `orchestratorToken` field (`coordinatorToken` is its deprecated alias until 5.0), and the `coordinator_seen_at` column, which keeps the old name.
 Example: run-wave hands a wave to a background agent. That agent is the run's orchestrator: it assigns seats, advances members and resumes items. The user's own session stays the orchestrator of everything outside that run.
 
 ### Director

@@ -30,13 +30,13 @@ interface RunStore :
      * Sets `coordinator_seen_at` of [runId] to [at] WITHOUT bumping the version (liveness is not a change an orchestrator's
      * `expectedVersion` should conflict with). A missing run is a no-op.
      */
-    suspend fun touchCoordinator(
+    suspend fun touchOrchestrator(
         runId: UUID,
         at: Instant
     )
 
     /**
-     * Adds [tokens] to `observed_tokens` of [runId] WITHOUT bumping the version (as [touchCoordinator]: telemetry is not a
+     * Adds [tokens] to `observed_tokens` of [runId] WITHOUT bumping the version (as [touchOrchestrator]: telemetry is not a
      * change an orchestrator's `expectedVersion` should conflict with). A missing run is a no-op; a closed run still adds.
      */
     override suspend fun addObservedTokens(

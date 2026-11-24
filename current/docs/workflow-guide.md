@@ -1347,10 +1347,10 @@ A run is `open`, may be `paused`, and ends `closed` with a terminal reason. An i
 
 ### Tokens
 
-`open` returns an **orchestrator token** (the `coordinatorToken` field), shown once. The run's orchestrator is whoever presents it, as the top-level `seatToken` field next to `select` or `ops`. `assign` (orchestrator only) hands out a **seat token** for one member item and one seat, also shown once:
+`open` returns an **orchestrator token** (the `orchestratorToken` field), shown once. Deprecated aliases (4.x, removed in 5.0): `coordinatorToken`, `coordinatorSeenAt` and `coordinatorStalled` are returned beside `orchestratorToken`, `orchestratorSeenAt` and `orchestratorStalled` with the same values; the stored seat value `coordinator` and the `required` values of a `forbidden` refusal keep their names. The run's orchestrator is whoever presents it, as the top-level `seatToken` field next to `select` or `ops`. `assign` (orchestrator only) hands out a **seat token** for one member item and one seat, also shown once:
 
 ```json
-{"seatToken": "<coordinatorToken>",
+{"seatToken": "<orchestratorToken>",
  "ops": [{"op": "assign", "runId": "7c0f3a91", "itemId": "a1b2c3d4", "seat": "implementer"}]}
 ```
 

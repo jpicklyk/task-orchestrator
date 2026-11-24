@@ -120,7 +120,7 @@ class RunService(
                     openedBy = command.openedBy,
                     openedByKind = command.openedByKind,
                     openedAt = now,
-                    coordinatorSeenAt = now,
+                    orchestratorSeenAt = now,
                     stallAfterSeconds = stallAfter,
                     budget = budget,
                     hints = command.hints

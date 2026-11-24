@@ -339,8 +339,8 @@ class DecisionService(
         // A server-raised request (run-budget, attempt-cap) holds its run paused; no caller withdraws it (R27).
         if (isServerRaised(decision)) return false
         val raiser = caller.principalId == decision.raisedById && caller.seat == decision.raisedBySeat
-        val coordinator = caller.seat == RunSeat.COORDINATOR && decision.runId != null && caller.runId == decision.runId
-        return raiser || coordinator
+        val orchestrator = caller.seat == RunSeat.ORCHESTRATOR && decision.runId != null && caller.runId == decision.runId
+        return raiser || orchestrator
     }
 
     /** True for a request the server raised: recorded as raised by `server`, or of a built-in server-raised class. */

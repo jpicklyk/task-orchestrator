@@ -2120,9 +2120,11 @@ then id), `seats` (orchestration only), `frontier` (below), and `decisions` and 
 `forbidden` (never `not_found`), and `list` leaves such runs out.
 
 **The run view** (every `runs_read` and `runs_write` result): `{runId, rootId, scopeId?, label?, title?, status,
-pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, coordinatorSeenAt?,
-coordinatorStalled, stallAfterSeconds, budget?: {attemptsPerSeat?, maxActiveSeats?}, usage: {observedTokens},
-hints, marks, members, activeSeats, stalledSeats, version}`. Absent members are omitted, never `null`;
+pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, orchestratorSeenAt?,
+orchestratorStalled, stallAfterSeconds, budget?: {attemptsPerSeat?, maxActiveSeats?}, usage: {observedTokens},
+hints, marks, members, activeSeats, stalledSeats, version}`. Absent members are omitted, never `null`. Deprecated aliases (4.x,
+removed in 5.0): `coordinatorSeenAt` and `coordinatorStalled` follow `orchestratorSeenAt` and `orchestratorStalled` with the
+same values, present or absent together; the seat value `coordinator` and the `forbidden` `required` values keep their names;
 `usage.observedTokens` is the server's own estimate of the run's call-log response tokens and enforces nothing (the
 4.0.0 token and cost budgets and the agent-reported usage were removed in 4.0.1). `activeSeats` counts the active
 member seats (never the `coordinator` pseudo-seat) and `stalledSeats` those of them that are stalled. Under a restricted scope,
@@ -2130,7 +2132,7 @@ member seats (never the `coordinator` pseudo-seat) and `stalledSeats` those of t
 
 **Stalled.** One rule for seats and the run's orchestrator: stalled when the time since last seen is strictly longer than the
 run's own `stallAfterSeconds` (pinned at open; never re-read from config), compared exactly. A seat is last seen at its
-`lastSeenAt`, or its `assignedAt` when it never touched anything; the run's orchestrator at `coordinatorSeenAt`. Only a call
+`lastSeenAt`, or its `assignedAt` when it never touched anything; the run's orchestrator at `orchestratorSeenAt`. Only a call
 made with the seat's token (or the run token, for the run's orchestrator) refreshes them, and only on a tool that takes an
 `ops` array, whichever op it names: a read-only op such as `config` `get` or `history` touches it as much as an `advance`
 `heartbeat` does. A call to a `select` tool (`runs_read`, `items_read`), and a `describe: true` call on any tool, never
@@ -2140,7 +2142,7 @@ never stalled. Stalled is a derived view only: nothing is ended, released or rai
 **Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, cancelled,
 ready: [{id, title, role, type?}], inFlight: [{id, role, title?, seat, attempt, lastSeenAt?, stalled}], waiting: [{id,
 reason, decisionId?, blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
-`stalled` is the run's orchestrator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
+`stalled` is the run's orchestrator's, the same as the run view's `orchestratorStalled`; every array is present. `counts` covers
 the visible members, every role present. `cancelled` is how many of the terminal ones carry the status label of `cancel`
 under the run's root (the one label policy: per-root `status_labels`, then the server's, then the built-in `cancelled`),
 so they are counted in `counts.terminal` too; a member relabelled after its cancel is not counted. An `inFlight` entry's
@@ -2231,7 +2233,8 @@ assignment), `raise`, `ack`, `answer` and `withdraw` (decisions, below) and `mar
 write wins, at most 32 marks; the answer adds `marked`, false for a replay). Every op needs the `runs` capability (`ack` and
 `answer` need `decide`) and a run whose root is in scope.
 
-**Tokens.** `open` returns a `coordinatorToken` once; a keyed replay omits it (`tokenRedacted: true`). The run's orchestrator is the
+**Tokens.** `open` returns an `orchestratorToken` once, followed by its deprecated alias `coordinatorToken` (same value, removed
+in 5.0); a keyed replay omits both (`tokenRedacted: true`). The run's orchestrator is the
 caller that presents that token as the top-level `seatToken`. `assign` returns a seat token once, bound to one member item
 and one seat; re-assigning the seat supersedes the old token. A token that is unknown, ended, superseded or another
 principal's is `unauthenticated` with no detail. When a run closes, its tokens die with it: a run token of a
@@ -2279,7 +2282,7 @@ without the withdrawn ones.
 <!-- generated:tool runs_write -->
 Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; update, assign: run token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
 
-**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run token, held by the run's orchestrator (shown once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator (shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

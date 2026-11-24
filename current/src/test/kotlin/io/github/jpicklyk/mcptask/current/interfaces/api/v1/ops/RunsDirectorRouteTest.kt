@@ -171,8 +171,8 @@ class RunsDirectorRouteTest {
         val response = plain(ops.ops(ops.open(ops.r1, extra)), token)
         assertEquals(200, response.status.value, "open: ${response.text()}")
         val runId = runIdIn(response.text())
-        val issued = Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(response.text())
-        assertTrue(issued != null, "open returns a 43-character coordinatorToken: ${response.text()}")
+        val issued = Regex("\"orchestratorToken\":\"([A-Za-z0-9_-]{43})\"").find(response.text())
+        assertTrue(issued != null, "open returns a 43-character orchestratorToken: ${response.text()}")
         coordinatorTokens[runId] = issued.groupValues[1]
         return runId
     }
@@ -530,7 +530,13 @@ class RunsDirectorRouteTest {
             assertEquals("failed", view.getValue("terminalReason").jsonPrimitive.content)
             assertEquals("api:rw-coord", view.getValue("closedBy").jsonPrimitive.content)
             assertEquals("2026-10-10T12:00:00Z", view.getValue("closedAt").jsonPrimitive.content)
-            assertEquals("false", view.getValue("coordinatorStalled").jsonPrimitive.content)
+            assertEquals("false", view.getValue("orchestratorStalled").jsonPrimitive.content)
+            assertEquals("false", view.getValue("coordinatorStalled").jsonPrimitive.content, "the deprecated alias carries the same value")
+            assertEquals(
+                view.getValue("orchestratorSeenAt").jsonPrimitive.content,
+                view.getValue("coordinatorSeenAt").jsonPrimitive.content,
+                "the deprecated seen alias carries the same value: $text"
+            )
             assertEquals(Run.DEFAULT_STALL_AFTER_SECONDS.toString(), view.getValue("stallAfterSeconds").jsonPrimitive.content)
             assertFalse("budget" in view.keys, "no budget was given: $text")
             assertFalse("pauseReason" in view.keys, text)

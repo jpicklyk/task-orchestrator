@@ -52,7 +52,7 @@ data class FrontierWaiting(
 /**
  * The frontier of one run at one instant: [counts] of the visible members by role (all five roles present),
  * the [ready] members (membership order), the active member seats [inFlight] (assignment order) and the [waiting]
- * members (membership order). [stalled] is the liveness of the run's orchestrator ([RunLiveness.isCoordinatorStalled]).
+ * members (membership order). [stalled] is the liveness of the run's orchestrator ([RunLiveness.isOrchestratorStalled]).
  * [terminalLabels] counts the visible terminal members by status label (a member with none is left out), so a caller
  * can tell how many of [counts]' terminal ones a given label (the root's cancel label) names.
  */
@@ -97,7 +97,7 @@ class RunFrontierQueries(
             val run = stores.runStore().getById(runId) ?: return@read null
             val memberIds = stores.runStore().members(runId)
             val seats = stores.runSeatStore().list(runId).filter { it.isActive }
-            val memberSeats = seats.filter { !it.isCoordinator && it.itemId != null }
+            val memberSeats = seats.filter { !it.isOrchestrator && it.itemId != null }
             val itemIds = LinkedHashSet<UUID>(memberIds)
             memberSeats.forEach { itemIds += it.itemId!! }
             val rows = stores.itemStore().findByIdSet(itemIds).associateBy { it.id }
@@ -176,7 +176,7 @@ class RunFrontierQueries(
 
             RunFrontier(
                 run = run,
-                stalled = RunLiveness.isCoordinatorStalled(run, now),
+                stalled = RunLiveness.isOrchestratorStalled(run, now),
                 counts = counts,
                 terminalLabels = terminalLabels,
                 ready = ready,

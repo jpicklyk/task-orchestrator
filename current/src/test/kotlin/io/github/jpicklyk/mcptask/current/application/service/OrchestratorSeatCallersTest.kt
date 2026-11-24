@@ -54,7 +54,7 @@ class OrchestratorSeatCallersTest {
     private val runId: UUID = UUID.randomUUID()
     private val otherRunId: UUID = UUID.randomUUID()
 
-    private val coordinator = SeatCaller(seat = RunSeat.COORDINATOR, runId = runId, itemId = null, human = false)
+    private val coordinator = SeatCaller(seat = RunSeat.ORCHESTRATOR, runId = runId, itemId = null, human = false)
     private val human = SeatCaller(seat = null, runId = null, itemId = null, human = true)
 
     private fun check(
@@ -92,7 +92,7 @@ class OrchestratorSeatCallersTest {
     fun `S8 a reviewer member token, no token and another run's coordinator are refused with the owner named`() {
         assertRefusedOwnedByOrchestrator(check(SeatCaller(seat = "reviewer", runId = runId, itemId = itemId, human = false)))
         assertRefusedOwnedByOrchestrator(check(SeatCaller.NONE))
-        assertRefusedOwnedByOrchestrator(check(SeatCaller(seat = RunSeat.COORDINATOR, runId = otherRunId, itemId = null, human = false)))
+        assertRefusedOwnedByOrchestrator(check(SeatCaller(seat = RunSeat.ORCHESTRATOR, runId = otherRunId, itemId = null, human = false)))
     }
 
     @Test
