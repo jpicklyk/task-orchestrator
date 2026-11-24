@@ -114,7 +114,7 @@ Grades as in journey-config-fit.md: **E** expressible, **W** awkward, **X** impo
 | R41 | Where a capture lands (an inbox topic, or a topic by subject) and which entry type it gets | 8.2 | W | `project.rootId` only; a routing rule can be served as a `rule` document and read with `docs_read` `get` on the knowledge profile (the create-item path reads it through `config` `rules`, orchestration-only: `create-item/SKILL.md:66-70`) |
 | R42 | An entry's maturity without a lifecycle (seedling, evergreen, archived) and which states retrieval hides | 8.6, 8.7 | W | tags only; `status_labels` is keyed by triggers, which a lifecycle-free item never fires (catalogue 14; CR:394-397); only documents have `archive` (AR docs_write) |
 | R43 | Steering for a knowledge session: hooks inject knowledge mechanics or nothing, never sizing tiers, dispatch rules or plan-mode materialisation | 8.1-8.8 | W | `orchestration.mode: off` silences orchestration-context, pre-plan, post-plan and the dispatch guard (`orchestration-lib.mjs:16`; KL10-KL12), but not session-start's `BASE_GUIDANCE` (KL9); there is no knowledge value; setup may not write the key (KL4) |
-| R44 | Which bundled process rules a root receives (none, for a root with no seats) | 8.4 | X | config-sync pushes every bundled rule on SessionStart with no opt-out (`config-sync.mjs:466-468,666`); no `extensions` key is read for it |
+| R44 | Which bundled process rules a root receives (none, for a root whose declared types are all `lifecycle: none`) | 8.4 | E | config-sync pushes every bundled rule on SessionStart with no opt-out (`config-sync.mjs:466-468,666`); no `extensions` key is read for it |
 | R45 | No retrospective for a root that has no runs | 8.7 | E | `extensions.claude-code.retrospective.mode: off` (catalogue 13; `retro-backstop.mjs:66`) |
 | R46 | Which template the root applied, and its version, so Learn can explain it and setup can see drift | 8.1, 8.8 | W | storable under `extensions` (stored, never read: catalogue 13) or in `project.name` text; nothing reads it. Same root cause as R21 and R22 |
 | R47 | Which tool profile the root is meant to be used through, so setup registers that endpoint and skills choose calls that profile serves | 8.1, 8.2, 8.6 | X | the profile is a property of a connection (AR:33-50); no config key names it; the hooks can only infer it from registrations (`mcp-registrations.mjs:125-135`) |
@@ -201,7 +201,7 @@ extensions:
                                      # NEEDS R43: session-start BASE_GUIDANCE (advance, context, next) still fires; no `knowledge` value
     retrospective:
       mode: off                      # R45: no runs, so no run retrospective and no per-turn REST pass
-# NEEDS R44: config-sync still pushes the bundled build rules into this root on every SessionStart
+# R44 closed: config-sync pushes no bundled build rules into this root and archives copies pushed before (#780, #790)
 ```
 
 What setup does around the file (not config): register only the knowledge entry (HTTP `<base>/mcp/knowledge`, or stdio with `MCP_TOOL_PROFILE=knowledge`, under a key containing `task-orchestrator`), skip the director entry, create the anchor, push through config-sync over REST (the `config` tool is not served), and report the template it applied.
@@ -215,7 +215,7 @@ What setup does around the file (not config): register only the knowledge entry 
 3. A hook names only selects and ops the session's profile serves, or stays silent.
 4. Setup never reads a missing `context` or `runs_read` as "the server is 3.x"; it checks which profile it is connected to first.
 5. Setup never registers a director entry for a user who asked only for a knowledge base.
-6. A root whose template declares no seats receives no bundled build rules, and process rule documents never appear as knowledge hits.
+6. A root whose declared types are all `lifecycle: none` receives no bundled build rules, and process rule documents never appear as knowledge hits.
 7. No lifecycle-free item is ever listed or counted as queue, backlog, next or stalled work.
 8. No skill picks `blocks` as the default edge when either endpoint is lifecycle-free.
 9. create-item, work-summary and dependency-manager do not offer bug, feature, tech-debt, blocker or backlog framing on a root whose types are all lifecycle-free.

@@ -77,7 +77,7 @@ Running in a separate session over container `f2b1432b`: the plugin and docs swe
 - **Layer:** plugin hooks and three skills.
 - **Contents:**
   - Hooks learn which tool profile the session is connected through and name only what it serves, or stay silent: `session-start`, `orchestration-context`, the plan-mode hooks, the dispatch guard.
-  - `config-sync` pushes no bundled build rules to a root whose template declares no seats.
+  - `config-sync` pushes no bundled build rules to a root whose declared types are all `lifecycle: none`, and archives the copies pushed before (done: #780, #790).
   - `create-item`, `work-summary` and `dependency-manager` stop framing a lifecycle-free root as bugs, backlog or blockers.
 - **Depends on:** nothing.
 - **Size:** M. **Risk:** low, and it protects real knowledge-base users today.

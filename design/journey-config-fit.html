@@ -193,7 +193,7 @@ extensions:
     <li>A hook names only what the session's profile serves, or stays silent.</li>
     <li>Setup checks which profile it is connected to before reading a missing call as an old server.</li>
     <li>Setup registers no director entry for a user who asked only for a knowledge base.</li>
-    <li>A root whose template declares no seats gets no bundled build rules, and process rules never appear as knowledge hits.</li>
+    <li>A root whose declared types are all <code>lifecycle: none</code> gets no bundled build rules, and process rules never appear as knowledge hits.</li>
     <li>No lifecycle-free item is ever listed or counted as queue, backlog, next or stalled work.</li>
     <li>No skill picks a blocking edge by default when either end is lifecycle-free.</li>
     <li>Capture, the board and dependency help offer no bug, feature, tech-debt, blocker or backlog framing on a root whose types are all lifecycle-free.</li>
@@ -278,7 +278,7 @@ const R=[
  ["R41","Where a capture lands and which entry type it gets","W","config","A routing rule can be served and read with docs_read; capture reads it today through an orchestration-only call.","8.2"],
  ["R42","An entry's maturity without a lifecycle: seedling, evergreen, archived","W","config","Tags only; status labels key on triggers a lifecycle-free item never fires; only documents archive.","8.6 8.7"],
  ["R43","Steering for a knowledge session","W","config","orchestration.mode off silences the build core, plan mode and the dispatch guard, but not session-start's guidance; there is no knowledge value.","8.1-8.8"],
- ["R44","Which bundled process rules a root receives","X","plugin","config-sync pushes every bundled build rule into every root on every session start, with no opt-out; they then show up as search hits.","8.4"],
+ ["R44","Which bundled process rules a root receives","E","plugin","Closed: config-sync pushes no bundled build rules into a root whose declared types are all lifecycle: none, and archives copies pushed before (#780, #790).","8.4"],
  ["R45","No retrospective for a root with no runs","E","config","retrospective.mode off, which also removes the per-turn REST read.","8.7"],
  ["R46","Which template a root applied, so learn can explain it","W","config","Same cause as R22: nothing the plugin reads records it.","8.1 8.8"],
  ["R47","Which tool profile a root is meant to be used through","X","config","The profile belongs to a connection; no config key names it, so setup and skills cannot choose calls that profile serves.","8.1 8.2 8.6"],
@@ -291,7 +291,7 @@ const GAPS=[
  ["W","3. Building nothing is visible to run-wave only","R3","Journeys 3, 6","Today: a blocked item, or a type seated only by orchestrator. Missing: a mark that next honours too, so a question is never offered as build work."],
  ["W","4. Plan approval has one fixed consequence","R14","Journeys 2, 3, 6, 7","Today: steering and tier thresholds shape the route, and off stops everything. Missing: a project's choice of materialize only, build all, or build the refined items."],
  ["W","5. Nothing records which template setup applied","R22, R46","Journeys 5, 7, 8","Today: validation warnings on removed keys. Missing: the applied template and its version, which setup compares against when the plugin changes, which learn explains from, and the user's edits it must leave alone."],
- ["X","6. A root cannot say it is a knowledge base","R43, R44, R47","Journey 8","Today: steering off silences most hooks. Missing: the profile a root is used through, so setup registers the right endpoint and skills call only what it serves; a steering value hooks honour from session start on; and an opt-out from bundled build rules for a root with no seats."],
+ ["X","6. A root cannot say it is a knowledge base","R43, R44, R47","Journey 8","Today: steering off silences most hooks. Missing: the profile a root is used through, so setup registers the right endpoint and skills call only what it serves; and a steering value hooks honour from session start on. Bundled build rules are no longer pushed into a lifecycle-free root (#780, #790)."],
  ["X","7. Notes and links still speak the language of building","R36, R38","Journey 8","Today: every knowledge note is filed as queue, and relates_to is the only relation. Missing: notes outside any phase, and relation words a walk can follow. Both are tool-contract changes, so they wait until a knowledge user needs them."]];
 const n=g=>R.filter(r=>r[2]===g).length;
 document.getElementById("tally").innerHTML=[["E","expressible today"],["W","awkward: a workaround works"],["X","impossible today"],["O","not a config question"]].map(([g,t])=>`<div class="tile ${g}"><b>${n(g)}</b><span>${t}</span></div>`).join("");
