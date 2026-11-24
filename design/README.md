@@ -12,6 +12,7 @@ These documents record design intent and the evidence behind it, and [decisions/
 | [entry-skills.html](entry-skills.html) | The user-facing entry skills, the interfaces each needs, decided calls, diagrams and the shared gaps | [Entry Skills Design](https://claude.ai/artifact/FCjDsifoWdKQNcYWy1f8xS) |
 | [journey-config-fit.html](journey-config-fit.html) | What a project's config can express for each journey, the real gaps, setup's template library and the knowledge-base guard rails | [Journey Config Fit](https://claude.ai/artifact/1wPBpYW8hCtXKd1hdYwbRD) |
 | [glossary-alignment.md](glossary-alignment.md) | Places where code, skills, hooks or docs disagree with the glossary, as candidate items | - |
+| [architecture-breakdown.md](architecture-breakdown.md) | The work packages that carry the settled design, their layers, dependencies and order, and the decisions they still need | - |
 | [decisions/](decisions/README.md) | Decision records: one dated, never-edited record per architectural decision, superseded rather than changed | - |
 
 Open an HTML file directly in a browser, or use the published view. The published views are private to their owner.
