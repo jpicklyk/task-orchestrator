@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.service.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -10,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer
@@ -20,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.test.blocksDep
 import io.github.jpicklyk.mcptask.current.test.breakConfigReads
 import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.makeNote
+import io.github.jpicklyk.mcptask.current.test.noRunStoresContext
 import io.github.jpicklyk.mcptask.current.test.relatesDep
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
@@ -33,6 +36,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -214,6 +218,30 @@ class ItemsReadContextTest {
 
     private val plainQueueRow =
         mapOf("block" to "blocked", "cancel" to "terminal", "complete" to "terminal", "hold" to "blocked", "start" to "work")
+
+    @Test
+    fun `context shows an open decision on a full provider and leaves decisions out on one that serves none`(): Unit =
+        runBlocking {
+            val raw = db.db.repositoryProvider()
+            val id = UUID.randomUUID()
+            raw.workItemRepository().create(WorkItem(id = id, rootId = id, title = "Root", depth = 0))
+            ParitySeeder(
+                raw.workItemRepository(),
+                provider = raw,
+                unitOfWork = db.db.unitOfWork()
+            ).decision(UUID.randomUUID(), rootId = id, itemId = id)
+            val probe = ItemContextProbe()
+            val args = buildJsonObject { put("itemId", id.toString()) }
+
+            val full = probe.envelope(ToolExecutionContext(raw, unitOfWork = db.db.unitOfWork()), args)
+            assertEquals("true", full["ok"]?.jsonPrimitive?.content, "$full")
+            assertEquals(1, assertNotNull(full["data"]?.jsonObject?.get("decisions")?.jsonArray, "$full").size, "$full")
+
+            val none = probe.envelope(noRunStoresContext(db.db), args)
+            assertEquals("true", none["ok"]?.jsonPrimitive?.content, "$none")
+            val data = assertNotNull(none["data"]?.jsonObject, "$none")
+            assertFalse("decisions" in data, "no decision store means no decisions, though one is stored: $none")
+        }
 
     // ------------------------------------------------------------------ S1, S2, S3
 

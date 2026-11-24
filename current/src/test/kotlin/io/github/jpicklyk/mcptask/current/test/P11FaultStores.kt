@@ -99,6 +99,13 @@ internal class P11FaultProvider(
     override fun eventStore(): EventStore = transitions
 
     override fun resourceLeaseRepository(): LeaseStore = leases
+
+    // `by delegate` would hand this adapter to the delegate, which reads its own lease store; the interface default
+    // reads [resourceLeaseRepository] above.
+    override suspend fun pruneLeaseHistory(
+        cutoff: Instant,
+        batch: Int
+    ): Int = super<RepositoryProvider>.pruneLeaseHistory(cutoff, batch)
 }
 
 /** A resolver mapping [P11_FAULT_TRAIT] onto one exclusive resource with a 600s TTL (no note schemas). */

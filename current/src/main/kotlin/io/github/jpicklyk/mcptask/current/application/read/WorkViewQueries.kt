@@ -103,7 +103,7 @@ class WorkViewQueries(
                 if (decisionIds.isEmpty()) {
                     emptyMap()
                 } else {
-                    stores.decisionRequestStore().findByIds(decisionIds).associateBy { it.id }
+                    stores.decisionReads().findByIds(decisionIds).associateBy { it.id }
                 }
             val entries =
                 slice.items.map { item ->

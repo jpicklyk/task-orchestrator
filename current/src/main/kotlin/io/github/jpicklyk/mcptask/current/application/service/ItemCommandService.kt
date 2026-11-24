@@ -5,7 +5,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
@@ -170,7 +170,7 @@ data class ItemDeleteResult(
  * and is rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
  */
 class ItemCommandService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: WorkflowStoreProvider,
     private val configResolver: EffectiveConfigResolver,
     private val unitOfWork: UnitOfWork,
     private val advanceServiceFactory: AdvanceServiceFactory,
@@ -699,17 +699,17 @@ class ItemCommandService(
     // -------------------------------------------------------------------------
 
     /**
-     * The runs on root [rootId] that are not closed. A provider that serves no runs (its `runStore()` throws
+     * The runs on root [rootId] that are not closed. A provider that serves no runs (its `openRunCount()` throws
      * [UnsupportedOperationException], as the interface default does) has none.
      */
     private suspend fun openRunsOnRoot(rootId: UUID): Int {
-        val runStore =
+        val openRuns =
             try {
-                repositoryProvider.runStore()
+                repositoryProvider.openRunCount()
             } catch (e: UnsupportedOperationException) {
                 return 0
             }
-        return runStore.countNotClosedByRoot(rootId)
+        return openRuns.countNotClosedByRoot(rootId)
     }
 
     private suspend fun WriteScope.deleteBody(

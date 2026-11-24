@@ -197,7 +197,7 @@ class RetentionPruner(
                         ) {
                             0
                         } else {
-                            stores.resourceLeaseRepository().pruneClosed(cutoff, left).also { counts.leaseHistory += it }
+                            stores.pruneLeaseHistory(cutoff, left).also { counts.leaseHistory += it }
                         }
                     }
                     Source.CallLog -> {
@@ -206,7 +206,7 @@ class RetentionPruner(
                         if (folded == null || cutoff == null) {
                             0
                         } else {
-                            stores.callLogStore().prune(minOf(cutoff, folded), left).also { counts.callLog += it }
+                            stores.pruneCallLog(minOf(cutoff, folded), left).also { counts.callLog += it }
                         }
                     }
                 }

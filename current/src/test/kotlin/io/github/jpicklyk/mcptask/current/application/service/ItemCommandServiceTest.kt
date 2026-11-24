@@ -26,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.noRunStoresContext
 import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawCount
@@ -781,6 +782,19 @@ class ItemCommandServiceTest {
             assertEquals(ErrorCode.NOT_FOUND, orphaned.code, "a parent deleted before the unit is not found")
             assertEquals(0, d.count("work_items"))
             assertEquals(emptyList(), d.rig.rowsAfter(marker).filter { it.type.startsWith("item.") })
+        }
+
+    @Test
+    fun `a root delete over a provider that serves no runs counts no open runs and deletes the root`(): Unit =
+        runBlocking {
+            val ctx = noRunStoresContext(db.db)
+            val id = UUID.randomUUID()
+            val root =
+                checkNotNull(ctx.repositoryProvider.workItemRepository().create(WorkItem(id = id, rootId = id, title = "Root", depth = 0)))
+
+            ctx.itemCommandService.delete(root.id, recursive = false, caller = null).orFail()
+
+            assertNull(ctx.repositoryProvider.workItemRepository().getById(root.id), "the root is deleted")
         }
 
     // ---------------------------------------------------------------------------------------------

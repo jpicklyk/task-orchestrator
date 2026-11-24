@@ -312,8 +312,8 @@ class CurrentMcpServer(
 
             val serverName = appConfig.mcpServerName
 
-            // The tools (ToolSpec registry), served by profile.
-            // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
+            // The tools (ToolSpec registry), served by profile, and ONE dispatcher that serves MCP and REST
+            // (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
             val served = buildServedTools(toolContext)
             val registry = served.registry
             val toolDispatcher = served.dispatcher

@@ -618,7 +618,7 @@ class AdvanceService(
         } else if (ref == null && reason == BlockedReason.AWAITING_DECISION) {
             faults += FieldViolation("/decisionId", "required with reason awaiting_decision")
         } else if (ref != null) {
-            val found = stores.decisionRequestStore().getById(ref)
+            val found = stores.decisionReads().getById(ref)
             when {
                 found == null || block.decisionHidden -> faults += FieldViolation("/decisionId", "names no decision", ref.toString())
                 found.itemId != item.id -> faults += FieldViolation("/decisionId", "belongs to another item", ref.toString())
