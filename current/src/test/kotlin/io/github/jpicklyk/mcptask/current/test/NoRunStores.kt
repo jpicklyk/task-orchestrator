@@ -16,9 +16,10 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 
 /**
- * A provider over [base]'s stores that serves no runs, seats or decisions: it overrides only the members
- * [RepositoryProvider] leaves abstract, so every run and decision accessor keeps the interface default, which throws
- * [UnsupportedOperationException].
+ * A provider over [base]'s stores that overrides only the members [RepositoryProvider] leaves abstract. Every other
+ * accessor keeps its interface default, so this provider has no run store, run seat store, decision request store,
+ * search index, call log store, report queries or usage daily store (each throws [UnsupportedOperationException]), and
+ * the adapters over them (`runReads()`, `openRunCount()`, `decisionReads()`, `pruneCallLog`) throw the same way.
  */
 internal class NoRunStoresProvider(
     private val base: RepositoryProvider

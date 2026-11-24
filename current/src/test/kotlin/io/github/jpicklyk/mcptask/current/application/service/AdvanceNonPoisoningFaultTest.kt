@@ -1,11 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.P11FaultProvider
 import io.github.jpicklyk.mcptask.current.test.P11FaultRig
 import io.github.jpicklyk.mcptask.current.test.P11_FAULT_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.advanceTool
@@ -29,7 +31,9 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -54,6 +58,24 @@ class AdvanceNonPoisoningFaultTest {
     @RegisterExtension
     @JvmField
     val db = SqliteTestDatabase.perMethod()
+
+    @Test
+    fun `the fault provider's lease store is the one its lease history prune reaches`(): Unit =
+        runBlocking {
+            val raw = db.db.repositoryProvider()
+            val prunes = AtomicInteger()
+            val leases =
+                object : LeaseStore by raw.resourceLeaseRepository() {
+                    override suspend fun pruneClosed(
+                        cutoff: Instant,
+                        batch: Int
+                    ): Int = prunes.incrementAndGet()
+                }
+            val provider = P11FaultProvider(raw, raw.eventStore(), leases)
+
+            assertEquals(1, provider.pruneLeaseHistory(Instant.EPOCH, 1), "the prune answers from the wrapper's lease store")
+            assertEquals(1, prunes.get(), "the wrapper's lease store saw the prune")
+        }
 
     private suspend fun advance(
         ctx: ToolExecutionContext,
