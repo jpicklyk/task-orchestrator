@@ -528,3 +528,45 @@ test('a8b9ebfb S7 (D1): a session without a project rootId stays silent on the r
     assert.equal(requests.length, 0);
   });
 });
+
+// a877f204 T6 (specification D4): a knowledge session sends no request and adds nothing; an orchestration
+// registration with a role-bearing project config still stashes the plan.
+const KNOWLEDGE_MCP = { mcpServers: { 'mcp-task-orchestrator-knowledge': { type: 'http', url: 'http://localhost:3001/mcp/knowledge' } } };
+const ORCHESTRATION_MCP = { mcpServers: { 'mcp-task-orchestrator': { type: 'http', url: 'http://localhost:3001/mcp' } } };
+const writeMcp = (dir, mcp) => writeFileSync(join(dir, '.mcp.json'), JSON.stringify(mcp));
+
+test('a877f204 T6: knowledge registration with a project config -> no request, silent', async () => {
+  const cwd = mkTemp('kreg');
+  writeConfig(cwd, PROJECT_CONFIG);
+  writeMcp(cwd, KNOWLEDGE_MCP);
+  await withStub(() => okReply('x'), async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
+});
+
+test('a877f204 T6: lifecycle-free project config -> no request, silent', async () => {
+  const cwd = mkTemp('lfree');
+  writeConfig(cwd, PROJECT_CONFIG + ['work_item_schemas:', '  page:', '    lifecycle: none', ''].join(NL));
+  writeMcp(cwd, ORCHESTRATION_MCP);
+  await withStub(() => okReply('x'), async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
+});
+
+test('a877f204 T6: orchestration registration with a role-bearing project config -> one docs_write', async () => {
+  const cwd = mkTemp('oreg');
+  writeConfig(cwd, PROJECT_CONFIG + ['work_item_schemas:', '  bug:', '    lifecycle: auto', ''].join(NL));
+  writeMcp(cwd, ORCHESTRATION_MCP);
+  await withStub((call) => okReply(call.body.ops[0].slug), async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(requests.length, 1);
+    assert.ok(res.stdout.includes('plan stashed'), res.stdout);
+  });
+});

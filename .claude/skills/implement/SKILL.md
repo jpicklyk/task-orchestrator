@@ -97,7 +97,7 @@ and PR. Group when the changes are cohesive and independent fixes would create
 merge conflicts. Keep items separate when they're unrelated or when isolation makes
 review cleaner. A batch of unrelated bug fixes is not a Parallel-tier feature: each fix gets its
 own branch and PR (run-wave per-item mode); the shared worktree applies only to items under one
-parent feature. Items materialized from one approved plan share one parent feature and one branch, whatever their wave count (`wave.md` Step 2); a split into several parents is named on the plan's `work-breakdown` note.
+parent feature. Items materialized from one approved plan share one parent feature and one branch, whatever their wave count (`wave.md` Step 2); a split into several parents is named on its first parent's `work-breakdown` note.
 
 ---
 
@@ -129,10 +129,18 @@ the file directly from the remote (`git show origin/main:<path>`, from PowerShel
 the Bash tool's MSYS layer mangles the `ref:path` colon) or create a fresh worktree from
 `origin/main`. A stale base makes adopted work look missing.
 
+### Branch range
+
+The branch's own change is measured after `git fetch origin`: `git diff origin/main...HEAD` for a
+diff (three dots diff from the merge-base, so main's commits brought in by a base merge or
+a branch update drop out) and `git log origin/main..HEAD` for a log. Never use a recorded fixed SHA
+such as the contract Base (`references/dispatch-contract-template.md`): after a base merge it reads
+main's commits as the branch's. This holds on every path (wave, Delegated, Direct).
+
 ### Verification command
 
 "Run tests" means every `.taskorchestrator/run-profile.json` `verify` entry whose `seats` list
-`orchestrator` and whose `appliesTo` matches the diff (`git diff --name-only <base>...HEAD`); the
+`orchestrator` and whose `appliesTo` matches the diff (`git diff --name-only origin/main...HEAD`); the
 run-profile wins. `wave-build` runs through the lock helper, which serializes gradle and prints a final
 `EXIT=<n> (log: <path>)` line. Read that line, and read the log when it is non-zero:
 
@@ -208,14 +216,14 @@ git -C <wt> show --stat HEAD
 **CHANGELOG check and Docs line.** Confirm the branch carries the `[Unreleased]` bullet written in
 Step 4c, or that the PR body will state `Changelog: none (<why>)`.
 Both PR-body lines come from the diff, never from the plan: run
-`git diff --name-only <base>...HEAD` and (a) list every changed doc path from that output on the
+`git diff --name-only origin/main...HEAD` and (a) list every changed doc path from that output on the
 body's Docs line; (b) require `CHANGELOG.md` in that output unless the body states
 `Changelog: none (<why>)`. Recompute both lines after any merge round (a base merge or
 update-branch), before merge.
 
 **Merge method** (`<method>` below). `--squash` for a PR with its own item (Direct, Delegated, a
 per-item wave item). `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
-subject from `git log --first-parent --format=%s <base>..HEAD` is a conventional commit ending in
+subject from `git log --first-parent --format=%s origin/main..HEAD` is a conventional commit ending in
 an 8-hex item tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Only
 the branch's own commits count: main's commits merged in reach HEAD through a merge's second
 parent, while the merge commit itself stays on the first-parent chain and must be tagged. Any other subject
@@ -234,9 +242,14 @@ PR title, so the PR title is the conventional-commit subject that lands on `main
   early CI) is opened without auto-merge. If auto-merge is already armed when a review starts,
   disarm it first (`gh pr merge <n> --disable-auto`).
 - **Guard landing.** When a merged PR adds or tightens a guard or contract test
-  (architecture/Konsist, a consistency test, a token or size budget), run
-  `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch` on every open PR against the
-  same base, and let its CI re-run green before arming.
+  (architecture/Konsist, a consistency test, a token or size budget), bring every open PR against
+  the same base up to date and let its CI re-run green before arming. An open shared-mode feature
+  PR that passes the "Merge method" test takes the tagged base merge of `wave.md` Step 6 "When
+  children remain for a later wave" in its feature worktree (on a conflict, that step's conflicted
+  merge), then `git push`; it is a merge round (Docs and CHANGELOG lines recomputed). Every other
+  open PR (one that squashes) takes
+  `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch`, which takes no commit message and
+  writes an untagged subject.
 - On a red check, read the failed job. An infra flake gets one
   `gh run rerun <run-id> --failed`, recorded in the item's notes; a test failure is fixed on
   the branch.
@@ -263,7 +276,7 @@ opt-in as the `live-acceptance` step (rule `live-checks` "Post-merge holder", st
 `references/post-run.md` Step 7b say, BEFORE completing the item or feature. For an item that is not a feature, put the item in the
 feature's place and its parent as the holder's parent.
 
-**Wave-boundary red-proofs** (the `red-proofs` post-merge step; background, they gate nothing) run per rule
+**Post-merge red-proofs** (the `red-proofs` post-merge step; background, they gate nothing) run per rule
 `red-proofs` (which points at rule `test-author` section 5, points 7, 9, 10) and run-wave
 `references/post-run.md` Step 7a. Beyond those:
 - A single item is its own wave parent.

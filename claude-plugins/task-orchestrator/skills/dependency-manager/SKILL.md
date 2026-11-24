@@ -12,6 +12,24 @@ Manage `blocks` and `relates_to` edges between work items: view them, create the
 
 Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Director-safe here: VIEW by id (`deps_read` plus `items_read` `get`), a broad DIAGNOSE with `items_read` `blocked`, and resolving a title with `items_read` `list` (not `search`, which the guard denies). An `awaiting_decision` entry in the blocked list belongs to the board: answer it through `/task-orchestrator:director`. A single-item `context` diagnosis and every CREATE or DELETE are delegated, because an edge on a run member changes that run's frontier: `SendMessage` the run's orchestrator for a member, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set). The agent reports edge counts and item ids, one line per edge changed, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
+## Lifecycle-free items
+
+An item is lifecycle-free when `items_read` `get` returns no `role` for it. When either end of an edge is lifecycle-free:
+
+- Every create and pattern op passes `type: "relates_to"` explicitly. The default type is `blocks`, which is refused for such an end.
+
+```to-call
+{"tool": "deps_write", "op": "create", "args": {"from": "4b7d0e19", "to": "6e21c0aa", "type": "relates_to"}}
+```
+
+```to-call
+{"tool": "deps_write", "op": "fan_out", "args": {"from": "4b7d0e19", "toIds": ["6e21c0aa", "9f3a1c22"], "type": "relates_to"}}
+```
+
+- VIEW uses `deps_read` `list` only; `graph` walks `blocks` edges and leaves related items out.
+- DIAGNOSE is not offered: a lifecycle-free item has no phase to wait for.
+- Call such edges and items "related" in every answer.
+
 ## Step 1: Determine intent
 
 Resolve `$ARGUMENTS` to an item id with a search; if several match, show them via `AskUserQuestion`. An argument that is already an id defaults to VIEW.
@@ -127,7 +145,7 @@ For an explicit block, act on the `reason`:
 
 | `reason` | Needed |
 |---|---|
-| `awaiting_decision`, `resumable: false` | the decision must be answered (director board); do not resume |
+| `awaiting_decision`, `resumable: false` | the decision must be answered (the board's decision inbox); do not resume |
 | `awaiting_decision`, `resumable: true` | answered or withdrawn: resume per [decisions.md](../status-progression/references/decisions.md) |
 | `resource` | lease contention: read `context` `resourceLeases`, retry later |
 | `manual` | `resume` via `/status-progression` |

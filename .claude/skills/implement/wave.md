@@ -233,6 +233,8 @@ You are reviewing one child task within a shared feature worktree.
   <FILE LIST>
 - Your review scope is the diff of exactly those files:
   git -C <FEATURE_WORKTREE_PATH> diff <BASE_SHA>..HEAD -- <FILE LIST>
+  (<BASE_SHA> is the wave's pre-dispatch worktree HEAD, taken after any base merge, so main's
+  commits are not in it.)
 - Other children committed into this same branch, and later fix-up, formatter or
   fixture-repair commits may touch these files. Review the owned-file diff above as it
   stands now; do NOT review another child's files, and do NOT bound your review by a
@@ -261,7 +263,9 @@ orchestrator's verdict handling is the downstream filter, not your own judgment.
 ```
 
 In per-item mode, the same template names the item's own worktree and branch, and the scope is
-`git -C <item worktree> diff <BASE_SHA>..HEAD -- <owned files>`.
+`git -C <item worktree> diff <BASE_SHA>..HEAD -- <owned files>`. `<BASE_SHA>` is the run
+snapshot's origin/main in per-item mode; shared mode uses the feature worktree's pre-dispatch head,
+taken after any base merge, so main's commits are not in it (`run-planner-lib.mjs`).
 
 **Label and seat parts.** Dispatch every reviewer with the Agent `description` `reviewer:<short>` (the label
 table is the "Label rule" of run-wave `post-run.md`; do not restate it). On a run-wave run, which is open under
@@ -323,7 +327,13 @@ from. Automatically retrying hides these signals.
 commits on the branch. Run front door "Base freshness" for the branch: when origin/main moved,
 `git -C <feature-worktree> merge origin/main -m "chore: merge main into feat/<feature-slug> [<parent-short>]"`,
 never rebase (the tagged conventional subject keeps the branch eligible for a merge commit, front
-door "Merge method"). Then Step 3b for the next layer.
+door "Merge method"). When the merge stops on a conflict, the orchestrator resolves it in the
+feature worktree; a conflict in a child's owned files that needs judgement goes to a writer seat on
+that worktree (front door Route table, hand-dispatch row). The resolution is committed as the merge
+commit itself (`git -C <feature-worktree> commit --no-edit --cleanup=strip` keeps the `-m` subject
+from MERGE_MSG and drops its `# Conflicts:` comment lines, which would otherwise land in the merge
+commit body) and checked with `git log -1 --format=%s`; never abort and rebase. It is a writer
+commit, so Step 4c build verification runs again before Step 3b. Then Step 3b for the next layer.
 
 **When all children reach terminal**, the parent feature is ready to finalize (a child that is only a live
 check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
@@ -341,7 +351,7 @@ merge, step 8):
    `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`, Agent `description`
    `reviewer:<parent-short>`; it runs under an assigned reviewer seat only when the parent is a member of the
    open run, otherwise token-less) over
-   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's verdict and
+   `git -C <feature-worktree-path> diff origin/main...HEAD`, handed each child's verdict and
    disposition count lines (a child with no review phase is listed as such). The reviewer
    writes only feature-level findings, never re-lists a child's disposed observation, and fills
    the parent's `review-checklist`. The orchestrator records one line per finding in the
@@ -355,7 +365,7 @@ merge, step 8):
 4. **CHANGELOG check and Docs line** - as front door "Merge gate" says: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
    body; the Docs line and the `CHANGELOG.md` requirement are built from
-   `git diff --name-only <base>...HEAD`, never from the plan, and recomputed after any merge round.
+   `git diff --name-only origin/main...HEAD`, never from the plan, and recomputed after any merge round.
 5. Push the feature branch:
    ```bash
    git -C <feature-worktree-path> push -u origin feat/<feature-slug>
@@ -378,7 +388,7 @@ merge, step 8):
    <feature reviewer verdict; N of N dispositions>
 
    ## Docs
-   <every changed doc path from `git diff --name-only <base>...HEAD`>
+   <every changed doc path from `git diff --name-only origin/main...HEAD`>
 
    ## Changelog
    <the [Unreleased] bullet text, or none (<why>)>
@@ -402,7 +412,7 @@ merge, step 8):
    takes no new children.
 9. Advance the parent feature to terminal (only after `N of N disposed`) with `trigger: "complete"`;
    when step 8 applies this is its (e), run once after (a)-(d).
-10. **Wave-boundary red-proofs** - front door "After merge", every child's budget mutations in ONE
+10. **Post-merge red-proofs** - front door "After merge", every child's budget mutations in ONE
    batch with the parent as the wave parent (runner `red-proofs:<parent-short>`). Background; it
    gates nothing.
 11. **Retrospective** - front door "Retrospective".

@@ -102,7 +102,7 @@ test('REPORT S14: the reporting contract is written once in coordinator-tiers.md
   assert.ok(runWave.includes('tokens/coordinator.token'), 'run-wave persists the coordinator token')
   const director = read('skills', 'director', 'SKILL.md')
   assert.ok(director.includes('TO report'), 'the director skill names the TO report wake-up')
-  assert.ok(director.includes('coord idle (Method A)'), 'the director board has the coordinator cell')
+  assert.ok(director.includes('coord idle (Method A)'), 'the board has the run orchestrator cell')
   assert.ok(read('skills', 'ralph', 'SKILL.md').includes('Under a director'), 'ralph SKILL.md has the Under a director paragraph')
   assert.ok(read('skills', 'run-wave', 'references', 'post-run.md').includes('review-args'), 'post-run launches review-wave from review-args')
 })

@@ -39,3 +39,4 @@ example: `grep -rn "createSuspend" current/src -> 0 hits (src/main + src/test)`.
 - State matrix: rule `live-checks` holds the rows, columns, cell forms and the Live-owed hold;
   a user-visible runtime change carries it, otherwise one line `State matrix: n/a - <reason>`.
 - Scenario ids and oracle sources: rule `test-author` sections 2 and 3.
+- Item size: one implementer's unit holds at most 10 files that need judgement (the Delegated ceiling, `claude-plugins/task-orchestrator/skills/orchestrate/SKILL.md:20`); a scripted move is one item whatever its file count.

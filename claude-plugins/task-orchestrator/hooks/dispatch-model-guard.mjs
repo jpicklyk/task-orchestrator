@@ -7,7 +7,8 @@
 // validated: the Agent tool owns that.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not Agent -> headless
-// iteration -> no located config -> orchestration mode off -> model and effort present.
+// iteration -> no located config -> orchestration mode off -> model and effort present -> knowledge
+// session (lib/session-profile.mjs; read last, so a compliant dispatch pays nothing).
 // A director session is still guarded (its dispatches must pass `model` and `effort` too).
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
 // Fail-open: any throw yields `{}` and exit 0.
@@ -17,6 +18,7 @@ import { emit } from './lib/emit.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
+import { isKnowledgeSession } from './lib/session-profile.mjs';
 
 const OFF_POINTER = 'Set `mode: off` under `extensions.claude-code.orchestration` in .taskorchestrator/config.yaml to disable this guard.';
 
@@ -45,6 +47,7 @@ function main() {
   if (mode === 'off') return {};
   const missing = ['model', 'effort'].filter((f) => !present(input.tool_input, f));
   if (missing.length === 0) return {};
+  if (isKnowledgeSession({ configText: loc.text })) return {};
   return {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
