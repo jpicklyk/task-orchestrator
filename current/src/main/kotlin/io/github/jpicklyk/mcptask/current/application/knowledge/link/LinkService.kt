@@ -38,7 +38,7 @@ import java.util.UUID
  */
 class LinkService(
     private val repositoryProvider: KnowledgeStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<KnowledgeStoreProvider>,
 ) {
     /**
      * Re-syncs the parsed links of note [noteId] after a write. Does nothing (no query) when neither [newBody] nor

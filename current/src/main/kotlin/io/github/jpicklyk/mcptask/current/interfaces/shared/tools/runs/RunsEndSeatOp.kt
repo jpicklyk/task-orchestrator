@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsEndSeatRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -22,7 +23,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write end_seat: the calling seat ends its own assignment. */
 internal val runsEndSeatOp =
-    OpSpec<RunToolServices, RunsEndSeatRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsEndSeatRequest, JsonObject, RunStoreProvider>(
         name = "end_seat",
         doc =
             "End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary " +
@@ -39,7 +40,7 @@ internal val runsEndSeatOp =
 private const val LINK_KIND = "kind"
 private const val LINK_REF = "ref"
 
-private suspend fun WriteScope.endSeat(
+private suspend fun WriteScope<RunStoreProvider>.endSeat(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsEndSeatRequest

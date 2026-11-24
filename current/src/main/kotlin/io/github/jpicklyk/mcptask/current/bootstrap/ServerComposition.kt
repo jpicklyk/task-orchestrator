@@ -93,7 +93,7 @@ class CompositionResult(
     val serverConfig: ServerConfigSource,
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<RepositoryProvider>,
     val dataStepRunner: DataStepRunner,
     val configService: ConfigService,
 )
@@ -178,7 +178,8 @@ class ServerComposition(
         // there, and a version another process appends is served on the next read, with no restart.
         val configResolver = EffectiveConfigResolver(perRootConfigService, perRootConfigService)
         // The unit of work hands scopes the SAME provider the tools use.
-        val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
+        val unitOfWork: UnitOfWork<RepositoryProvider> =
+            SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
         // ONE read model for the whole server, over the same unit of work (served by the read tools as they move onto it).
         val workViewQueries = WorkViewQueries(unitOfWork)
         // The ONE config service: the `config` tool (MCP and REST ops) and the boot import all drive it.

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -30,7 +31,7 @@ data class ConfigPushRequest(
 )
 
 internal val configPushOp =
-    OpSpec<ConfigToolServices, ConfigPushRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigPushRequest, JsonElement, ConfigStoreProvider>(
         name = "push",
         doc =
             "Validate a config document and append it as the root's next version (an identical re-push appends nothing, " +

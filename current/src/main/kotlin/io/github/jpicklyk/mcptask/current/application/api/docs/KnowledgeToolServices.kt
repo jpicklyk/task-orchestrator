@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedS
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -17,7 +18,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  */
 class KnowledgeToolServices(
     val stores: KnowledgeStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<RepositoryProvider>,
     val bodySource: BodySource,
     private val document: Lazy<DocumentService>,
     private val link: Lazy<LinkService>,

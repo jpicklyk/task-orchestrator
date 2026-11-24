@@ -7,8 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.config.statusLabelKey
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
@@ -344,7 +344,7 @@ class AdvanceService(
     private val labelFor: suspend (Trigger, Role) -> String? = DEFAULT_LABEL_FOR,
     private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?,
     /** The transaction boundary: one advance is one unit. */
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<LifecycleStoreProvider>,
     private val resourceLeaseRepository: LeaseStore? = null,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
@@ -551,7 +551,7 @@ class AdvanceService(
      * and the exception is rethrown only after the unit returns: thrown out of the block, the outermost
      * unit runner would translate it by its SQL cause into a store fault (`apply_failed`) instead.
      */
-    private suspend fun runUnit(block: suspend WriteScope.() -> AdvanceOutcome): AdvanceOutcome {
+    private suspend fun runUnit(block: suspend WriteScope<LifecycleStoreProvider>.() -> AdvanceOutcome): AdvanceOutcome {
         var rejected: AdvanceOutcome.Failure? = null
         var configFault: PerRootConfigUnavailableException? = null
         val outcome =
@@ -596,7 +596,7 @@ class AdvanceService(
      * The invalid_request for the typed-block fields ([block]) of a user trigger, or null when they are valid (R26). Runs
      * inside the unit, after the item re-read and before the policy; an unsupplied block is always valid.
      */
-    private suspend fun WriteScope.blockRequestError(
+    private suspend fun WriteScope<LifecycleStoreProvider>.blockRequestError(
         item: WorkItem,
         trigger: Trigger.User,
         block: BlockInput?
@@ -649,15 +649,15 @@ class AdvanceService(
 
     /** A view of [scope] whose `now` is [at] (the service clock's unit instant). */
     private fun viewAt(
-        scope: ReadScope,
+        scope: ReadScope<LifecycleStoreProvider>,
         at: Instant
-    ): ReadScope =
-        object : ReadScope {
-            override val stores: RepositoryProvider get() = scope.stores
+    ): ReadScope<LifecycleStoreProvider> =
+        object : ReadScope<LifecycleStoreProvider> {
+            override val stores: LifecycleStoreProvider get() = scope.stores
             override val now: Instant = at
         }
 
-    private suspend fun WriteScope.primary(request: PrimaryRequest): AdvanceOutcome {
+    private suspend fun WriteScope<LifecycleStoreProvider>.primary(request: PrimaryRequest): AdvanceOutcome {
         val now = clock.unitNow()
         val view = viewAt(this, now)
         val trigger = request.trigger
@@ -814,7 +814,7 @@ class AdvanceService(
      * Maps a primary [Decision.Reject] to its [AdvanceFailure] (legacy 3.x messages) and records the
      * rejection row for a note, dependency or lease rejection, inside the unit (it survives the rollback).
      */
-    private suspend fun WriteScope.rejectPrimary(
+    private suspend fun WriteScope<LifecycleStoreProvider>.rejectPrimary(
         item: WorkItem,
         trigger: Trigger.User,
         decision: Decision.Reject,
@@ -1003,7 +1003,7 @@ class AdvanceService(
      * item row (previousRole / statusLabel / claim rules), the
      * `item.transitioned` event (the audit record), and the lease release on a WORK exit. A missing row aborts the unit.
      */
-    private suspend fun WriteScope.applyDecision(
+    private suspend fun WriteScope<LifecycleStoreProvider>.applyDecision(
         item: WorkItem,
         decision: Decision.Allow,
         trigger: Trigger,
@@ -1169,8 +1169,8 @@ class AdvanceService(
      * iteratively, up to [MAX_CASCADES] applied cascades. Every step is fenced for [caller] (null fences on any active
      * claim): a parent held by someone else stops the chain there.
      */
-    private suspend fun WriteScope.runCascades(
-        view: ReadScope,
+    private suspend fun WriteScope<LifecycleStoreProvider>.runCascades(
+        view: ReadScope<LifecycleStoreProvider>,
         followUps: List<FollowUp>,
         leaseGateActive: Boolean,
         caller: ClaimHolder?,
@@ -1212,8 +1212,8 @@ class AdvanceService(
         return out
     }
 
-    private suspend fun WriteScope.cascadeStep(
-        view: ReadScope,
+    private suspend fun WriteScope<LifecycleStoreProvider>.cascadeStep(
+        view: ReadScope<LifecycleStoreProvider>,
         followUp: FollowUp,
         leaseGateActive: Boolean,
         caller: ClaimHolder?,

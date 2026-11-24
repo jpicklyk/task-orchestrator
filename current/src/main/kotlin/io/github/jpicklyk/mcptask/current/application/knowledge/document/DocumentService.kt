@@ -42,7 +42,7 @@ import java.util.UUID
 class DocumentService(
     private val repositoryProvider: KnowledgeStoreProvider,
     /** The transaction boundary; each write operation is one unit (joining an ambient unit when there is one). */
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<KnowledgeStoreProvider>,
 ) {
     private val links = LinkService(repositoryProvider, unitOfWork)
 
@@ -298,7 +298,7 @@ class DocumentService(
         return null
     }
 
-    private fun WriteScope.versionRow(
+    private fun WriteScope<KnowledgeStoreProvider>.versionRow(
         documentId: UUID,
         version: Int,
         body: String,

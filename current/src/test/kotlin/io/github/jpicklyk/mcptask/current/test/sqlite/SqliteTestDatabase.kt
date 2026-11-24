@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -84,7 +85,8 @@ class SqliteTestDatabase private constructor(
         }
 
     /** The production [UnitOfWork] (SQLite) over this database and [repositoryProvider]. */
-    fun unitOfWork(clock: Clock = this.clock): UnitOfWork = SqliteUnitOfWork(databaseManager, repositoryProvider(), clock)
+    fun unitOfWork(clock: Clock = this.clock): UnitOfWork<RepositoryProvider> =
+        SqliteUnitOfWork(databaseManager, repositoryProvider(), clock)
 
     /** Shuts the manager down and deletes the database files; fails loudly if a connection leaked. */
     override fun close() {
@@ -186,7 +188,7 @@ class SqliteTestDatabaseExtension internal constructor(
     fun idempotencyRecordCount(): Int = db.idempotencyRecordCount()
 
     /** The production [UnitOfWork] (SQLite) over the current database. */
-    fun unitOfWork(clock: Clock = this.clock): UnitOfWork = db.unitOfWork(clock)
+    fun unitOfWork(clock: Clock = this.clock): UnitOfWork<RepositoryProvider> = db.unitOfWork(clock)
 
     override fun beforeAll(context: ExtensionContext) {
         if (!perMethod) start(context)

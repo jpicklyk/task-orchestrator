@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
@@ -52,7 +53,7 @@ internal object UpdateItemOp {
     const val NAME = "update"
 }
 
-internal fun updateItemOp(): OpSpec<WorkflowToolServices, UpdateItemRequest, ItemWriteResult> =
+internal fun updateItemOp(): OpSpec<WorkflowToolServices, UpdateItemRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = UpdateItemOp.NAME,
         doc = "Update an item; absent or null keeps a value, clear nulls optional fields.",
@@ -109,7 +110,7 @@ private fun wireName(field: ClearField): String =
         ClearField.PARENT_ID -> "parentId"
     }
 
-private suspend fun WriteScope.updateItem(
+private suspend fun WriteScope<WorkflowStoreProvider>.updateItem(
     env: WorkflowToolServices,
     ctx: CallContext,
     req: UpdateItemRequest

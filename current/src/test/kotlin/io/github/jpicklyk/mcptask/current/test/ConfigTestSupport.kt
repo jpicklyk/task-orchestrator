@@ -24,7 +24,7 @@ import java.util.UUID
  */
 suspend fun pushConfig(
     provider: RepositoryProvider,
-    unitOfWork: UnitOfWork,
+    unitOfWork: UnitOfWork<RepositoryProvider>,
     rootId: UUID,
     yaml: String
 ): ConfigVersion {

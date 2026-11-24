@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -28,7 +29,7 @@ data class ConfigHistoryRequest(
 )
 
 internal val configHistoryOp =
-    OpSpec<ConfigToolServices, ConfigHistoryRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigHistoryRequest, JsonElement, ConfigStoreProvider>(
         name = "history",
         doc = "List a root's config versions newest first, with metadata and no YAML. A root with no config returns no versions.",
         profiles = orchestration(),

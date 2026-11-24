@@ -13,7 +13,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  */
 class ConfigToolServices(
     val stores: ConfigStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<ConfigStoreProvider>,
     val configResolver: EffectiveConfigResolver,
     val configService: ConfigService?
 ) : ItemLookup {

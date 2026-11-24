@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -46,7 +47,7 @@ class PreviewView(
  * fallback, so a per-root config read fault propagates as a `PerRootConfigUnavailableException`.
  */
 class TransitionPreview(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<LifecycleStoreProvider>,
     private val loader: TransitionSnapshotLoader,
     private val leasesEnforced: () -> Boolean = { true },
     private val policy: TransitionPolicy = TransitionPolicy()

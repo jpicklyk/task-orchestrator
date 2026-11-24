@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsResumeRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
@@ -14,7 +15,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write resume: a director or a human resumes a manually paused run. */
 internal val runsResumeOp =
-    OpSpec<RunToolServices, RunsResumeRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsResumeRequest, JsonObject, RunStoreProvider>(
         name = "resume",
         doc =
             "Resume a manually paused run. Director or a human only. An attempts pause, or a run-budget pause left by 4.0.0, " +
@@ -34,7 +35,7 @@ internal val runsResumeOp =
         execute = { env, ctx, req -> resumeRun(env, ctx, req) }
     )
 
-private suspend fun WriteScope.resumeRun(
+private suspend fun WriteScope<RunStoreProvider>.resumeRun(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsResumeRequest

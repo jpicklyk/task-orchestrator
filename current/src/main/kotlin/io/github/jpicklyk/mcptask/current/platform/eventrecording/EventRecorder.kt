@@ -138,7 +138,7 @@ class EventRecorder(
 
 /** Appends [event] in its own fresh unit of [owner] (no ambient unit exists when a rollback hook runs). */
 private suspend fun appendDetached(
-    owner: UnitOfWork,
+    owner: UnitOfWork<*>,
     event: DomainEvent
 ) {
     try {
@@ -161,7 +161,7 @@ private suspend fun appendDetached(
  * ([EventSink.recordRejection]): exactly one row whether the ambient unit commits or rolls back. A failure to record
  * is logged at WARN and swallowed: the rejection the caller returns is never changed by its audit row.
  */
-suspend fun UnitOfWork.recordRejection(event: DomainEvent) {
+suspend fun UnitOfWork<*>.recordRejection(event: DomainEvent) {
     try {
         write("events.recordRejection") {
             events.recordRejection(event)
@@ -178,8 +178,8 @@ suspend fun UnitOfWork.recordRejection(event: DomainEvent) {
  * [EventRecorder.REJECTION_CODES], [build] turns the error into a `*.rejected` event, which [unitOfWork] records in a
  * follow-up unit ([recordRejection]). [build] may return null to skip. Other rollbacks record nothing.
  */
-fun WriteScope.recordRejectionOnRollback(
-    unitOfWork: UnitOfWork,
+fun WriteScope<*>.recordRejectionOnRollback(
+    unitOfWork: UnitOfWork<*>,
     build: (DomainError) -> DomainEvent?
 ) {
     afterRollback { error ->

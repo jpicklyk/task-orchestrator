@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigImpactService
 import io.github.jpicklyk.mcptask.current.application.service.ConfigValidateResult
 import io.github.jpicklyk.mcptask.current.application.service.ImpactSide
@@ -33,7 +34,7 @@ data class ConfigValidateRequest(
 )
 
 internal val configValidateOp =
-    OpSpec<ConfigToolServices, ConfigValidateRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigValidateRequest, JsonElement, ConfigStoreProvider>(
         name = "validate",
         doc =
             "Dry-run push: parse and validate a document and diff it against the head; nothing is stored. Problems are " +

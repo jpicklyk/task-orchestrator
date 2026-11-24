@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
 import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
 import io.github.jpicklyk.mcptask.current.application.port.NoteWritesQuery
+import io.github.jpicklyk.mcptask.current.application.port.ReportStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.RunRollupQuery
@@ -177,7 +178,7 @@ data class WasteReport(
  * clock) is its ONE wiring site, so `ReportService(unitOfWork, clock)` serves the real run facts.
  */
 class ReportService(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<ReportStoreProvider>,
     private val clock: Clock,
     private val runFacts: RunFacts = StoreRunFacts(unitOfWork, clock)
 ) {
@@ -299,7 +300,7 @@ class ReportService(
      * clamped); items, blocked reasons, resumable and dwell are over the CURRENT members; events and cost are those
      * stamped with the run (no time predicate); decisions, seats and attempts come from [runFacts].
      */
-    private suspend fun ReadScope.liveRunRollup(run: Run): RollupReport {
+    private suspend fun ReadScope<ReportStoreProvider>.liveRunRollup(run: Run): RollupReport {
         val members = runFacts.members(run.id) ?: stores.runStore().members(run.id).toSet()
         val facts = runFacts.snapshot(run, members, RollupAssembler.STALLED_CAP)
         val header =
@@ -732,7 +733,7 @@ class ReportService(
      * Resolves `rootId` under the call's scope (ScopedIds: a prefix resolves, an id outside the scope is `forbidden`, an
      * unknown one `not_found` when unrestricted) and requires a depth-0 item: `call_log.root_id` is always a project root.
      */
-    private suspend fun ReadScope.root(
+    private suspend fun ReadScope<ReportStoreProvider>.root(
         ctx: CallContext,
         ref: IdRef
     ): Outcome<UUID> {

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -39,7 +40,7 @@ internal object CreateItemOp {
     const val NAME = "create"
 }
 
-internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, ItemWriteResult> =
+internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = CreateItemOp.NAME,
         doc = "Create an item in queue.",
@@ -59,7 +60,7 @@ internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, Ite
         execute = { env, ctx, req -> itemWriteBody(ctx) { createItem(env, ctx, req) } }
     )
 
-private suspend fun WriteScope.createItem(
+private suspend fun WriteScope<WorkflowStoreProvider>.createItem(
     env: WorkflowToolServices,
     ctx: CallContext,
     req: CreateItemRequest

@@ -62,7 +62,7 @@ import java.util.UUID
  */
 class DecisionService(
     private val repositoryProvider: RunStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RunStoreProvider>,
     private val decisionClasses: suspend (UUID) -> Map<String, DecisionClassConfig>,
     private val effects: DecisionEffects = DecisionEffects.NONE
 ) : RunDecisionPort,

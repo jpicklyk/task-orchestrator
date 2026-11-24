@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
+import io.github.jpicklyk.mcptask.current.application.port.TelemetryStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
@@ -34,7 +35,7 @@ class UsageFoldException(
  * the next one continues. A day below the watermark is never re-folded: its raw rows may already be pruned.
  */
 class UsageDailyFolder(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<TelemetryStoreProvider>,
     private val grace: Duration = Duration.ofHours(1),
     private val maxDaysPerPass: Int = 400
 ) : CallLogFoldWatermark {

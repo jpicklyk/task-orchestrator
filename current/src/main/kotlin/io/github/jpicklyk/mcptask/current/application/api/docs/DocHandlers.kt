@@ -223,7 +223,7 @@ object DocHandlers {
 
     /** `docs_write upsert`. */
     suspend fun upsert(
-        scope: WriteScope,
+        scope: WriteScope<KnowledgeStoreProvider>,
         env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocUpsertRequest
@@ -272,7 +272,7 @@ object DocHandlers {
 
     /** `docs_write archive` (when [archive]) or `unarchive`. */
     suspend fun setArchived(
-        scope: WriteScope,
+        scope: WriteScope<KnowledgeStoreProvider>,
         env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocStateRequest,
@@ -306,7 +306,7 @@ object DocHandlers {
 
     /** `docs_write delete`. */
     suspend fun delete(
-        scope: WriteScope,
+        scope: WriteScope<KnowledgeStoreProvider>,
         env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocDeleteRequest
@@ -326,7 +326,7 @@ object DocHandlers {
 
     /** `docs_write attach`. */
     suspend fun attach(
-        scope: WriteScope,
+        scope: WriteScope<KnowledgeStoreProvider>,
         env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocAttachRequest
@@ -351,7 +351,7 @@ object DocHandlers {
 
     /** `docs_write detach`: not_found when the document is absent, else the number of attachments removed. */
     suspend fun detach(
-        scope: WriteScope,
+        scope: WriteScope<KnowledgeStoreProvider>,
         env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocAttachRequest

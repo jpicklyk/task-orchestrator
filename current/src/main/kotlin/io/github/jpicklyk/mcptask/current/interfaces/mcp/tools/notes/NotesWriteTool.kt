@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
+import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
@@ -14,7 +15,7 @@ import kotlinx.serialization.serializer
 
 /** `notes_write upsert`: create or replace the note at (item, key). */
 internal val noteUpsertOp =
-    OpSpec<NoteToolServices, NoteUpsertRequest, NoteWriteOutcome>(
+    OpSpec<NoteToolServices, NoteUpsertRequest, NoteWriteOutcome, NoteStoreProvider>(
         name = "upsert",
         doc =
             "Create the note at (item, key) or replace it in place; its version goes up by one on every write. " +
@@ -45,7 +46,7 @@ internal val noteUpsertOp =
 
 /** `notes_write delete`: remove the note at (item, key). */
 internal val noteDeleteOp =
-    OpSpec<NoteToolServices, NoteDeleteRequest, NoteWriteOutcome>(
+    OpSpec<NoteToolServices, NoteDeleteRequest, NoteWriteOutcome, NoteStoreProvider>(
         name = "delete",
         doc = "Delete the note at (item, key). A missing note is not_found.",
         profiles = knowledge(),

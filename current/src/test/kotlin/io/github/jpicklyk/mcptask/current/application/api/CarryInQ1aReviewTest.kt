@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
@@ -41,7 +42,7 @@ class CarryInQ1aReviewTest {
     val sqlite = SqliteTestDatabase.perMethod()
 
     private val now: Instant = Instant.parse("2026-03-01T10:00:00.123Z")
-    private val unit: UnitOfWork by lazy { sqlite.unitOfWork(Clock { now }) }
+    private val unit: UnitOfWork<RepositoryProvider> by lazy { sqlite.unitOfWork(Clock { now }) }
     private val runner: BatchRunner by lazy { BatchRunner(unit, IdempotencyService(unit)) }
 
     private object StringCodec : IdempotencyCodec<String> {

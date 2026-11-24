@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanInRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanOutRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -41,7 +42,7 @@ private val CREATE_ERRORS =
 
 /** deps_write create: one edge. */
 internal val depsCreateOp =
-    OpSpec<DependencyToolServices, DepsCreateRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsCreateRequest, JsonObject, DependencyStoreProvider>(
         name = "create",
         doc = "Create one dependency edge: from blocks to (type blocks, the default) or relates_to. A duplicate or a cycle is rejected.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
@@ -66,7 +67,7 @@ internal val depsCreateOp =
 
 /** deps_write linear: a chain. */
 internal val depsLinearOp =
-    OpSpec<DependencyToolServices, DepsLinearRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsLinearRequest, JsonObject, DependencyStoreProvider>(
         name = "linear",
         doc = "Create a chain: each item in ids blocks the next. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
@@ -97,7 +98,7 @@ internal val depsLinearOp =
 
 /** deps_write fan_out: one source to many targets. */
 internal val depsFanOutOp =
-    OpSpec<DependencyToolServices, DepsFanOutRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsFanOutRequest, JsonObject, DependencyStoreProvider>(
         name = "fan_out",
         doc = "Create from to each of toIds. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
@@ -128,7 +129,7 @@ internal val depsFanOutOp =
 
 /** deps_write fan_in: many sources to one target. */
 internal val depsFanInOp =
-    OpSpec<DependencyToolServices, DepsFanInRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsFanInRequest, JsonObject, DependencyStoreProvider>(
         name = "fan_in",
         doc = "Create each of fromIds to the to item. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
@@ -176,7 +177,7 @@ private fun shapeFaults(
  * createInUnit over all edges, which is what makes a pattern atomic. The service fences every endpoint for the call's
  * caller ([ClaimHolder.resolve]).
  */
-private suspend fun WriteScope.createEdges(
+private suspend fun WriteScope<DependencyStoreProvider>.createEdges(
     env: DependencyToolServices,
     ctx: CallContext,
     ids: List<UUID>,

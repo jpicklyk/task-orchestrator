@@ -109,7 +109,7 @@ object NoteHandlers {
 
     /** `notes_write upsert`. */
     suspend fun upsert(
-        scope: WriteScope,
+        scope: WriteScope<NoteStoreProvider>,
         env: NoteToolServices,
         ctx: CallContext,
         req: NoteUpsertRequest
@@ -188,7 +188,7 @@ object NoteHandlers {
 
     /** `notes_write delete`. */
     suspend fun delete(
-        scope: WriteScope,
+        scope: WriteScope<NoteStoreProvider>,
         env: NoteToolServices,
         ctx: CallContext,
         req: NoteDeleteRequest

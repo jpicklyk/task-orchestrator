@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.CLAIM_T
 import io.github.jpicklyk.mcptask.current.application.service.ClaimRig
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -126,12 +127,12 @@ class ExpirySweeperTest {
 
     /** Delegates to the real unit of work but fails every write with an exception, counting the attempts. */
     private class FailingWrites(
-        private val real: UnitOfWork,
+        private val real: UnitOfWork<RepositoryProvider>,
         val attempts: AtomicInteger
-    ) : UnitOfWork by real {
+    ) : UnitOfWork<RepositoryProvider> by real {
         override suspend fun <T> write(
             op: String,
-            block: suspend WriteScope.() -> Outcome<T>
+            block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
         ): Outcome<T> {
             attempts.incrementAndGet()
             error("simulated store fault")

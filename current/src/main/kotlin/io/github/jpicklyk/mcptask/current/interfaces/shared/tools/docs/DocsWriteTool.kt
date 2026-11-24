@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.docs.DocHandlers
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocStateRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.KnowledgeToolServices
+import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
@@ -28,7 +29,7 @@ private val DOC_ERRORS = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, Erro
 
 /** `docs_write upsert`: create the document or write its next version. */
 internal val docsUpsertOp =
-    OpSpec<KnowledgeToolServices, DocUpsertRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocUpsertRequest, JsonObject, KnowledgeStoreProvider>(
         name = "upsert",
         doc =
             "Create the document at (root, kind, slug) or write its next version; CRLF becomes LF. Give exactly one of " +
@@ -44,7 +45,7 @@ internal val docsUpsertOp =
 
 /** `docs_write archive`: hide a document from the default listing. */
 internal val docsArchiveOp =
-    OpSpec<KnowledgeToolServices, DocStateRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocStateRequest, JsonObject, KnowledgeStoreProvider>(
         name = "archive",
         doc =
             "Archive the document; its version does not change. Archiving an archived document does nothing. " +
@@ -59,7 +60,7 @@ internal val docsArchiveOp =
 
 /** `docs_write unarchive`: restore an archived document. */
 internal val docsUnarchiveOp =
-    OpSpec<KnowledgeToolServices, DocStateRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocStateRequest, JsonObject, KnowledgeStoreProvider>(
         name = "unarchive",
         doc = "Unarchive the document. Unarchiving a live document does nothing. Result: {id, kind, slug, version, archived}.",
         capability = ApiCapability.WRITE_DOCS,
@@ -72,7 +73,7 @@ internal val docsUnarchiveOp =
 
 /** `docs_write delete`: remove a document and its versions. */
 internal val docsDeleteOp =
-    OpSpec<KnowledgeToolServices, DocDeleteRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocDeleteRequest, JsonObject, KnowledgeStoreProvider>(
         name = "delete",
         doc =
             "Delete the document and its versions. Links to it become dangling. An adopted plan cannot be deleted. " +
@@ -88,7 +89,7 @@ internal val docsDeleteOp =
 
 /** `docs_write attach`: link an item to a document. */
 internal val docsAttachOp =
-    OpSpec<KnowledgeToolServices, DocAttachRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocAttachRequest, JsonObject, KnowledgeStoreProvider>(
         name = "attach",
         doc =
             "Attach an item of the same root to the document. Attaching twice returns the same link. " +
@@ -103,7 +104,7 @@ internal val docsAttachOp =
 
 /** `docs_write detach`: remove an item attachment. */
 internal val docsDetachOp =
-    OpSpec<KnowledgeToolServices, DocAttachRequest, JsonObject>(
+    OpSpec<KnowledgeToolServices, DocAttachRequest, JsonObject, KnowledgeStoreProvider>(
         name = "detach",
         doc = "Remove the item's attachment to the document. Result: {detached: n}, 0 when it was not attached.",
         destructive = true,

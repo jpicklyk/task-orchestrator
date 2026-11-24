@@ -27,7 +27,7 @@ class ServerConfigImportStep(
     override val kind: DataStepKind = DataStepKind.EVERY_BOOT
     override val after: Set<String> = emptySet()
 
-    override suspend fun run(scope: WriteScope): Int {
+    override suspend fun run(scope: WriteScope<*>): Int {
         val text = file.text()
         if (text == null) {
             logger.info("server-config-import: no global config file at {}; the stored server config, if any, stands", file.description)

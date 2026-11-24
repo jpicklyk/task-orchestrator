@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.platform.retention
 
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
+import io.github.jpicklyk.mcptask.current.platform.port.PlatformStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +24,7 @@ import java.time.Duration
  * joins, so nothing runs after shutdown.
  */
 class IdempotencyPruner(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<PlatformStoreProvider>,
     private val interval: Duration = Duration.ofHours(1),
     private val ttl: Duration = IdempotencyService.DEFAULT_TTL
 ) {

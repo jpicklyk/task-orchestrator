@@ -78,7 +78,7 @@ class P5bEventsOnRollbackTest {
         bus: ApiEventBus,
         provider: RepositoryProvider = db.repositoryProvider(),
         manager: DatabaseManager = db.databaseManager,
-    ): Pair<UnitOfWork, ItemCommandService> {
+    ): Pair<UnitOfWork<RepositoryProvider>, ItemCommandService> {
         val (stores, unit) = eventWiredUnit(manager, provider, bus, Clock { Instant.now() })
         return unit to ToolExecutionContext(stores, unitOfWork = unit).itemCommandService
     }

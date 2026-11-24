@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -70,7 +71,7 @@ class ToolSurfaceGuardsTest {
                 description = "x".repeat(descriptionLength),
                 ops =
                     listOf(
-                        OpSpec<ToolExecutionContext, FixtureTools.CreateReq, String>(
+                        OpSpec<ToolExecutionContext, FixtureTools.CreateReq, String, RepositoryProvider>(
                             name = "make",
                             doc = "Make.",
                             // R5 mechanical migration: the pre-R5 single-profile declaration as its profile set.
@@ -245,7 +246,7 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<ToolExecutionContext, DeepReq, String>(
+                        OpSpec<ToolExecutionContext, DeepReq, String, RepositoryProvider>(
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
@@ -278,7 +279,7 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<ToolExecutionContext, DeepReq, String>(
+                        OpSpec<ToolExecutionContext, DeepReq, String, RepositoryProvider>(
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
@@ -310,7 +311,7 @@ class ToolSurfaceGuardsTest {
                 description = "Naked.",
                 ops =
                     listOf(
-                        OpSpec<ToolExecutionContext, NakedReq, String>(
+                        OpSpec<ToolExecutionContext, NakedReq, String, RepositoryProvider>(
                             name = "go",
                             doc = "Go.",
                             capability = ApiCapability.WRITE_ITEMS,

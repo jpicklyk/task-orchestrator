@@ -70,7 +70,7 @@ data class SeatEndResult(
  */
 class SeatService(
     private val repositoryProvider: RunStoreProvider,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RunStoreProvider>,
     private val claimService: ClaimService,
     private val configResolver: EffectiveConfigResolver,
     private val random: SecureRandom = SecureRandom()
@@ -277,7 +277,7 @@ class SeatService(
     ): Boolean = lastSeen != null && Duration.between(lastSeen, now) < TOUCH_INTERVAL
 
     /** Clears every claim [seat]'s holder pair holds, with [reason]; the first failure, else null. */
-    private suspend fun WriteScope.releaseClaimsOf(
+    private suspend fun WriteScope<RunStoreProvider>.releaseClaimsOf(
         seat: RunSeat,
         reason: ClaimReleaseReason
     ): Outcome<IssuedSeat>? {

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.retention
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
@@ -40,12 +41,12 @@ class IdempotencyPrunerTest {
     private val t0: Instant = Instant.parse("2026-03-01T10:00:00.123Z")
     private val ttl: Duration = Duration.ofHours(24)
 
-    private fun unit(clock: Clock): UnitOfWork = sqlite.unitOfWork(clock)
+    private fun unit(clock: Clock): UnitOfWork<RepositoryProvider> = sqlite.unitOfWork(clock)
 
     private fun fp(text: String): String = Fingerprint.of(JsonPrimitive(text))
 
     private suspend fun seed(
-        uow: UnitOfWork,
+        uow: UnitOfWork<RepositoryProvider>,
         key: String,
         createdAt: Instant
     ) {
@@ -57,7 +58,7 @@ class IdempotencyPrunerTest {
         }
     }
 
-    private suspend fun keys(uow: UnitOfWork): Set<String> {
+    private suspend fun keys(uow: UnitOfWork<RepositoryProvider>): Set<String> {
         val all = mutableSetOf<String>()
         for (k in listOf("before", "at", "after", "old", "fresh", "late", "later")) {
             if (uow.read { stores.idempotencyStore().find("agent-1", "mcp.test", k) } != null) all += k
@@ -158,12 +159,12 @@ class IdempotencyPrunerTest {
 
     /** Delegates to the real unit of work but fails every write with an exception, counting the attempts. */
     private class FailingWrites(
-        private val real: UnitOfWork,
+        private val real: UnitOfWork<RepositoryProvider>,
         val attempts: AtomicInteger
-    ) : UnitOfWork by real {
+    ) : UnitOfWork<RepositoryProvider> by real {
         override suspend fun <T> write(
             op: String,
-            block: suspend WriteScope.() -> Outcome<T>
+            block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
         ): Outcome<T> {
             attempts.incrementAndGet()
             error("simulated store fault")

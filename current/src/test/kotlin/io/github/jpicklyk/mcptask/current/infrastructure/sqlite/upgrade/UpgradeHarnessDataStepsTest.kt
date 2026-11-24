@@ -37,7 +37,7 @@ class UpgradeHarnessDataStepsTest {
     ) : DataStep {
         override val phase: DataStepPhase = DataStepPhase.ITEM_BACKFILL
 
-        override suspend fun run(scope: WriteScope): Int = rows
+        override suspend fun run(scope: WriteScope<*>): Int = rows
     }
 
     /** A database migrated to latest with the baseline dataset, plus the dump the invariants are checked against. */

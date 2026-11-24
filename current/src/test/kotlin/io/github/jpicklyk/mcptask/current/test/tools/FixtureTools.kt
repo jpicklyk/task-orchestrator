@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
@@ -179,7 +180,7 @@ class FixtureTools {
         )
 
     val createOp =
-        OpSpec<ToolExecutionContext, CreateReq, String>(
+        OpSpec<ToolExecutionContext, CreateReq, String, RepositoryProvider>(
             name = "create",
             doc = "Create a thing.",
             capability = ApiCapability.WRITE_ITEMS,
@@ -199,7 +200,7 @@ class FixtureTools {
         )
 
     val renameOp =
-        OpSpec<ToolExecutionContext, RenameReq, String>(
+        OpSpec<ToolExecutionContext, RenameReq, String, RepositoryProvider>(
             name = "rename",
             doc = "Rename a thing.",
             capability = ApiCapability.WRITE_ITEMS,
@@ -213,7 +214,7 @@ class FixtureTools {
         )
 
     val purgeOp =
-        OpSpec<ToolExecutionContext, PurgeReq, String>(
+        OpSpec<ToolExecutionContext, PurgeReq, String, RepositoryProvider>(
             name = "purge",
             doc = "Purge a thing.",
             profiles = orchestration(),
@@ -228,7 +229,7 @@ class FixtureTools {
         )
 
     val resetOp =
-        OpSpec<ToolExecutionContext, ResetReq, String>(
+        OpSpec<ToolExecutionContext, ResetReq, String, RepositoryProvider>(
             name = "reset",
             doc = "Reset.",
             profiles = orchestration(),

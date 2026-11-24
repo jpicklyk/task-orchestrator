@@ -33,7 +33,7 @@ object ReportRunRollupSnapshot {
      */
     fun over(
         repositoryProvider: ReportStoreProvider,
-        unitOfWork: UnitOfWork,
+        unitOfWork: UnitOfWork<ReportStoreProvider>,
         clock: Clock
     ): RunRollupSnapshot =
         RunRollupSnapshot { runId ->
@@ -48,7 +48,7 @@ object ReportRunRollupSnapshot {
         }
 
     private suspend fun computed(
-        unitOfWork: UnitOfWork,
+        unitOfWork: UnitOfWork<ReportStoreProvider>,
         clock: Clock,
         runId: UUID
     ): Map<String, Any?>? =

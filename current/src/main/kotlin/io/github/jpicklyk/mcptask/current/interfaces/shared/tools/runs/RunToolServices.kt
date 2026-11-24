@@ -19,7 +19,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  */
 class RunToolServices(
     val stores: RunStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<RunStoreProvider>,
     val clock: Clock,
     val configResolver: EffectiveConfigResolver,
     private val run: Lazy<RunService>,

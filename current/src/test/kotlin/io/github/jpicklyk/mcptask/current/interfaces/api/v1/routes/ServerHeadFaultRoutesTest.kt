@@ -110,7 +110,7 @@ class ServerHeadFaultRoutesTest {
                 ConfigService(
                     faultingProvider(),
                     YamlConfigDocumentParser,
-                    mockk<UnitOfWork>(relaxed = true),
+                    mockk<UnitOfWork<RepositoryProvider>>(relaxed = true),
                     validator = ConfigValidator()
                 )
             application { infoApp(service) }
@@ -129,7 +129,7 @@ class ServerHeadFaultRoutesTest {
                 ConfigService(
                     faultingProvider(),
                     YamlConfigDocumentParser,
-                    mockk<UnitOfWork>(relaxed = true),
+                    mockk<UnitOfWork<RepositoryProvider>>(relaxed = true),
                     validator = ConfigValidator()
                 )
 

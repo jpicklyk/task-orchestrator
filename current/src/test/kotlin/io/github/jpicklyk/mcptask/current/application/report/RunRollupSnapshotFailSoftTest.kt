@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunCloseHook
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
@@ -64,10 +65,10 @@ class RunRollupSnapshotFailSoftTest {
     val sqlite = SqliteTestDatabase.perMethod(clock = clock)
 
     private class FaultyReads(
-        private val real: UnitOfWork,
+        private val real: UnitOfWork<RepositoryProvider>,
         private val fault: () -> Throwable
-    ) : UnitOfWork by real {
-        override suspend fun <T> read(block: suspend ReadScope.() -> T): T = throw fault()
+    ) : UnitOfWork<RepositoryProvider> by real {
+        override suspend fun <T> read(block: suspend ReadScope<RepositoryProvider>.() -> T): T = throw fault()
     }
 
     private object NoopHook : RunCloseHook {

@@ -47,7 +47,7 @@ import java.util.UUID
  */
 class DependencyCommandService(
     private val repositoryProvider: DependencyStoreProvider,
-    private val unitOfWork: UnitOfWork
+    private val unitOfWork: UnitOfWork<DependencyStoreProvider>
 ) {
     /** Applies the write policy to [deps] and stores them in one write unit, returning the stored rows in request order. */
     suspend fun create(
@@ -65,7 +65,7 @@ class DependencyCommandService(
         caller: ClaimHolder?
     ): Outcome<List<Dependency>> = unitOfWork.write("DependencyCommandService.createInUnit") { createBody(deps, caller) }
 
-    private suspend fun WriteScope.createBody(
+    private suspend fun WriteScope<DependencyStoreProvider>.createBody(
         deps: List<Dependency>,
         caller: ClaimHolder?
     ): Outcome<List<Dependency>> {
@@ -199,7 +199,7 @@ class DependencyCommandService(
      * The `not_claim_holder` of the first of [itemIds] (in the given order, each id once) whose row carries an active
      * claim [caller] does not hold, or null. An id with no row is not judged here (the write's own policy answers it).
      */
-    private suspend fun WriteScope.fence(
+    private suspend fun WriteScope<DependencyStoreProvider>.fence(
         itemIds: List<UUID>,
         caller: ClaimHolder?
     ): DomainError? {

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.RuleGetResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleListResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
@@ -41,7 +42,7 @@ data class ConfigRulesRequest(
 )
 
 internal val configRulesOp =
-    OpSpec<ConfigToolServices, ConfigRulesRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigRulesRequest, JsonElement, ConfigStoreProvider>(
         name = "rules",
         doc =
             "Read git-tracked rule text (rule/<key> plan documents). rootId alone lists {key, rulesVersion, updatedAt}; " +

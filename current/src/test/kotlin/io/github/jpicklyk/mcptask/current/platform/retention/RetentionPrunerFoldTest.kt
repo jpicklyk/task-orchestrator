@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.platform.retention
 
 import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.CallRow
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.UsageFoldKit
@@ -54,7 +55,7 @@ class RetentionPrunerFoldTest {
 
     private fun at(iso: String) = UsageFoldKit.at(iso)
 
-    private fun uow(now: Instant): UnitOfWork = sqlite.unitOfWork(Clock { now })
+    private fun uow(now: Instant): UnitOfWork<RepositoryProvider> = sqlite.unitOfWork(Clock { now })
 
     private fun settings(
         callLog: Int = 1,
@@ -69,7 +70,7 @@ class RetentionPrunerFoldTest {
         lease: Int = 0,
         maxDays: Int = 400,
         watermark: CallLogFoldWatermark = CallLogFoldWatermark.NONE,
-        folderUnit: UnitOfWork = uow(now)
+        folderUnit: UnitOfWork<RepositoryProvider> = uow(now)
     ) = RetentionPruner(
         unitOfWork = uow(now),
         settings = settings(callLog, events, lease),

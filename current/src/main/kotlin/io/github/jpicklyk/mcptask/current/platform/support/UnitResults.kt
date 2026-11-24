@@ -28,10 +28,10 @@ sealed interface UnitResult<out R> {
  * exception, or any exception under a no-transaction unit of work) is caught HERE, outside the unit, and
  * mapped through [LegacyFaults.fault] to [onFault] too. Cancellation is rethrown.
  */
-suspend fun <R> UnitOfWork.writeUnit(
+suspend fun <S, R> UnitOfWork<S>.writeUnit(
     op: String,
     onFault: (DomainError) -> R,
-    block: suspend WriteScope.() -> UnitResult<R>
+    block: suspend WriteScope<S>.() -> UnitResult<R>
 ): R {
     var rolledBack: UnitResult.Rollback<R>? = null
     val outcome =
@@ -64,9 +64,9 @@ suspend fun <R> UnitOfWork.writeUnit(
  * (translated at the unit boundary, or thrown and mapped by [LegacyFaults.fault]) rolls the unit back
  * and becomes [Outcome.Err]. Cancellation is rethrown.
  */
-suspend fun <T> UnitOfWork.writeOutcome(
+suspend fun <S, T> UnitOfWork<S>.writeOutcome(
     op: String,
-    block: suspend WriteScope.() -> T
+    block: suspend WriteScope<S>.() -> T
 ): Outcome<T> = writeUnit(op, onFault = { Outcome.Err(it) }) { UnitResult.Commit(Outcome.Ok(block())) }
 
 /**
@@ -74,10 +74,10 @@ suspend fun <T> UnitOfWork.writeOutcome(
  * value; a store fault hands its [DomainError] to [onFault] (the legacy message is [LegacyFaults.message]),
  * which returns the site's existing error response (typically a non-local `return`).
  */
-suspend inline fun <T> UnitOfWork.legacyWrite(
+suspend inline fun <S, T> UnitOfWork<S>.legacyWrite(
     op: String,
     onFault: (error: DomainError) -> Nothing,
-    noinline block: suspend WriteScope.() -> T
+    noinline block: suspend WriteScope<S>.() -> T
 ): T =
     when (val outcome = writeOutcome(op, block)) {
         is Outcome.Ok -> outcome.value

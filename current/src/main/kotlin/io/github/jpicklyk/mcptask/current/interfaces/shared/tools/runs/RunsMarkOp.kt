@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsMarkRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
@@ -15,7 +16,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write mark: REST only; the first op on no MCP profile. */
 internal val runsMarkOp =
-    OpSpec<RunToolServices, RunsMarkRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsMarkRequest, JsonObject, RunStoreProvider>(
         name = "mark",
         doc =
             "Set a named mark on a run to now. REST only. Allowed in every status, including closed; the first write " +
@@ -29,7 +30,7 @@ internal val runsMarkOp =
         execute = { env, ctx, req -> markRun(env, ctx, req) }
     )
 
-private suspend fun WriteScope.markRun(
+private suspend fun WriteScope<RunStoreProvider>.markRun(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsMarkRequest

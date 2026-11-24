@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
@@ -45,7 +46,7 @@ private val logger = LoggerFactory.getLogger("AdvanceTransitionOp")
  * and resource leases enforced on every surface (task-scope Q13 D2, D3).
  */
 internal val transitionOp =
-    OpSpec<LifecycleToolServices, TransitionRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, TransitionRequest, JsonElement, LifecycleStoreProvider>(
         name = "transition",
         doc =
             "Move one item between phases with a trigger (start, complete, block, hold, resume, cancel, reopen). " +
@@ -73,7 +74,7 @@ internal val transitionOp =
         execute = { env, ctx, req -> runTransition(env, ctx, req) }
     )
 
-private suspend fun WriteScope.runTransition(
+private suspend fun WriteScope<LifecycleStoreProvider>.runTransition(
     env: LifecycleToolServices,
     ctx: CallContext,
     req: TransitionRequest
@@ -156,7 +157,7 @@ private suspend fun WriteScope.runTransition(
  * The `transition` result element, in the documented key order; empty and null members are omitted. Cascade and
  * unblocked entries outside the call's scope are echoed as `{itemId}` only.
  */
-private suspend fun WriteScope.element(
+private suspend fun WriteScope<LifecycleStoreProvider>.element(
     env: LifecycleToolServices,
     ctx: CallContext,
     item: WorkItem,

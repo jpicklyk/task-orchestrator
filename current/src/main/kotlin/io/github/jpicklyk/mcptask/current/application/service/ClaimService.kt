@@ -70,7 +70,7 @@ data class ExpirySweep(
  */
 class ClaimService(
     private val repositoryProvider: RepositoryProvider,
-    private val unitOfWork: UnitOfWork
+    private val unitOfWork: UnitOfWork<*>
 ) {
     // -------------------------------------------------------------------------
     // Claims

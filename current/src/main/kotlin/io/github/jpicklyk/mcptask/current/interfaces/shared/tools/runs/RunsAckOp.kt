@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsAckRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -13,7 +14,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write ack: acknowledge an open decision. */
 internal val runsAckOp =
-    OpSpec<RunToolServices, RunsAckRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsAckRequest, JsonObject, RunStoreProvider>(
         name = "ack",
         doc =
             "Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real " +
@@ -35,7 +36,7 @@ internal val runsAckOp =
         execute = { env, ctx, req -> ackDecision(env, ctx, req) }
     )
 
-private suspend fun WriteScope.ackDecision(
+private suspend fun WriteScope<RunStoreProvider>.ackDecision(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsAckRequest

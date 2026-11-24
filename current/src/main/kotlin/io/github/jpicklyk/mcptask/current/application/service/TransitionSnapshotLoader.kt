@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
@@ -118,7 +119,7 @@ class TransitionSnapshotLoader(
 ) {
     /** The snapshot for [item] under [trigger]. */
     suspend fun load(
-        scope: ReadScope,
+        scope: ReadScope<LifecycleStoreProvider>,
         item: WorkItem,
         trigger: Trigger,
         ownership: OwnershipInput,
@@ -127,7 +128,7 @@ class TransitionSnapshotLoader(
     ): TransitionSnapshot = loadDetailed(scope, item, trigger, ownership, leases, seat).snapshot
 
     internal suspend fun loadDetailed(
-        scope: ReadScope,
+        scope: ReadScope<LifecycleStoreProvider>,
         item: WorkItem,
         trigger: Trigger,
         ownership: OwnershipInput,

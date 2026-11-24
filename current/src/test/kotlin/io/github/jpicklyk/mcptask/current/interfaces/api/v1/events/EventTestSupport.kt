@@ -81,7 +81,7 @@ internal fun eventWiredUnit(
     delegate: RepositoryProvider,
     bus: ApiEventBus,
     clock: Clock = Clock.SYSTEM,
-): Pair<RepositoryProvider, UnitOfWork> {
+): Pair<RepositoryProvider, UnitOfWork<RepositoryProvider>> {
     val store = LazyEventStore { delegate.eventStore() }
     if (bus.source == null) bus.source = store
     val recorder = EventRecorder(store, clock, bus)

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -26,7 +27,7 @@ internal object RepinItemOp {
     const val NAME = "repin"
 }
 
-internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemWriteResult> =
+internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = RepinItemOp.NAME,
         doc = "Move the item's config pin to the current config heads.",
@@ -46,7 +47,7 @@ internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemW
         execute = { env, ctx, req -> itemWriteBody(ctx) { repinItem(env, ctx, req) } }
     )
 
-private suspend fun WriteScope.repinItem(
+private suspend fun WriteScope<WorkflowStoreProvider>.repinItem(
     env: WorkflowToolServices,
     ctx: CallContext,
     req: RepinItemRequest

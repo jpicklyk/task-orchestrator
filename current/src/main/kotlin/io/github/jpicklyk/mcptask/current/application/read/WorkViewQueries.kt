@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
@@ -25,7 +26,7 @@ import java.util.UUID
  * multi-page list has no cursor. Pages are disjoint and stable for unchanged data.
  */
 class WorkViewQueries(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<LifecycleStoreProvider>,
 ) {
     /**
      * One page of the items eligible under [criteria] (see `ClaimStore.findEligible`): no active claim, no
@@ -245,7 +246,7 @@ class WorkViewQueries(
         }
 
     /** Global `includeChildren`: the roots' direct children, with the `excludeTerminal` rule applied in batch. */
-    private suspend fun ReadScope.globalChildren(
+    private suspend fun ReadScope<LifecycleStoreProvider>.globalChildren(
         rootIds: Set<UUID>,
         excludeTerminal: Boolean,
         scope: AccessScope,
@@ -285,7 +286,7 @@ class WorkViewQueries(
     /**
      * The ids of [items] visible under [scope] (one statement), or null when [scope] restricts nothing.
      */
-    private suspend fun ReadScope.visibleIds(
+    private suspend fun ReadScope<LifecycleStoreProvider>.visibleIds(
         items: Collection<WorkItem>,
         scope: AccessScope,
     ): Set<UUID>? {

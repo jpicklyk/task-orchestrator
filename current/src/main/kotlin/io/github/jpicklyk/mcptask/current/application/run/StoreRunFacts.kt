@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
 import io.github.jpicklyk.mcptask.current.application.port.RunFactsSnapshot
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeats
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
@@ -29,7 +30,7 @@ import java.util.UUID
  * facts (stalled seats, effective severity) are read at [clock]'s now, to the millisecond.
  */
 class StoreRunFacts(
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RunStoreProvider>,
     private val clock: Clock
 ) : RunFacts {
     /** The run row as a [RunHeader] (instants to the millisecond, the precision the row keeps). */

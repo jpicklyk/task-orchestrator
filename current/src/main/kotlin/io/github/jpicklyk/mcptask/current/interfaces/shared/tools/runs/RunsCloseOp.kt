@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsCloseRequest
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
@@ -17,7 +18,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write close: ends a run and releases what it held. */
 internal val runsCloseOp =
-    OpSpec<RunToolServices, RunsCloseRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsCloseRequest, JsonObject, RunStoreProvider>(
         name = "close",
         doc =
             "End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). " +
@@ -40,7 +41,7 @@ internal val runsCloseOp =
         execute = { env, ctx, req -> closeRun(env, ctx, req) }
     )
 
-private suspend fun WriteScope.closeRun(
+private suspend fun WriteScope<RunStoreProvider>.closeRun(
     env: RunToolServices,
     ctx: CallContext,
     req: RunsCloseRequest

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
@@ -47,7 +48,7 @@ private const val REASON_DEPENDENCY_UNMET = "dependency_unmet"
  * becomes the holder (any other item it held is released); a holder claiming again refreshes the claim.
  */
 internal val claimOp =
-    OpSpec<LifecycleToolServices, ClaimRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, ClaimRequest, JsonElement, LifecycleStoreProvider>(
         name = "claim",
         doc =
             "Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). " +
@@ -70,7 +71,7 @@ internal val claimOp =
         execute = { env, ctx, req -> runClaim(env, ctx, req) }
     )
 
-private suspend fun WriteScope.runClaim(
+private suspend fun WriteScope<LifecycleStoreProvider>.runClaim(
     env: LifecycleToolServices,
     ctx: CallContext,
     req: ClaimRequest
@@ -101,7 +102,7 @@ private suspend fun WriteScope.runClaim(
  * Claims [id] for [holder]; `refreshed` when [holder] already held it, `displaced` when the claim took over another
  * holder pair's lapsed claim (its principal only when the caller may see principals).
  */
-internal suspend fun WriteScope.claimItem(
+internal suspend fun WriteScope<LifecycleStoreProvider>.claimItem(
     env: LifecycleToolServices,
     ctx: CallContext,
     id: UUID,
@@ -135,7 +136,7 @@ internal suspend fun WriteScope.claimItem(
     }
 }
 
-private suspend fun WriteScope.claimBySelector(
+private suspend fun WriteScope<LifecycleStoreProvider>.claimBySelector(
     env: LifecycleToolServices,
     ctx: CallContext,
     holder: ClaimHolder,
@@ -186,7 +187,7 @@ private suspend fun WriteScope.claimBySelector(
  * True when an ancestor of [candidate], re-read in the current unit, carries an active claim held by someone other
  * than [holder] (the fence predicate, [FenceGuard]); an ancestor [holder] holds, or a lapsed claim, never shields.
  */
-private suspend fun WriteScope.heldAncestor(
+private suspend fun WriteScope<LifecycleStoreProvider>.heldAncestor(
     candidate: WorkItem,
     holder: ClaimHolder
 ): Boolean {

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextOp
@@ -62,7 +63,7 @@ import java.util.UUID
  */
 class RelatedService(
     private val index: SearchIndex,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<RepositoryProvider>,
 ) {
     /** A related entity: an item or a document. */
     private data class Key(
@@ -103,7 +104,7 @@ class RelatedService(
         return result
     }
 
-    private suspend fun ReadScope.compute(request: RelatedRequest): RelatedResult {
+    private suspend fun ReadScope<RepositoryProvider>.compute(request: RelatedRequest): RelatedResult {
         val repo = stores.workItemRepository()
         val ref = request.ref
         val access = request.access

@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.application.port.Highlight
+import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchHit
@@ -92,7 +93,7 @@ class SearchValidationException(
  */
 class SearchService(
     private val index: SearchIndex,
-    private val unitOfWork: UnitOfWork,
+    private val unitOfWork: UnitOfWork<KnowledgeStoreProvider>,
 ) {
     /**
      * Runs [request].

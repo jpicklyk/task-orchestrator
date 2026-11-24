@@ -31,7 +31,7 @@ interface DataStep {
     val kind: DataStepKind
     val after: Set<String> get() = emptySet()
 
-    suspend fun run(scope: WriteScope): Int
+    suspend fun run(scope: WriteScope<*>): Int
 }
 
 /**

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
@@ -107,7 +108,7 @@ class ToolRegistryTest {
         name: String,
         request: KSerializer<E>,
         profiles: Set<ToolProfile> = knowledge()
-    ): OpSpec<ToolExecutionContext, E, String> =
+    ): OpSpec<ToolExecutionContext, E, String, RepositoryProvider> =
         OpSpec(
             name = name,
             doc = "An op.",
@@ -120,7 +121,7 @@ class ToolRegistryTest {
 
     private fun opsTool(
         name: String,
-        vararg ops: OpSpec<*, *, String>
+        vararg ops: OpSpec<*, *, String, *>
     ): OpsToolSpec<String> = OpsToolSpec(name, "An ops tool.", ops.toList(), FixtureTools.StringCodec) { buildJsonObject { } }
 
     private fun <R : Any> select(

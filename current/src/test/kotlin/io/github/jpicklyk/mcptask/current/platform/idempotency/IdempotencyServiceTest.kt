@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.idempotency
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -64,8 +65,8 @@ class IdempotencyServiceTest {
     private var now: Instant = t0
     private val ttl: Duration = Duration.ofHours(24)
 
-    private val uow: UnitOfWork get() = sqlite.unitOfWork(Clock { now })
-    private val service: IdempotencyService get() = IdempotencyService(uow)
+    private val uow: UnitOfWork<RepositoryProvider> get() = sqlite.unitOfWork(Clock { now })
+    private val service: IdempotencyService<RepositoryProvider> get() = IdempotencyService(uow)
 
     private fun fp(text: String): String = Fingerprint.of(JsonPrimitive(text))
 
@@ -97,7 +98,7 @@ class IdempotencyServiceTest {
         principal: String = "agent-1"
     ): IdempotencyRecord? = uow.read { stores.idempotencyStore().find(principal, op, key) }
 
-    private suspend fun IdempotencyService.runOk(
+    private suspend fun IdempotencyService<RepositoryProvider>.runOk(
         op: String = "mcp.test",
         request: IdempotentRequest = req(),
         executions: AtomicInteger? = null,
@@ -110,7 +111,7 @@ class IdempotencyServiceTest {
             Outcome.Ok(value(result))
         }
 
-    private suspend fun IdempotencyService.runErr(
+    private suspend fun IdempotencyService<RepositoryProvider>.runErr(
         error: DomainError,
         op: String = "mcp.test",
         request: IdempotentRequest = req(),

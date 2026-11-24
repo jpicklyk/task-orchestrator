@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -19,9 +20,9 @@ import kotlin.coroutines.coroutineContext
  * caller's block (e.g. to place a "concurrent" write at unit-open time).
  */
 class CountingUnitOfWork(
-    private val delegate: UnitOfWork,
+    private val delegate: UnitOfWork<RepositoryProvider>,
     private val onOutermostWrite: suspend (ordinal: Int) -> Unit = {}
-) : UnitOfWork {
+) : UnitOfWork<RepositoryProvider> {
     private val writeCount = AtomicInteger()
     private val readCount = AtomicInteger()
     private val opLog = Collections.synchronizedList(ArrayList<String>())
@@ -37,7 +38,7 @@ class CountingUnitOfWork(
 
     override suspend fun <T> write(
         op: String,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<RepositoryProvider>.() -> Outcome<T>
     ): Outcome<T> {
         if (coroutineContext[Ordinal] != null) return delegate.write(op, block)
         val ordinal = writeCount.incrementAndGet()
@@ -51,7 +52,7 @@ class CountingUnitOfWork(
         }
     }
 
-    override suspend fun <T> read(block: suspend ReadScope.() -> T): T {
+    override suspend fun <T> read(block: suspend ReadScope<RepositoryProvider>.() -> T): T {
         if (coroutineContext[Ordinal] == null) readCount.incrementAndGet()
         return delegate.read(block)
     }

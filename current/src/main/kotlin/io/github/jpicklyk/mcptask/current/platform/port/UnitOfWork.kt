@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.port
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import kotlinx.coroutines.withContext
@@ -30,14 +29,17 @@ import kotlin.coroutines.CoroutineContext
  * Exception: a joined READ inside a [failSoftReads] section does not record a fault that has no
  * `SQLException` anywhere in its cause chain (a data fault such as a row that fails to decode leaves the shared
  * connection intact); it still rethrows. A joined write, and any SQL fault, always poison the unit.
+ *
+ * [S] is the store provider its scopes expose. A caller types its unit with the provider of its own slice, so it sees
+ * only the stores that slice may read; a declaration that reads no scope store takes `UnitOfWork<*>`.
  */
-interface UnitOfWork {
+interface UnitOfWork<out S> {
     suspend fun <T> write(
         op: String,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<S>.() -> Outcome<T>
     ): Outcome<T>
 
-    suspend fun <T> read(block: suspend ReadScope.() -> T): T
+    suspend fun <T> read(block: suspend ReadScope<S>.() -> T): T
 }
 
 /** Coroutine-context marker of a [failSoftReads] section; read by the infrastructure transaction helpers. */
@@ -52,16 +54,16 @@ class FailSoftReads internal constructor() : AbstractCoroutineContextElement(Fai
  */
 suspend fun <T> failSoftReads(block: suspend () -> T): T = withContext(FailSoftReads()) { block() }
 
-/** What a read unit can see. The stores a scope exposes. */
-interface ReadScope {
-    val stores: RepositoryProvider
+/** What a read unit can see: the stores of provider [S] and the unit's clock. */
+interface ReadScope<out S> {
+    val stores: S
 
     /** Read once per unit attempt (re-read when a BUSY retry starts a fresh attempt). */
     val now: Instant
 }
 
 /** What a write unit can do on top of reading. */
-interface WriteScope : ReadScope {
+interface WriteScope<out S> : ReadScope<S> {
     /** Records typed domain events as `events` rows inside this unit (they commit or roll back with it). */
     val events: EventSink
 
@@ -110,7 +112,7 @@ internal class ActiveUnit(
      * FRESH unit (see `EventRecorder.recordRejection`); hooks run after the unit has ended, outside any ambient unit.
      */
     @Volatile
-    var owner: UnitOfWork? = null
+    var owner: UnitOfWork<*>? = null
 
     /**
      * Records [t], thrown out of a store transaction JOINED to this unit. A SQL fault has then already rolled the

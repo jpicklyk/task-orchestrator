@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -24,7 +25,7 @@ data class ConfigGetRequest(
 )
 
 internal val configGetOp =
-    OpSpec<ConfigToolServices, ConfigGetRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigGetRequest, JsonElement, ConfigStoreProvider>(
         name = "get",
         doc =
             "Read a root's config document: the head, or the given version (a reset version reads as an empty document). " +

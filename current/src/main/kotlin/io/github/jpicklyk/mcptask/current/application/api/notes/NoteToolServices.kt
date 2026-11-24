@@ -10,7 +10,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 /** The services `notes_read` and `notes_write` take as `env`. Building the holder touches no store. */
 class NoteToolServices(
     val stores: NoteStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<NoteStoreProvider>,
     val bodySource: BodySource,
     private val noteCommand: Lazy<NoteCommandService>
 ) : ItemLookup {

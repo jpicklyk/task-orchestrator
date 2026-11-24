@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.eventrecording
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventSink
+import io.github.jpicklyk.mcptask.current.platform.port.PlatformStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -22,16 +22,16 @@ private val logger = LoggerFactory.getLogger(UnscopedUnitOfWork::class.java)
  * has no database (unit tests with mocked stores) can still be handed a [UnitOfWork]; production
  * always uses the SQLite implementation, which gives the block real atomicity.
  */
-class UnscopedUnitOfWork(
-    private val repositories: RepositoryProvider,
+class UnscopedUnitOfWork<S : PlatformStoreProvider>(
+    private val repositories: S,
     private val clock: Clock = Clock { Instant.now() }
-) : UnitOfWork {
+) : UnitOfWork<S> {
     /** Resolved on first use, so a mocked provider without an event store still works for units that record nothing. */
     private val eventsLazy: Lazy<EventSink> = lazy { EventRecorder(repositories.eventStore(), clock) }
 
     override suspend fun <T> write(
         op: String,
-        block: suspend WriteScope.() -> Outcome<T>
+        block: suspend WriteScope<S>.() -> Outcome<T>
     ): Outcome<T> {
         val scope = HookScope(repositories, clock.now(), eventsLazy)
         val outcome =
@@ -49,13 +49,13 @@ class UnscopedUnitOfWork(
         return outcome
     }
 
-    override suspend fun <T> read(block: suspend ReadScope.() -> T): T = HookScope(repositories, clock.now(), eventsLazy).block()
+    override suspend fun <T> read(block: suspend ReadScope<S>.() -> T): T = HookScope(repositories, clock.now(), eventsLazy).block()
 
-    private class HookScope(
-        override val stores: RepositoryProvider,
+    private class HookScope<S>(
+        override val stores: S,
         override val now: Instant,
         private val sink: Lazy<EventSink>
-    ) : WriteScope {
+    ) : WriteScope<S> {
         override val events: EventSink get() = sink.value
         private val commitHooks = ArrayList<suspend () -> Unit>()
         private val rollbackHooks = ArrayList<suspend (DomainError?) -> Unit>()

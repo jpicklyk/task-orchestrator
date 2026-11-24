@@ -19,7 +19,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  */
 class WorkflowToolServices(
     val stores: WorkflowStoreProvider,
-    val unitOfWork: UnitOfWork,
+    val unitOfWork: UnitOfWork<WorkflowStoreProvider>,
     val configResolver: EffectiveConfigResolver,
     private val itemCommand: Lazy<ItemCommandService>,
     private val dependencyCommand: Lazy<DependencyCommandService>,
