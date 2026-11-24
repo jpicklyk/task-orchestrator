@@ -88,8 +88,8 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
   write; every other seat-owned key needs that seat's own token (a human credential is exempt). It owns the notes labelled for it in any phase it is declared, not only its own phase.
 - **Reserved seat names.** Two seat names carry meaning for the server. `unowned` is refused: a schema or trait that
   declares a seat of that name (exact match) is a structural error, because `unowned` is the `missingBySeat` bucket that
-  holds the required notes no declared seat owns. `orchestrator` is accepted and given a meaning: the server makes the run's orchestrator
-  the owner of that seat's notes (it writes them with the run's orchestrator token inside a run, directly outside one),
+  holds the required notes no declared seat owns. `orchestrator` is accepted and given a meaning: it is the owning seat of notes the orchestrator fills itself, and
+  the server lets the run's token write them inside a run (outside one they are written directly),
   and the plugin's run planner never schedules the seat as a stage of a run, so no agent is dispatched to it.
 
 ```yaml
