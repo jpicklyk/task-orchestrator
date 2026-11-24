@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -34,6 +32,8 @@ import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork

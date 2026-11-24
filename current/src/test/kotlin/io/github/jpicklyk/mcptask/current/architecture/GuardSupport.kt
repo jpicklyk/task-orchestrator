@@ -15,6 +15,19 @@ internal object GuardSupport {
         val text: String
     )
 
+    /**
+     * First path segments that are legacy layers or shared areas, never slices. A production path whose first folder is
+     * not listed here is a slice (the slice-first layout of plans/application-package-reorg.md); `server` is reserved for
+     * the step that builds the server area.
+     */
+    val RESERVED_FIRST_SEGMENTS = setOf("domain", "application", "infrastructure", "interfaces", "bootstrap", "model", "platform", "server")
+
+    /** The slice a production [path] (relative to the `current/` source root) belongs to: its first folder when that is not reserved; null for a root file. */
+    fun sliceOf(path: String): String? {
+        val parts = path.replace('\\', '/').split('/')
+        return parts.first().takeIf { parts.size >= 2 && it !in RESERVED_FIRST_SEGMENTS }
+    }
+
     fun normalizedPath(path: String): String {
         val normalized = path.replace('\\', '/')
         val idx = normalized.lastIndexOf("current/")

@@ -4,9 +4,9 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
+import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore
 import kotlinx.coroutines.CompletableDeferred
 import org.slf4j.LoggerFactory
 import java.sql.DriverManager

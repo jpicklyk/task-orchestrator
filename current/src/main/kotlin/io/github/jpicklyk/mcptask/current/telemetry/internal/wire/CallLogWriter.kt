@@ -1,13 +1,13 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.telemetry
+package io.github.jpicklyk.mcptask.current.telemetry.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
-import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.telemetry.ObservedRunTokens
+import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogAppendResult
+import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,7 +53,7 @@ class CallLogWriter(
     private val batchSize: Int = DEFAULT_BATCH_SIZE,
     private val flushInterval: Duration = DEFAULT_FLUSH_INTERVAL,
     private val drainTimeout: Duration = DEFAULT_DRAIN_TIMEOUT,
-    private val runStore: RunStore? = null
+    private val runStore: ObservedRunTokens? = null
 ) : CallLogSink {
     private val logger = LoggerFactory.getLogger(CallLogWriter::class.java)
     private val queue = Channel<CallLogRecord>(capacity)

@@ -5,8 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.port.UsagePage
 import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.CallRow
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.UsageFoldKit
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.CallRow
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.UsageFoldKit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

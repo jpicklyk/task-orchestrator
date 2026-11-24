@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 /**
  * Dialect-neutrality guard (item b094eb86, charter D20): SQLite and Exposed are confined to
- * `infrastructure/sqlite/` and `platform/sqlite/` (both, until the slice stores leave the first). Outside them, production code must not
+ * `infrastructure/sqlite/`, `platform/sqlite/` (both, until the slice stores leave the first) and each slice's `<s>/internal/sqlite/`. Outside them, production code must not
  * - R1: import or fully-qualify anything from `org.sqlite.` or `org.jetbrains.exposed.`, or
  * - R2: carry a SQLite-dialect token (or an `org.sqlite.` / `org.jetbrains.exposed.` reflection name) inside a string literal
  * Comments and KDoc are excluded. Violations are counted per file against the two-way ratcheted baseline
@@ -53,8 +53,14 @@ class DialectNeutralityTest {
 
         fun isR2(literal: String): Boolean = R2_CI.containsMatchIn(literal) || R2_MATCH.containsMatchIn(literal)
 
-        /** True when [path] lies under a SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt). */
-        fun isExempt(path: String): Boolean = SQLITE_ROOTS.any { path.startsWith(it) }
+        /** True when [path] is `<s>/internal/sqlite/..` of a slice (a first folder that is not a legacy layer or shared area). */
+        private fun isSliceSqlite(path: String): Boolean {
+            val parts = path.split('/')
+            return GuardSupport.sliceOf(path) != null && parts.size >= 4 && parts[1] == "internal" && parts[2] == "sqlite"
+        }
+
+        /** True when [path] lies under a SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt) or a slice's `internal/sqlite/`. */
+        fun isExempt(path: String): Boolean = SQLITE_ROOTS.any { path.startsWith(it) } || isSliceSqlite(path)
 
         fun lex(text: String): Lexed {
             val code = StringBuilder()
@@ -222,6 +228,12 @@ class DialectNeutralityTest {
         assertTrue(isExempt("platform/sqlite/schema/A.kt"))
         assertTrue(!isExempt("infrastructure/sqlitex/A.kt"))
         assertTrue(!isExempt("platform/sqlitex/A.kt"))
+        assertTrue(isExempt("telemetry/internal/sqlite/A.kt"))
+        assertTrue(isExempt("telemetry/internal/sqlite/repo/A.kt"))
+        assertTrue(!isExempt("telemetry/internal/sqlitex/A.kt"))
+        assertTrue(!isExempt("telemetry/sqlite/A.kt"))
+        assertTrue(!isExempt("telemetry/internal/app/A.kt"))
+        assertTrue(!isExempt("platform/internal/sqlite/A.kt"), "platform is not a slice")
         assertTrue(!isExempt("interfaces/api/v1/events/DeferredEventPublisher.kt"))
         val text = "import org.sqlite.JDBC"
         val sources =
@@ -229,10 +241,23 @@ class DialectNeutralityTest {
                 GuardSupport.Source("infrastructure/sqlite/A.kt", text),
                 GuardSupport.Source("platform/sqlite/A.kt", text),
                 GuardSupport.Source("infrastructure/sqlitex/B.kt", text),
-                GuardSupport.Source("platform/sqlitex/B.kt", text)
+                GuardSupport.Source("platform/sqlitex/B.kt", text),
+                GuardSupport.Source("telemetry/internal/sqlite/A.kt", text),
+                GuardSupport.Source("telemetry/internal/sqlitex/B.kt", text),
+                GuardSupport.Source("telemetry/sqlite/B.kt", text),
+                GuardSupport.Source("platform/internal/sqlite/B.kt", text)
             )
         val counted = GuardSupport.countByFile(sources.filterNot { isExempt(it.path) }) { violations(it.text) }
-        assertEquals(mapOf("infrastructure/sqlitex/B.kt" to 1, "platform/sqlitex/B.kt" to 1), counted)
+        assertEquals(
+            mapOf(
+                "infrastructure/sqlitex/B.kt" to 1,
+                "platform/sqlitex/B.kt" to 1,
+                "telemetry/internal/sqlitex/B.kt" to 1,
+                "telemetry/sqlite/B.kt" to 1,
+                "platform/internal/sqlite/B.kt" to 1
+            ),
+            counted
+        )
     }
 
     @Test

@@ -52,9 +52,15 @@ class LayeringTest {
             assertTrue(count > 0, "Expected package '$layer' to have at least one file in scope, found 0.")
         }
 
+        val slices = files.mapNotNull { GuardSupport.sliceOf(normalizedPath(it.path)) }.toSet()
+        assertTrue(
+            slices.isNotEmpty(),
+            "Expected at least one slice file (first folder not a legacy layer or shared area) in scope, found 0."
+        )
+
         val violations =
             files.flatMap { file ->
-                LayeringRules.violations(normalizedPath(file.path), file.imports.map { it.name }, file.text)
+                LayeringRules.violations(normalizedPath(file.path), file.imports.map { it.name }, file.text, slices)
             }
 
         val diff = LayeringRules.diff(violations.map { it.key() }.toSet(), LayeringRules.parseBaseline(baselineFile.readLines()))

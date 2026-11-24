@@ -76,6 +76,14 @@ class PackageCycleRulesTest {
         assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("kotlinx.serialization.json.JsonObject")))
     }
 
+    @Test
+    fun `a slice file is out of scope and a reference to a slice is no edge`() {
+        assertEquals(null, PackageCycleRules.nodeOfPath("telemetry/A.kt"))
+        assertEquals(null, PackageCycleRules.nodeOfPath("telemetry/internal/app/A.kt"))
+        assertEquals(emptyList(), edgesOf("telemetry/internal/app/A.kt", imports = listOf("$app.api.X")))
+        assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("$root.telemetry.X", "$root.telemetry.internal.app.Y")))
+    }
+
     // ------------------------------------------------------------------ S3 edges: comment and string handling
 
     @Test

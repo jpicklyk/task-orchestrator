@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.retention
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.platform.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork

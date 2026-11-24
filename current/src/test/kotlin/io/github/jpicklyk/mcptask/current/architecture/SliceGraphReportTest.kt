@@ -265,7 +265,9 @@ class SliceGraphReportTest {
     }
 
     private fun sliceFor(path: String): String =
-        MAPPING.filter { (prefix, _) -> path.startsWith(prefix) }.maxByOrNull { it.first.length }?.second ?: UNMAPPED
+        MAPPING.filter { (prefix, _) -> path.startsWith(prefix) }.maxByOrNull { it.first.length }?.second
+            ?: GuardSupport.sliceOf(path)?.takeIf { it in ORDER }
+            ?: UNMAPPED
 
     private companion object {
         const val MODEL = "model"
@@ -355,9 +357,6 @@ class SliceGraphReportTest {
                 "application/upgrade/" to "upgrade",
                 // application/port
                 "application/port/RepositoryProvider.kt" to "server",
-                "application/port/CallLog" to "telemetry",
-                "application/port/UsageDailyStore.kt" to "telemetry",
-                "application/port/TelemetryStoreProvider.kt" to "telemetry",
                 "application/port/ClaimStore.kt" to "claim",
                 "application/port/Config" to "config",
                 "application/port/DataStepStore.kt" to "upgrade",
@@ -410,10 +409,8 @@ class SliceGraphReportTest {
                 // infrastructure
                 "platform/" to PLATFORM,
                 "infrastructure/ExpirySweeper.kt" to "claim",
-                "infrastructure/UsageDailyFolder.kt" to "telemetry",
                 "infrastructure/config/" to "config",
                 "infrastructure/identity/" to "identity",
-                "infrastructure/telemetry/" to "telemetry",
                 "infrastructure/sqlite/knowledge/" to "knowledge",
                 "infrastructure/sqlite/report/" to "report",
                 "infrastructure/sqlite/upgrade/" to "upgrade",
@@ -422,7 +419,6 @@ class SliceGraphReportTest {
                 "infrastructure/sqlite/repository/SQLiteNoteRepository.kt" to "note",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt" to "lease",
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt" to "item",
-                "infrastructure/sqlite/repository/SqliteCallLogStore.kt" to "telemetry",
                 "infrastructure/sqlite/repository/SqliteClaimStore.kt" to "claim",
                 "infrastructure/sqlite/repository/SqliteConfigStore.kt" to "config",
                 "infrastructure/sqlite/repository/SqliteDataStepStore.kt" to "upgrade",
@@ -431,7 +427,6 @@ class SliceGraphReportTest {
                 "infrastructure/sqlite/repository/SqliteHierarchyStore.kt" to "item",
                 "infrastructure/sqlite/repository/SqliteItemStore.kt" to "item",
                 "infrastructure/sqlite/repository/SqliteRun" to "run",
-                "infrastructure/sqlite/repository/SqliteUsageDailyStore.kt" to "telemetry",
                 // interfaces
                 "interfaces/" to "server",
                 "interfaces/api/v1/auth/" to "identity",

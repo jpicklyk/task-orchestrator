@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.rest.correlation
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogSink
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.test.CollectingSink

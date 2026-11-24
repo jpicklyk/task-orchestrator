@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.platform.retention
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
-import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
-import io.github.jpicklyk.mcptask.current.infrastructure.UsageFoldException
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.EventClasses
+import io.github.jpicklyk.mcptask.current.platform.port.CallLogFold
+import io.github.jpicklyk.mcptask.current.platform.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.UsageFoldException
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.settings.RetentionSettings
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
@@ -64,7 +64,7 @@ class RetentionPruner(
     private val batchSize: Int = 5_000,
     private val passCap: Int = 200_000,
     private val foldWatermark: CallLogFoldWatermark = CallLogFoldWatermark.NONE,
-    private val folder: UsageDailyFolder? = null
+    private val folder: CallLogFold? = null
 ) {
     init {
         require(batchSize > 0) { "batchSize must be positive: $batchSize" }

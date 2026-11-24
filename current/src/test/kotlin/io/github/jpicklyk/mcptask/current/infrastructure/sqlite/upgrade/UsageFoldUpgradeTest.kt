@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.CallRow
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.FoldRow
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.UsageFoldKit
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.retention.RetentionPruner
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.settings.RetentionSettings
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
+import io.github.jpicklyk.mcptask.current.telemetry.internal.app.UsageDailyFolder
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.CallRow
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.FoldRow
+import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.UsageFoldKit
 import io.github.jpicklyk.mcptask.current.test.RetentionRows
 import io.github.jpicklyk.mcptask.current.test.testReqId
 import kotlinx.coroutines.runBlocking
