@@ -1,7 +1,7 @@
 // Pure helpers for the orchestration-mode mod. No `$`, no atoms: indicator.ts feeds these values and
 // draws what they return, so they are unit-testable with the plugin test kit alone.
 
-import type { Board, BoardMember, BoardRun, CoordinatorState, FocusBoard, FocusState, ItemFacts, MemberStatus, PhaseCounts } from '../types'
+import type { Board, BoardMember, BoardRun, OrchestratorState, FocusBoard, FocusState, ItemFacts, MemberStatus, PhaseCounts } from '../types'
 
 /** The skill whose Skill tool call enters (or, with args `off`, leaves) director mode. */
 export const DIRECTOR_SKILL = 'task-orchestrator:director'
@@ -62,30 +62,32 @@ export const EXIT_TOAST = 'Director mode off'
 
 /** The director backdrop's glass: a warm amber tint so the window reads as "director" at a glance. */
 export const GLASS = { blur: 14, tint: '#7c4a03', opacity: 0.42 } as const
-/** The coordinator backdrop's glass: a cool blue tint. */
-export const COORDINATOR_GLASS = { blur: 14, tint: '#0b3a6e', opacity: 0.42 } as const
+/** The orchestrator backdrop's glass: a cool blue tint. */
+export const ORCHESTRATOR_GLASS = { blur: 14, tint: '#0b3a6e', opacity: 0.42 } as const
 
 // ---------------------------------------------------------------------------------------------
-// The roster: the TO modes a user sees in a session of their own. Seats, ralph and workflow
-// coordinators never run in a visible session, so they are never labelled. One entry per mode,
-// in footer order; a third mode is one more entry.
+// The roster: the footer labels a user sees in a session of their own. There are two session modes,
+// director mode and orchestration mode; the `orchestrator` entry is the orchestrator label, which
+// carries a run indicator while the session holds an open run (the indicator is not a mode of its
+// own). Seats, ralph and workflow orchestrators never run in a visible session, so they are never
+// labelled. One entry per label, in footer order.
 // ---------------------------------------------------------------------------------------------
 
-export type ModeName = 'director' | 'coordinator'
+export type ModeName = 'director' | 'orchestrator'
 
 export type ModeEntry = {
   /** The name drawn in the footer after FOOTER_PREFIX. */
   name: ModeName
-  /** The session marker file the task-orchestrator plugin writes for the mode. */
+  /** The session marker file the task-orchestrator plugin writes for the label (for `orchestrator`, the open-run marker). */
   marker: string
-  /** The backdrop id and glass set while this is the first roster mode on. */
+  /** The backdrop id and glass set while this is the first roster label on. */
   backdropId: string
   glass: { readonly blur: number; readonly tint: string; readonly opacity: number }
 }
 
 export const MODES: readonly ModeEntry[] = [
   { name: 'director', marker: 'director.json', backdropId: 'director', glass: GLASS },
-  { name: 'coordinator', marker: 'coordinator.json', backdropId: 'coordinator', glass: COORDINATOR_GLASS },
+  { name: 'orchestrator', marker: 'coordinator.json', backdropId: 'orchestrator', glass: ORCHESTRATOR_GLASS },
 ]
 
 /** The roster modes that are on, in roster order, whatever order `on` names them in. */
@@ -96,9 +98,17 @@ export function modesOn(on: readonly string[]): ModeEntry[] {
 /** The mode a session is in when no roster mode is on, named in the footer at rest. */
 export const REST_MODE = 'orchestrator'
 
-/** The footer's mode text: the roster modes that are on joined with ` & `; `orchestrator` when none is. */
-export function footerModes(on: readonly string[]): string {
-  const names = modesOn(on).map(mode => mode.name)
+/** The indicator that follows `orchestrator` in the footer while the session holds an open run. */
+export const RUN_INDICATOR = 'run'
+
+/**
+ * The footer's mode text: the roster modes that are on joined with ` & `; `orchestrator` when none is.
+ * The orchestrator entry stands for a session that holds an open run, so it reads `orchestrator · run`,
+ * with the run's label after it when the session knows it (`orchestrator · run wave-8`).
+ */
+export function footerModes(on: readonly string[], runLabel = ''): string {
+  const names = modesOn(on).map(mode =>
+    mode.name === 'orchestrator' ? `orchestrator · ${RUN_INDICATOR}${runLabel ? ` ${runLabel}` : ''}` : mode.name)
 
   return names.length > 0 ? names.join(' & ') : REST_MODE
 }
@@ -110,12 +120,12 @@ export function footerLead(modes: readonly string[]): string {
   return others.length > 0 ? `${others.join(' & ')} & ` : ''
 }
 
-/** `Coordinator of run wave-8` when this session opens a run. */
-export function coordinatorToast(label: string): string {
-  return label ? `Coordinator of run ${label}` : 'Coordinator of a run'
+/** `Orchestrator of run wave-8` when this session opens a run (becomes its orchestrator). */
+export function orchestratorToast(label: string): string {
+  return label ? `Orchestrator of run ${label}` : 'Orchestrator of a run'
 }
 
-/** `Run wave-8 closed` when the coordinated run closes. */
+/** `Run wave-8 closed` when the orchestrated run closes. */
 export function runClosedToast(label: string): string {
   return label ? `Run ${label} closed` : 'Run closed'
 }
@@ -289,12 +299,12 @@ export function runFromList(item: Obj): BoardRun | null {
 }
 
 /**
- * Whether the run's coordinator needs a look, by the director skill's rule (director/SKILL.md, the
- * coordinator cell): never on a paused run; idle, not stalled, while a Workflow runs the run (Method A
- * launched: nothing calls under the coordinator token until post-run) or while any in-flight seat is
+ * Whether the run's orchestrator needs a look, by the director skill's rule (director/SKILL.md, the run orchestrator's
+ * row): never on a paused run; idle, not stalled, while a Workflow runs the run (Method A
+ * launched: nothing calls under the orchestrator token until post-run) or while any in-flight seat is
  * live; else the server's flag.
  */
-export function coordStalled(run: BoardRun): boolean {
+export function orchestratorStalled(run: BoardRun): boolean {
   if (!run.coordinatorStalled || run.status !== 'open') return false
   if (run.workflowLaunched === true) return false
 
@@ -303,17 +313,17 @@ export function coordStalled(run: BoardRun): boolean {
 
 /**
  * The runs this session's band shows, in every mode (director included: the band is the session's own
- * graph, not the board): the run this session coordinates, and the runs it or one of its subagents
- * opened or named through `runs_write` (`watched`). The coordinated run first, then the server's order.
+ * graph, not the board): the run this session orchestrates, and the runs it or one of its subagents
+ * opened or named through `runs_write` (`watched`). The orchestrated run first, then the server's order.
  * A run of another session or another project is never drawn: a run scoped to an item this session
  * merely touched or read is not its own (two sessions on one feature would otherwise draw each other's).
  */
-export function sessionRuns(runs: readonly BoardRun[], scope: { coordinatorRunId?: string; watched: readonly string[] }): BoardRun[] {
-  const coordinated = (run: BoardRun): boolean => scope.coordinatorRunId !== undefined && sameId(run.id, scope.coordinatorRunId)
+export function sessionRuns(runs: readonly BoardRun[], scope: { orchestratorRunId?: string; watched: readonly string[] }): BoardRun[] {
+  const orchestrated = (run: BoardRun): boolean => scope.orchestratorRunId !== undefined && sameId(run.id, scope.orchestratorRunId)
   const watched = (run: BoardRun): boolean => scope.watched.some(id => sameId(run.id, id))
-  const mine = runs.filter(run => coordinated(run) || watched(run))
+  const mine = runs.filter(run => orchestrated(run) || watched(run))
 
-  return [...mine.filter(coordinated), ...mine.filter(run => !coordinated(run))]
+  return [...mine.filter(orchestrated), ...mine.filter(run => !orchestrated(run))]
 }
 
 /** The most run ids a session keeps as its own; the oldest goes first. */
@@ -436,14 +446,19 @@ const WAVE_LABEL = /^r-\d{8,14}-([0-9a-f]{6,})$/i
  * label, else its title, else the id prefix, cut to `max`.
  */
 export function runLabel(run: BoardRun, max = 24): string {
-  const wave = WAVE_LABEL.exec(run.label)
+  return shortRunLabel(run.label || run.title || run.id.slice(0, 8), max)
+}
 
-  return cut(wave?.[1] ?? (run.label || run.title || run.id.slice(0, 8)), max)
+/** A run label as the band and the footer draw it: a run-wave label's trailing short id, else the label, cut to `max`. */
+export function shortRunLabel(label: string, max = 24): string {
+  const wave = WAVE_LABEL.exec(label)
+
+  return cut(wave?.[1] ?? label, max)
 }
 
 /**
  * True when a Workflow ran the run and no seat is in flight any more: every seat it dispatched has ended, and the
- * coordinator owes the post-run step.
+ * orchestrator owes the post-run step.
  */
 export function seatsDone(run: BoardRun): boolean {
   return run.status === 'open' && run.workflowLaunched === true && run.inFlight === 0
@@ -868,7 +883,7 @@ export function titleRow(board: Board, container: ItemFacts | null | undefined, 
 }
 
 /**
- * Row 2, the status. With runs: on the left what needs a look, first (`1 agent stuck`, `Coordinator not responding`,
+ * Row 2, the status. With runs: on the left what needs a look, first (`1 agent stuck`, `Orchestrator not responding`,
  * `1 decision for you`, `Run paused: run budget`, `All agents finished · advance the items`), then what the agents do
  * (`3 agents implementing`, after `2 waves` when there are several); on the right the members by phase in plain words.
  * With a focus only: the container's type and phase, then its blocked work; on the right the members by phase, or a
@@ -895,7 +910,7 @@ export function statusRow(board: Board, container: ItemFacts | null | undefined,
   const first = runs[0]
   const alerts: Cell[] = []
   if (stuck > 0) alerts.push({ text: `${plural(stuck, 'agent', 'agents')} stuck`, tone: 'errorBold' })
-  if (runs.some(run => coordStalled(run))) alerts.push({ text: 'Coordinator not responding', tone: 'errorBold' })
+  if (runs.some(run => orchestratorStalled(run))) alerts.push({ text: 'Orchestrator not responding', tone: 'errorBold' })
   if (decisions > 0) alerts.push({ text: `${plural(decisions, 'decision', 'decisions')} for you`, tone: 'needsYouBold' })
   const paused = runs.find(run => run.status === 'paused')
   if (paused !== undefined) alerts.push({ text: paused.pauseReason ? `Run paused: ${paused.pauseReason.replace(/-/g, ' ')}` : 'Run paused', tone: 'needsYouBold' })
@@ -1225,11 +1240,11 @@ function writeResults(envelope: Obj | undefined): unknown[] {
 const opsOf = (input: Obj): Obj[] => (Array.isArray(input.ops) ? input.ops.map(op => (isObj(op) ? op : {})) : [])
 
 /**
- * The run this session became the coordinator of: the first `open` op of a `runs_write` call whose
+ * The run this session became the orchestrator of: the first `open` op of a `runs_write` call whose
  * result element is ok and carries a `coordinatorToken` (the token itself is never kept). Null when
  * the call opened no run.
  */
-export function coordinatorFromOpen(input: Obj, envelope: Obj | undefined, since: string): CoordinatorState {
+export function orchestratorFromOpen(input: Obj, envelope: Obj | undefined, since: string): OrchestratorState {
   const ops = opsOf(input)
   const results = writeResults(envelope)
   for (let i = 0; i < ops.length; i++) {
@@ -1263,8 +1278,8 @@ export function closedRunIds(input: Obj, envelope: Obj | undefined): string[] {
   return closed
 }
 
-/** The coordinator state a `coordinator.json` marker stands for: its runId and label when it names them. */
-export function coordinatorFromMarker(marker: unknown, since: string): NonNullable<CoordinatorState> {
+/** The orchestrator state a `coordinator.json` marker stands for: its runId and label when it names them. */
+export function orchestratorFromMarker(marker: unknown, since: string): NonNullable<OrchestratorState> {
   const m = isObj(marker) ? marker : {}
   const runId = str(m.runId)
 
