@@ -530,7 +530,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved bucket name `unowned` (see "The `unowned` bucket"), which a seat may never be named, and the seat named `orchestrator`, whose note keys a run's token may write (see "Seat transitions"). |
+| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named, and `orchestrator`, which is given a meaning: a run's token may write its note keys (see "Seat transitions"). `coordinator`, a retired name, is not reserved: it loads with a warning. |
 | `phase` | yes | string | `queue`, `work`, or `review` only - exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within one seats scope - see "Structural errors". A conflict discovered only at resolve time (per-item traits, or traits from a different config layer) is not fatal - see "Merge rules". |
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |
@@ -552,8 +552,8 @@ A seat token sends `start` only into the phase of a seat that sets `enters: true
 it sends must be in its `transitions:` list (default `block`, `hold`). An entering seat that lists
 `complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
 item. A seat named `orchestrator` is the one seat whose note keys a run's token may write; every other
-seat-owned key needs that seat's own token (a human credential is exempt). `orchestrator` and `unowned` are the two
-reserved seat names: `unowned` is refused (F3), while `orchestrator` is accepted as the owning seat of notes the orchestrator fills itself. The plugin's run planner never schedules it as a stage of a run, so no agent is dispatched to it. Enforcement applies only to
+seat-owned key needs that seat's own token (a human credential is exempt). `orchestrator`, `unowned` and `director` are the
+reserved seat names: `unowned` and `director` are refused (F3), while `orchestrator` is accepted as the owning seat of notes the orchestrator fills itself. The plugin's run planner never schedules it as a stage of a run, so no agent is dispatched to it. Enforcement applies only to
 an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other` with `detail.ownerSeat`; outside a
 run the seats stay a signal. The full rules, and the interaction with run membership, are in
 [config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
@@ -642,7 +642,7 @@ list. A push carrying one fails `config_invalid` and stores nothing; the server 
 |------|-----------|
 | F1 | Two seats with `enters: true` in the same `phase`, within one seats scope. |
 | F2 | A duplicate seat `name` within one seats scope. |
-| F3 | A seat named `unowned` (the reserved bucket name - exact match only; `Unowned` is fine). |
+| F3 | A seat named `unowned` (the reserved bucket name) or `director` (the director never fills a seat) - exact match only; `Unowned` and `Director` are fine. |
 | F4 | An `after` cycle within one seats scope. |
 | F5 | A seat that sets `enters: true` and lists `complete` or `cancel` in `transitions`. |
 
@@ -654,6 +654,8 @@ malformed seat entries - a missing or blank `name`, an invalid or missing `phase
 An advisory warning, which never rejects a push, covers a schema whose effective seats are non-empty
 and which has a **required** note whose `seat` is null or names no seat of the same phase (the `orchestrator` seat matches in any phase): the note is
 served under `unowned` in `missingBySeat`.
+
+A second advisory warning covers a seat named `coordinator`, a retired name for a run's orchestrator: it loads, and the warning (at `<seats>/<i>/name`) asks for a rename.
 
 ### The `unowned` bucket
 

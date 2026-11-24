@@ -32,7 +32,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
  * Thrown for a STRUCTURAL config error that must fail the whole config load/push rather than being
  * recorded as a load warning (A1a): currently only the seat-declaration checks F1-F4 in
  * [YamlSchemaParser.parseRoot] (two `enters: true` seats in one phase, a duplicate seat name, a
- * seat reserved-named `unowned`, or an `after` cycle — all within one seats list, or within a
+ * seat reserved-named `unowned` or `director`, or an `after` cycle — all within one seats list, or within a
  * schema's own seats plus the seats of its SAME-DOCUMENT default traits).
  *
  * Deliberately NOT an [IllegalArgumentException]: [io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile]
@@ -268,6 +268,12 @@ internal object YamlSchemaParser {
 
     /** Reserved seat name: the `missingBySeat`/served-schema "unowned" bucket (DEC-11, A1a F3). Exact match only. */
     private const val UNOWNED_RESERVED_SEAT_NAME = "unowned"
+
+    /** Reserved seat name: the director never fills a seat or writes notes (F3). Exact match only. */
+    private const val DIRECTOR_RESERVED_SEAT_NAME = "director"
+
+    /** Retired seat name for a run's orchestrator: loads, with an advisory. Exact match only. */
+    private const val RETIRED_COORDINATOR_SEAT_NAME = "coordinator"
 
     /**
      * Budget-related keys reserved for future use. If present on a `resources:` entry (registry or
@@ -638,6 +644,15 @@ internal object YamlSchemaParser {
                 continue
             }
 
+            if (name == RETIRED_COORDINATOR_SEAT_NAME) {
+                warnings.advisory(
+                    "$entryPath/name",
+                    "$context seats[$index] is named '$RETIRED_COORDINATOR_SEAT_NAME', a retired name for a run's " +
+                        "orchestrator; rename the seat (the 'orchestrator' seat holds the notes the orchestrator " +
+                        "writes itself)"
+                )
+            }
+
             val entersRaw = entryMap["enters"]
             val enters =
                 when (entersRaw) {
@@ -840,6 +855,14 @@ internal object YamlSchemaParser {
             throw ConfigStructureException(
                 "$context declares a seat named '$UNOWNED_RESERVED_SEAT_NAME', which is reserved for the " +
                     "unowned-notes bucket",
+                path
+            )
+        }
+
+        seats.firstOrNull { it.name == DIRECTOR_RESERVED_SEAT_NAME }?.let {
+            throw ConfigStructureException(
+                "$context declares a seat named '$DIRECTOR_RESERVED_SEAT_NAME', which is reserved: " +
+                    "the director never fills a seat or writes notes",
                 path
             )
         }

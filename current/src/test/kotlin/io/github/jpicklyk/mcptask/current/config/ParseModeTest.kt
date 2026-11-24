@@ -180,6 +180,8 @@ class ParseModeTest {
                 "work_item_schemas:\n  bug-fix:\n    seats:\n      - { name: a, phase: work }\n      - { name: a, phase: review }\n",
             "F3 reserved seat name unowned" to
                 "work_item_schemas:\n  bug-fix:\n    seats:\n      - { name: unowned, phase: work }\n",
+            "F3 reserved seat name director" to
+                "work_item_schemas:\n  bug-fix:\n    seats:\n      - { name: director, phase: work }\n",
             "F4 after cycle" to
                 "work_item_schemas:\n  bug-fix:\n    seats:\n" +
                 "      - { name: a, phase: work, after: [b] }\n      - { name: b, phase: work, after: [a] }\n"
@@ -203,6 +205,83 @@ class ParseModeTest {
                 }
             }
         }
+
+    // ---------------------------------------------------------------------------------------------
+    // A seat named coordinator is an advisory in both modes; the neighbouring names draw nothing
+    // ---------------------------------------------------------------------------------------------
+
+    private fun seatNameWarnings(doc: ConfigDocument) = doc.warningViolations.filter { it.path.endsWith("/name") }
+
+    @Test
+    fun `a schema seat named coordinator loads with a warning at its name path in both modes`() {
+        val yaml =
+            """
+            work_item_schemas:
+              bug-fix:
+                seats:
+                  - { name: coordinator, phase: work }
+            """.trimIndent()
+        for (mode in ParseMode.values()) {
+            val doc = parsed(yaml, mode)
+
+            assertEquals(emptyList(), doc.errors, "$mode must record no error")
+            val found = seatNameWarnings(doc)
+            assertEquals(listOf("/work_item_schemas/bug-fix/seats/0/name"), found.map { it.path }, "$mode: ${doc.warningViolations}")
+            assertTrue(found.single().reason.contains("'coordinator', a retired name"), found.single().reason)
+            assertEquals(
+                listOf("coordinator"),
+                doc.workItemSchemas
+                    .getValue("bug-fix")
+                    .seats
+                    .map { it.name },
+                "the seat is still extracted"
+            )
+        }
+    }
+
+    @Test
+    fun `a trait seat named coordinator warns at the trait seat name path`() {
+        val yaml =
+            """
+            traits:
+              t1:
+                seats:
+                  - { name: planner, phase: work }
+                  - { name: coordinator, phase: work }
+            """.trimIndent()
+        for (mode in ParseMode.values()) {
+            val doc = parsed(yaml, mode)
+
+            assertEquals(emptyList(), doc.errors)
+            assertEquals(listOf("/traits/t1/seats/1/name"), seatNameWarnings(doc).map { it.path }, "$mode")
+            assertEquals(listOf("planner", "coordinator"), doc.traitSeats.getValue("t1").map { it.name })
+        }
+    }
+
+    @Test
+    fun `the seat names orchestrator, Coordinator and planner draw no error and no seat warning`() {
+        val yaml =
+            """
+            work_item_schemas:
+              bug-fix:
+                seats:
+                  - { name: orchestrator, phase: work }
+                  - { name: Coordinator, phase: work }
+                  - { name: planner, phase: queue }
+            """.trimIndent()
+        for (mode in ParseMode.values()) {
+            val doc = parsed(yaml, mode)
+
+            assertEquals(emptyList(), doc.errors, "$mode")
+            assertEquals(emptyList(), seatNameWarnings(doc), "$mode: ${doc.warningViolations}")
+            assertEquals(
+                3,
+                doc.workItemSchemas
+                    .getValue("bug-fix")
+                    .seats.size
+            )
+        }
+    }
 
     // ---------------------------------------------------------------------------------------------
     // S16 - syntax errors and a non-mapping root are parse failures in both modes
