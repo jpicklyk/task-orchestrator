@@ -551,8 +551,8 @@ it sends must be in its `transitions:` list (default `block`, `hold`). An enteri
 `complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
 item. A seat named `orchestrator` is the one seat whose note keys a run's orchestrator token may write; every other
 seat-owned key needs that seat's own token (a human credential is exempt). `orchestrator` and `unowned` are the two
-reserved seat names: `unowned` is refused (F3), while `orchestrator` is accepted and means the orchestrator fills that
-seat's notes itself, no agent is dispatched to it, and it is never a stage of a run. Enforcement applies only to
+reserved seat names: `unowned` is refused (F3), while `orchestrator` is accepted and the server gives it an owner meaning: the orchestrator fills that
+seat's notes itself. The plugin's run planner never schedules it as a stage of a run, so no agent is dispatched to it. Enforcement applies only to
 an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other` with `detail.ownerSeat`; outside a
 run the seats stay a signal. The full rules, and the interaction with run membership, are in
 [config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
