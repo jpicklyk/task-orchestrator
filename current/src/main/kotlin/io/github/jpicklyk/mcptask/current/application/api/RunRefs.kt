@@ -62,7 +62,7 @@ object RunRefs {
 
     /**
      * Resolves and loads the run [ref], then checks [scope] against the run root BEFORE the caller can reach any kind or
-     * coordinator predicate: a run out of scope is `forbidden`, never an existence oracle, and under a restricted scope an
+     * run-token predicate: a run out of scope is `forbidden`, never an existence oracle, and under a restricted scope an
      * unknown run is `forbidden` too.
      */
     suspend fun loadRun(

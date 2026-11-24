@@ -84,8 +84,13 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
 - **Where it applies.** Seats are enforced only on an item that is a member of a run that is not closed (open or
   paused) and whose pinned schema declares seats. Outside a run they stay an orchestration signal. A refusal is
   `seat_forbidden` (see [`advance`](api-reference.md#advance)).
-- **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's coordinator token may
+- **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's orchestrator token may
   write; every other seat-owned key needs that seat's own token (a human credential is exempt). It owns the notes labelled for it in any phase it is declared, not only its own phase.
+- **Reserved seat names.** Two seat names carry meaning for the server. `unowned` is refused: a schema or trait that
+  declares a seat of that name (exact match) is a structural error, because `unowned` is the `missingBySeat` bucket that
+  holds the required notes no declared seat owns. `orchestrator` is accepted and given a meaning: it is the owning seat of notes the orchestrator fills itself, and
+  the server lets the run's token write them inside a run (outside one they are written directly),
+  and the plugin's run planner never schedules the seat as a stage of a run, so no agent is dispatched to it.
 
 ```yaml
 work_item_schemas:
@@ -170,7 +175,7 @@ else the default.
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `stall_after` | integer, seconds, 1 to 2147483647 | 600 | A seat or the coordinator is stalled when the time since it was last seen is strictly longer than this. The value is pinned on the run when it opens. |
+| `stall_after` | integer, seconds, 1 to 2147483647 | 600 | A seat or the orchestrator is stalled when the time since it was last seen is strictly longer than this. The value is pinned on the run when it opens. |
 | `budgets.attempts_per_seat` | integer, 1 to 2147483647 | none | Ceiling on the attempts one seat may make on one item. |
 | `budgets.max_active_seats` | integer, 1 to 2147483647 | none | Ceiling on the seats active at once. |
 

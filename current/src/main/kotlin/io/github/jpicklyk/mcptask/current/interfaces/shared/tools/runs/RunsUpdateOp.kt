@@ -14,13 +14,13 @@ import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 
-/** runs_write update: the coordinator adds or removes items, lowers the budget or replaces the hints. */
+/** runs_write update: the run's orchestrator adds or removes items, lowers the budget or replaces the hints. */
 internal val runsUpdateOp =
     OpSpec<RunToolServices, RunsUpdateRequest, JsonObject, RunStoreProvider>(
         name = "update",
         doc =
             "Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), " +
-                "replace the hints. Coordinator only. A paused run is run_paused; a closed run is run_closed. " +
+                "replace the hints. Run token only. A paused run is run_paused; a closed run is run_closed. " +
                 "expectedVersion guards against a concurrent change. Returns the run.",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,

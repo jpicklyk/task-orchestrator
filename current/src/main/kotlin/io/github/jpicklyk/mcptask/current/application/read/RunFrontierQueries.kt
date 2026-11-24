@@ -52,7 +52,7 @@ data class FrontierWaiting(
 /**
  * The frontier of one run at one instant: [counts] of the visible members by role (all five roles present),
  * the [ready] members (membership order), the active member seats [inFlight] (assignment order) and the [waiting]
- * members (membership order). [stalled] is the coordinator's liveness ([RunLiveness.isCoordinatorStalled]).
+ * members (membership order). [stalled] is the liveness of the run's orchestrator ([RunLiveness.isCoordinatorStalled]).
  * [terminalLabels] counts the visible terminal members by status label (a member with none is left out), so a caller
  * can tell how many of [counts]' terminal ones a given label (the root's cancel label) names.
  */
@@ -75,8 +75,8 @@ data class RunFrontier(
  *   unsatisfied blocking edge ([BlockerEvaluator]) and no foreign live claim. Always empty for a CLOSED run; a PAUSED
  *   run computes it normally.
  * - A foreign live claim: active per [ClaimState.isActive] at `now` and the holder pair (claimedBy, claimAssignmentId)
- *   is not the pair of any active assignment of the run (the coordinator included). An expired claim is never foreign.
- * - `inFlight`: every active member-seat assignment (the coordinator excluded) whose item is visible, stalled per
+ *   is not the pair of any active assignment of the run (the `coordinator` pseudo-seat included). An expired claim is never foreign.
+ * - `inFlight`: every active member-seat assignment (the `coordinator` pseudo-seat excluded) whose item is visible, stalled per
  *   [RunLiveness.isSeatStalled] with the run's pinned threshold.
  * - `waiting`: per visible non-terminal member, role BLOCKED is `manual`; otherwise at least one unsatisfied blocking
  *   edge is `dependency`, listing the unsatisfied blockers visible under the scope.

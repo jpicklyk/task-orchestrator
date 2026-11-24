@@ -11,7 +11,7 @@ import kotlin.test.assertNull
  * Independent tests (test-author seat, item 34d41fe6) for scenarios S1 to S5 of the frozen test-plan (EXISTING-SURFACE): the
  * orchestrator seat owns a note labelled with it in any phase.
  *
- * Oracle: the diagnosis "Fix (frozen)" (the label equal to SeatDefinition.COORDINATOR_WRITABLE_SEAT is owned when a seat of
+ * Oracle: the diagnosis "Fix (frozen)" (the label equal to SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT is owned when a seat of
  * that exact name is declared, whatever its phase; seatless unchanged; every other seat stays phase-matched; keysOf inherits).
  *
  * Fixture O: seats planner@QUEUE, implementer@WORK, orchestrator@WORK, reviewer@REVIEW.

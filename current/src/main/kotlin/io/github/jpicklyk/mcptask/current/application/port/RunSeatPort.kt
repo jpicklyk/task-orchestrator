@@ -25,14 +25,14 @@ data class AssigneeHolder(
  * reports it, though it ends it with the others.
  */
 interface RunSeatPort {
-    /** The number of member-seat assignments of [runId] that are still active (the coordinator is not counted). */
+    /** The number of member-seat assignments of [runId] that are still active (the `coordinator` pseudo-seat is not counted). */
     suspend fun activeCount(runId: UUID): Int
 
-    /** The holder pairs of the run's active seat assignees (coordinator included): the claims a close may clear. */
+    /** The holder pairs of the run's active seat assignees (the `coordinator` pseudo-seat included): the claims a close may clear. */
     suspend fun assigneeHolders(runId: UUID): Set<AssigneeHolder>
 
     /**
-     * Ends every active assignment of [runId] (the coordinator included) with [outcome], a `run_seats` outcome wire
+     * Ends every active assignment of [runId] (the `coordinator` pseudo-seat included) with [outcome], a `run_seats` outcome wire
      * value, and returns the member seats it ended. Joins the caller's unit.
      */
     suspend fun endActive(

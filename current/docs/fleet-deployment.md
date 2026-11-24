@@ -395,7 +395,7 @@ Guarantees:
 so are the `run.*` and `decision.*` audit events at the default `RETENTION_AUDIT_EVENTS_DAYS=0`. The `seat.assigned`
 and `seat.ended` events are activity-class and are pruned with `RETENTION_EVENTS_DAYS`. As an estimate, not a
 guarantee, plan for about 40 MB per 1,000 runs for a run over 10 items with 3 seats each and 2 decisions. The
-estimate sums the table rows (one `runs` row, 10 `run_items` rows, 31 `run_seats` rows including the coordinator and
+estimate sums the table rows (one `runs` row, 10 `run_items` rows, 31 `run_seats` rows including the orchestrator and
 2 `decision_requests` rows, about 25 KB with their indexes, most of it the seat rows) and the audit events a run
 writes (about a dozen rows, among them a `run.ended` event that carries the close snapshot, about 10 KB). Larger
 summaries, links, decision contexts and snapshots push it up; smaller runs pull it down. Archival and per-root
@@ -1424,12 +1424,12 @@ below). What an operator sees:
 - **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
   `allow_one` gives that (item, seat) one more attempt and resumes the run; `skip_item` removes the item and resumes;
   `stop` closes the run `budget_exhausted`, ends its seats, clears their claims and releases the leases of its WORK
-  members. A coordinator cannot lift its own cap: a manual `resume` of an attempts pause is refused. The decisions the
+  members. An orchestrator cannot lift its own cap: a manual `resume` of an attempts pause is refused. The decisions the
   server raises for a limit cannot be withdrawn.
-- **While paused.** A `start` presented with any of the run's tokens, a seat token or the coordinator token, is
+- **While paused.** A `start` presented with any of the run's tokens, a seat token or the orchestrator token, is
   refused `run_paused` while the run is paused for a limit. A manual pause never refuses
   it, so in-flight seats can finish their work, and a `start` without a token is never refused for a pause.
-- **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the coordinator
+- **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the orchestrator
   backs off and retries when a seat ends. No decision is raised.
 
 ### Removed in 4.0.1

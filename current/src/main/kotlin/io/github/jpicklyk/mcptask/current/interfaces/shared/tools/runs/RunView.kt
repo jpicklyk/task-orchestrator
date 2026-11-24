@@ -19,7 +19,7 @@ import java.time.Instant
  */
 internal object RunView {
     /**
-     * [members] is the member count and [seats] the run's active seat assignments at read time (the coordinator may be
+     * [members] is the member count and [seats] the run's active seat assignments at read time (the `coordinator` pseudo-seat may be
      * among them; it is never counted). `activeSeats` is the number of active member seats and `stalledSeats` the number
      * of those that are stalled ([RunLiveness.isSeatStalled], the run's pinned threshold); a closed run has neither.
      */

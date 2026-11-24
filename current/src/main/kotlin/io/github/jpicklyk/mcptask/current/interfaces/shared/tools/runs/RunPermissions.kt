@@ -16,8 +16,8 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
  * - director: the call was served by the director profile (a profile, not a principal attribute) and carries no seat
  *   token.
  * - human: the credential is a human one and the call carries no seat token (a seat is always an agent).
- * - coordinator: the call carries the run's coordinator token (R22): its seat is the `coordinator` pseudo-seat of THIS
- *   run. The token is the only coordinator credential; the opening principal is not the coordinator by identity (a seat
+ * - coordinator: the call carries the run token (R22): its seat is the `coordinator` pseudo-seat of THIS
+ *   run. The token is the only credential for it; the opening principal is not the run's orchestrator by identity (a seat
  *   sharing the opener's stdio principal must not be one).
  * - seat: the call carries a member-seat token (`end_seat` ends the calling seat's own assignment).
  */
@@ -43,7 +43,7 @@ internal object RunPermissions {
 
     fun isHuman(ctx: CallContext): Boolean = isHumanCaller(ctx)
 
-    /** True when the call carries [run]'s coordinator token. */
+    /** True when the call carries the token of [run]. */
     fun isCoordinator(
         ctx: CallContext,
         run: Run
