@@ -151,6 +151,16 @@ descendant), `schema_violation` (undeclared or blank `type`, undeclared trait; `
 kind `shedding`, `retryAfterMs`). A `properties` object carrying a `traits` key is `invalid_request` on `properties`
 (`traits` is its own field).
 
+**Links.** `create` (and each `create_tree` child) may name up to 10 sources the item derives from:
+`links: [{to, relation?}]`, `relation` `derived_from` (the default and only value). `to` is a note,
+`item:<id>#<key>` (the id runs to the first `#`, the key is the rest), or a document, `[plan:|page:|rule:]<slug>[#<anchor>]`
+(a bare slug resolves page, then plan, then rule). Each stores one `derived_from` link from the new item, resolved in
+the new item's project root: to the note, or to the document with `toRef` `<kind>:<slug>` and the anchor. Errors, all
+before any write: `invalid_request` at `/links/<i>/to` (a malformed target, an anchor that is no heading of the
+document's current body, a note item outside the root, a target repeated, two anchors of one document included) or at
+`/links` (more than 10); `not_found` (a document or a note key); under a restricted scope a note item the scope does not
+admit is `forbidden`. The result is unchanged; read the links with `docs_read` `links` or `items_read` `related`.
+
 **Scope.** Every item an element touches is checked against the caller's scope before any write: the target of
 `update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
 scope (the new id cannot be a listed root) and under a tag scope, and so is moving an item to the top level
@@ -183,7 +193,7 @@ replaces the 3.x `create_work_tree` tool. Orchestration profile only; capability
 
 - `root` (required): The root. Create mode: `title` and `type` required, plus any `create` field except `parentId` (`priority`, `tags` and `traits` arrays, `summary`, `description`, `statusLabel`, `complexity`, `requiresVerification`, `metadata`, `properties`) and `noteAnchors`. Attach mode: `id` (UUID or 8+ hex prefix) names an existing item that becomes the root; no root row is written and the other root fields except `noteAnchors` are ignored.
 - `parentId`: Create mode only: the new root's parent (root depth = parent depth + 1). Not allowed with `root.id`.
-- `children`: `[{ref, title, type, parentRef?, ...}]`: `ref` is a unique local name (`root` is reserved), `parentRef` the parent's ref (default `root`), plus the same optional fields and `noteAnchors` as the root. Any order: children are written parent before child (`TopoOrder` over the `parentRef` edges, ties in request order).
+- `children`: `[{ref, title, type, parentRef?, ...}]`: `ref` is a unique local name (`root` is reserved), `parentRef` the parent's ref (default `root`), plus the same optional fields and `noteAnchors` as the root, and `links` (as on `create`; not on the root). Any order: children are written parent before child (`TopoOrder` over the `parentRef` edges, ties in request order).
 - `deps`: `[{from | fromId, to | toId, type?, unblockAt?}]`: each end is a ref of the tree (`from`, `to`; `root` included) or an existing item (`fromId`, `toId`: UUID or 8+ hex prefix), exactly one form per end, and at least one end is a ref (an edge between two existing items is `deps_write`'s). `type` `blocks` (default) or `relates_to`, `unblockAt` `queue`, `work`, `review` or `terminal` (not with `relates_to`).
 - `notes`: `[{itemRef, key, role, body?}]`: `role` `queue`, `work` or `review`.
 - `createNotes`: `true`: a blank note for every key of each item's resolved schema that no explicit note or anchor writes.
@@ -285,6 +295,9 @@ Create, update and delete work items or whole trees, one ops[] element each.
 | `tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
 | `traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
 | `properties` | object | no | JSON object; no traits key. |
+| `links` | array of object | no | Sources this item derives from. |
+| `links[].to` | string | yes | item:<id>#<note key>, or [kind:]slug[#heading]. |
+| `links[].relation` | string: derived_from | no | derived_from (default). |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `partial_failure`, `schema_violation`, `unavailable`, `unknown_parameter`
 
@@ -363,6 +376,9 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `children[].noteAnchors[].noteKey` | string | yes | Note key. |
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes | Note role. |
 | `children[].noteAnchors[].anchor` | string | yes | Heading to cut. |
+| `children[].links` | array of object | no | Sources this item derives from. |
+| `children[].links[].to` | string | yes | item:<id>#<note key>, or [kind:]slug[#heading]. |
+| `children[].links[].relation` | string: derived_from | no | derived_from (default). |
 | `deps` | array of object | no | Edges between refs or existing item ids. |
 | `deps[].from` | string | no | From ref (blocker for blocks). |
 | `deps[].fromId` | string | no | Existing item id instead of from (blocker). |
@@ -1696,7 +1712,7 @@ on every select that names one document and an optional filter on `list`. A `roo
 - `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
 - `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that the [`config`](#config) tool's `rules` op reports.
 - `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item. The adoption outlives the item, so an unrestricted caller still sees a deleted adopter, while a scoped caller (which cannot place a missing item) does not.
-- `links` takes `direction` (`outgoing`, `incoming` or `all`, default `all`): `outgoing` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`), `incoming` the links that point at it (a `derived_from` note, another document's reference), `all` both. A link end is `{kind, id}` with `kind` `item`, `note` or `document`; `to` is absent while a reference names no document yet, and `toRef` is the reference text (set on every `references` link, resolved or not, and on `derived_from` as `plan:<slug>`; absent on `attached` and `adopted_by`). A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`. The adopter of an `adopted_by` link follows the `adoptedBy` rule instead: it is shown whenever the caller's scope admits it, even after the item is deleted (an unrestricted caller always sees it; a scoped caller fails closed on a deleted adopter).
+- `links` takes `direction` (`outgoing`, `incoming` or `all`, default `all`): `outgoing` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`), `incoming` the links that point at it (a `derived_from` note or item, another document's reference), `all` both. A link end is `{kind, id}` with `kind` `item`, `note` or `document`; `to` is absent while a reference names no document yet, and `toRef` is the reference text (set on every `references` link, resolved or not, and on `derived_from` as `<kind>:<slug>` (`plan:<slug>` for an anchored note); absent on `attached` and `adopted_by`). A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`. The adopter of an `adopted_by` link follows the `adoptedBy` rule instead: it is shown whenever the caller's scope admits it, even after the item is deleted (an unrestricted caller always sees it; a scoped caller fails closed on a deleted adopter).
 - `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
 - Paging follows the envelope's list rules (amendment U22).
 

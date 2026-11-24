@@ -80,6 +80,29 @@
               "type": "object",
               "description": "JSON object; no traits key. [ops: create, update]"
             },
+            "links": {
+              "type": "array",
+              "description": "Sources this item derives from. [ops: create]",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "to": {
+                    "type": "string",
+                    "description": "item:<id>#<note key>, or [kind:]slug[#heading]."
+                  },
+                  "relation": {
+                    "type": "string",
+                    "description": "derived_from (default).",
+                    "enum": [
+                      "derived_from"
+                    ]
+                  }
+                },
+                "required": [
+                  "to"
+                ]
+              }
+            },
             "id": {
               "type": "string",
               "description": "Item UUID or 8+ hex prefix. [ops: update, delete]"

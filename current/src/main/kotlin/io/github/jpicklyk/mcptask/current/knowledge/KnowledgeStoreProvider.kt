@@ -15,6 +15,12 @@ interface NoteItems {
 
     /** The ids of the notes on [itemId], in the store's order. */
     suspend fun noteIdsOn(itemId: UUID): List<UUID>
+
+    /** The id of the note [key] on [itemId], or null when there is none. */
+    suspend fun noteIdOf(
+        itemId: UUID,
+        key: String
+    ): UUID?
 }
 
 /**
