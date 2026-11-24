@@ -153,7 +153,7 @@ Post-mortem of a run: members, blocked reasons, decisions, seats, attempts and c
 ## Known limits
 
 - **Token figures are estimates** (bytes divided by four), and `cost` on a rollup is a lower bound by construction.
-- **A run's cost is only what was stamped with the run.** Calls made without the run's seat or coordinator token do not
+- **A run's cost is only what was stamped with the run.** Calls made without the run's seat or orchestrator token do not
   count towards it.
 - **`waste` is a seven-day window** and its session signals are MCP-only.
 - **Reports are as-of-now for `type` and `trait`**, not as-of-rejection.
