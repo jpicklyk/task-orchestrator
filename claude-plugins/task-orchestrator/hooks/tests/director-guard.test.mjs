@@ -192,11 +192,11 @@ test('S6: bashAllowed unit', () => {
 });
 
 // S7
-test('S7: Agent run_in_background strictly boolean true', () => {
+test('S7: Agent run_in_background true (or the string a field-less host passes, see BG1); nothing else', () => {
   const fx = fixture();
   plant(fx, 's');
   assert.deepEqual(exec(fx, call('Agent', { run_in_background: true })), {});
-  for (const v of [undefined, false, 'true', 1]) {
+  for (const v of [undefined, false, 'false', 1]) {
     const input = v === undefined ? {} : { run_in_background: v };
     assert.ok(reasonOf(exec(fx, call('Agent', input))).startsWith(REASON_PREFIX), String(v));
   }
@@ -356,6 +356,24 @@ test('CM6: REPL before director entry, then director Skill, then Agent {} -> all
   assert.ok(existsSync(codeModePath(fx, 's')));
   assert.deepEqual(exec(fx, call('Skill', { skill: 'task-orchestrator:director' })), {});
   assert.deepEqual(exec(fx, call('Agent', {})), {});
+});
+
+// Item b79df6f5: the desktop app's Agent schema has no run_in_background, so the host passes the field the model
+// sends through as the string 'true'. Only exactly true or 'true' allows; any other value is still a foreground dispatch.
+test('BG1: director Agent with run_in_background "true" (string) is allowed; other values stay denied', () => {
+  assert.equal(guardDecision(call('Agent', { prompt: 'x', run_in_background: 'true' }), { director: true, codeMode: false }), null);
+  assert.equal(guardDecision(call('Agent', { prompt: 'x', run_in_background: true }), { director: true, codeMode: false }), null);
+  for (const v of ['false', 'TRUE', ' true', '1', 1, false, null, {}]) {
+    const r = guardDecision(call('Agent', { prompt: 'x', run_in_background: v }), { director: true, codeMode: false });
+    assert.ok(typeof r === 'string' && r.includes('a foreground dispatch'), `value ${JSON.stringify(v)}`);
+  }
+});
+
+test('BG2: subprocess, director marker, Agent with run_in_background "true" -> {}', () => {
+  const fx = fixture();
+  plant(fx, 's');
+  assert.deepEqual(exec(fx, call('Agent', { prompt: 'x', run_in_background: 'true' })), {});
+  assert.ok(reasonOf(exec(fx, call('Agent', { prompt: 'x', run_in_background: 'false' }))).startsWith(REASON_PREFIX));
 });
 
 test('CM7: the code-mode marker does not loosen Read or Bash cat', () => {
