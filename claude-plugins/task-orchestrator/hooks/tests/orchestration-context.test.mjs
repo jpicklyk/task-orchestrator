@@ -399,6 +399,15 @@ test('CM1: with the variable at 1 each variant carries the section once and name
   }
 });
 
+test('CM1b: the section is conditional on a REPL tool and says what to do without one', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const section = cmText(cfg, CM_ENV).split(CM_HEADING)[1];
+    assert.ok(!section.includes('This session runs in Code Mode'), name);
+    assert.ok(section.includes('With a `REPL` tool'), name);
+    assert.ok(section.includes('Without one, call tools directly'), name);
+  }
+});
+
 test('CM2: unset or any other value leaves the output byte-equal to the plain output', () => {
   for (const [name, cfg] of VARIANTS) {
     const plain = cmText(cfg, {});

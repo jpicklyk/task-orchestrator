@@ -11,7 +11,8 @@
 // Mode `workflow` (default, also for absent/invalid) or `schema` selects the variant.
 // When CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is exactly '1' a short `## Code Mode` section is appended
 // after the variant: a routing hint to the run-wave Code Mode recipes, never a gate (the per-session
-// code-mode marker cannot exist at SessionStart, so the variable is the only signal there).
+// code-mode marker cannot exist at SessionStart, so the variable is the only signal there). The hint is
+// conditional on a `REPL` tool, since a host can set the variable and still list the tools directly.
 // Fail-open: any throw yields `{}` and exit 0.
 
 import { suppressionReason } from './execution-mode.mjs';
@@ -145,7 +146,7 @@ ${VISUAL}`;
 
 const CODE_MODE_SECTION = `## Code Mode
 
-This session runs in Code Mode: every tool is a global inside a \`REPL\` script. Run each run-wave orchestrator step through its recipe in the \`task-orchestrator:run-wave\` skill's \`references/code-mode.md\`, and take Task Orchestrator call shapes from \`skills/_generated/call-shapes-js.md\`. Keep seat prompts, tokens and note bodies inside the script and return only a projection.`;
+With a \`REPL\` tool, every tool is a global inside a \`REPL\` script: run each run-wave orchestrator step through its recipe in the \`task-orchestrator:run-wave\` skill's \`references/code-mode.md\`, and take Task Orchestrator call shapes from \`skills/_generated/call-shapes-js.md\`. Keep seat prompts, tokens and note bodies inside the script and return only a projection. Without one, call tools directly and skip this section.`;
 
 function buildOrchestrationContext(mode) {
   if (mode === 'schema') return SCHEMA_CONTEXT;
