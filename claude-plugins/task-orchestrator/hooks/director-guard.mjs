@@ -21,7 +21,7 @@
 //    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
-//    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true` or the session is in
+//    (so no patch, diff or file output), and Agent is denied unless `run_in_background` is `true` (or the string `'true'`, as a host whose Agent schema lacks the field passes it) or the session is in
 //    Code Mode (job 3: Code Mode's Agent has no such field and always launches in the background). SendMessage and ListAgents are never denied, a call carrying
 //    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
 //
@@ -277,7 +277,9 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
-    if (toolInputOf(input).run_in_background === true) return null;
+    // A host whose Agent schema has no such field (the desktop app's async-only Agent) passes it through as the string 'true'.
+    const bg = toolInputOf(input).run_in_background;
+    if (bg === true || bg === 'true') return null;
     const inCodeMode =
       typeof codeMode === 'boolean' ? codeMode : typeof codeMode === 'function' ? codeMode(input) === true : isCodeModeSession(input);
     if (inCodeMode) return null;
