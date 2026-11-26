@@ -45,8 +45,7 @@ set cross-session inbound messages to accept in the desktop settings, and check 
 five minutes, so an orchestrator's report can be lost.
 
 **Your address.** Before `start_session`, call `ListAgents`: its first line names this session
-(`This session is <name> [<ref>]`, as the desktop app showed it on 2026-11-26; when that line is
-missing, ask the user for the session name). Put that name in the brief's `<director address>`. A tier-1
+(`This session is <name> [<ref>]`; when that line is missing, ask the user for the session name). Put that name in the brief's `<director address>`. A tier-1
 orchestrator is a separate session: it has no `"main"` to report to, and without your address its
 reports reach no one, so you see only the app's short turn notes. The `planned` report then carries
 the run id you read the run by.
@@ -168,7 +167,7 @@ decision only from a manual refresh.
 
 ### Orchestrator brief
 
-The `prompt` of `start_session` or the background `Agent`, verbatim at tiers 1, 2 and 4 (tier 2b has its own brief above). At tier 3 the
+The `prompt` of `start_session` or the background `Agent`, verbatim at tiers 2 and 4; tier 1 uses the copy in the director skill, which carries the same rules without the budget and provenance lines (tier 2b has its own brief above). At tier 3 the
 brief goes to the background agent that starts the process, not to the process: the process prompt
 carries only the plan's args.
 

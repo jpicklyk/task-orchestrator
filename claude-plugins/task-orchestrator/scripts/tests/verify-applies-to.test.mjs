@@ -70,7 +70,7 @@ test('validate: the repo run-profile.json passes validateSnapshot in full and sc
   // Item d98e684b. The seat checks compile only, so they run for build inputs alone: a docs-only change needs no compile.
   // The orchestrator's suite also reads current/docs (DistributionManifestConsistencyTest, ApiReferenceFreshnessTest),
   // so wave-build keeps current/**. Every entry also covers the root Gradle build files and the ktlint config.
-  const ROOT_BUILD = ['build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradle/**', '.editorconfig']
+  const ROOT_BUILD = ['build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradle/**', '.editorconfig', 'version.properties']
   for (const n of ['compile-self-check', 'owned-tests']) assert.deepEqual(byName[n].appliesTo, ['current/src/**', 'current/build.gradle.kts', ...ROOT_BUILD])
   assert.deepEqual(byName['wave-build'].appliesTo, ['current/**', ...ROOT_BUILD])
   for (const n of ['plugin-node-tests', 'plugin-node-owned-tests']) assert.deepEqual(byName[n].appliesTo, ['claude-plugins/**'])

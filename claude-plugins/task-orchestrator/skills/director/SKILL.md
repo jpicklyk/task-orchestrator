@@ -255,11 +255,11 @@ At tier 4, warn the user once: the altitude holds only while each delegated agen
 summary, not raw file content, so ask each agent for a short summary.
 
 How to launch an orchestrator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
-Tier 1 `start_session` prompt: `Run /task-orchestrator:run-wave <scope> --altitude-safe. Report to
-<address> with SendMessage, only the report helper's output (planned, decision, paused, closed), never
-"main". Never send note bodies, diffs or tokens; put any need on the report's needs: line.`
-`<address>` is this session's name from `ListAgents` (`This session is <name> [<ref>]`, seen
-2026-11-26); if it is absent, ask the user.
+Tier 1 `start_session` brief: `Run /task-orchestrator:run-wave <scope> --altitude-safe. Report to
+<address> with SendMessage, only the report helper's output, never
+"main". Send no note bodies, diffs or tokens. Never ask the user: put any need on the needs: line.
+Stop on a director close and report closed.` `<address>`: this session's name, the first `ListAgents`
+line (`This session is <name> [<ref>]`); if absent, ask the user.
 `scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; an
 orchestrator or background agent runs it, not you. A run of one or two items needs no
 separate orchestrator: dispatch one background agent.
