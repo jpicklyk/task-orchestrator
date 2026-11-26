@@ -58,7 +58,6 @@ work_item_schemas:
     seats:
       - { name: planner,      phase: queue }
       - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes, zero-warnings] }
-      - { name: orchestrator, phase: work, after: [implementer] }
       - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture], rules: [review-scoping, review-cited-claims, zero-warnings] }
     notes:
       - key: task-scope
@@ -83,7 +82,6 @@ work_item_schemas:
     seats:
       - { name: planner,      phase: queue }
       - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes, zero-warnings] }
-      - { name: orchestrator, phase: work, after: [implementer] }
       - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture], rules: [review-scoping, review-cited-claims, zero-warnings] }
     notes:
       - key: diagnosis
@@ -218,7 +216,6 @@ traits:
         agent: task-orchestrator:implementer
         seats:
           test-author:  { agent: null }   # blind test author: not the implementer agent
-          orchestrator: { agent: null }   # the main session, never dispatched
       review:
         agent: task-orchestrator:reviewer
 

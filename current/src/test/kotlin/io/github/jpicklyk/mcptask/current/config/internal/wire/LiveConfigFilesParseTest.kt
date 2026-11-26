@@ -60,14 +60,14 @@ class LiveConfigFilesParseTest {
     }
 
     @Test
-    fun `S4 live dogfood config parses STRICT with zero errors and warnings, and only the orchestrator seat advisories`() {
+    fun `S4 live dogfood config parses STRICT with zero errors and warnings`() {
         val live = readUtf8(repoRoot().resolve(".taskorchestrator/config.yaml"))
 
         val parsed = parseStrict(live, "live dogfood config")
 
         assertEquals(emptyList<Any>(), parsed.document.errors, "live dogfood STRICT errors")
-        assertOnlyOrchestratorSeatAdvisories(parsed.document.warnings, "live dogfood STRICT warnings")
-        assertOnlyOrchestratorSeatAdvisories(parsed.document.warningViolations, "live dogfood STRICT warning violations")
+        assertEquals(emptyList<Any>(), parsed.document.warnings, "live dogfood STRICT warnings")
+        assertEquals(emptyList<Any>(), parsed.document.warningViolations, "live dogfood STRICT warning violations")
         assertTrue(parsed.document.workItemSchemas.isNotEmpty(), "live dogfood config must declare schemas")
     }
 
@@ -78,8 +78,8 @@ class LiveConfigFilesParseTest {
         val parsed = parseStrict(live, "CRLF live dogfood config")
 
         assertEquals(emptyList<Any>(), parsed.document.errors, "CRLF dogfood STRICT errors")
-        assertOnlyOrchestratorSeatAdvisories(parsed.document.warnings, "CRLF dogfood STRICT warnings")
-        assertOnlyOrchestratorSeatAdvisories(parsed.document.warningViolations, "CRLF dogfood STRICT warning violations")
+        assertEquals(emptyList<Any>(), parsed.document.warnings, "CRLF dogfood STRICT warnings")
+        assertEquals(emptyList<Any>(), parsed.document.warningViolations, "CRLF dogfood STRICT warning violations")
     }
 
     @Test
@@ -153,7 +153,7 @@ class LiveConfigFilesParseTest {
         val result = floorValidator().validate(live, YamlConfigDocumentParser, ConfigScope.ROOT)
 
         assertEquals(emptyList<Any>(), result.errors, "live dogfood ROOT validation errors")
-        assertOnlyOrchestratorSeatAdvisories(result.warnings, "live dogfood ROOT validation warnings")
+        assertEquals(emptyList<Any>(), result.warnings, "live dogfood ROOT validation warnings")
         assertTrue(result.isValid)
     }
 
@@ -344,8 +344,8 @@ class LiveConfigFilesParseTest {
     private fun readUtf8(path: Path): String = String(Files.readAllBytes(path), Charsets.UTF_8)
 
     /**
-     * The live dogfood config and its 4.0 fixture still declare two `orchestrator` seats each (the reserved note owner,
-     * advisory only this release); sibling item ba4e20f6 drops them and restores the zero expectation.
+     * The 4.0 dogfood fixture is a frozen copy that still declares two `orchestrator` seats (the reserved note owner,
+     * advisory only this release); the live dogfood config no longer does and expects zero.
      */
     private fun assertOnlyOrchestratorSeatAdvisories(
         found: List<Any>,
