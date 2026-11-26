@@ -26,7 +26,8 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a work file. `Read` may open a skill's files (its `SKILL.md`, references and
-  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  scripts, this skill's included) and any file inside an installed plugin (not a plugin's source in the repository
+  you work in: that is work content). `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
@@ -38,7 +39,7 @@ Calling the skill again refreshes the marker and the dashboard.
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
   `$`), no braces, globs or backslashes, and nothing chained after a command outside that list. A
-  segment may also be `node <script>` for a script inside an installed plugin, by its absolute path written
+  segment may also be `node <script>` for a script inside an installed plugin (the same rule as `Read`), by its absolute path written
   with `/` (a path with a space does not run): those scripts give you deterministic routing and decisions,
   such as `scripts/coordinator-tiers.mjs`. The guard does not check what a script does, and some write files
   or drive work: run one only to route or decide, never a generator (`gen-*`), `ralph-loop` or a `--out` write.
