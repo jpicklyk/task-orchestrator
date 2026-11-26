@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Director Guard Hook - PreToolUse, three registrations. Group 1: the exact tool names Skill, Read, Edit, Write, Bash,
-// PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool and
-// ReadMcpResourceDirTool and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
+// PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool,
+// ReadMcpResourceDirTool, Artifact, ArtifactData, ArtifactComments, TaskOutput, LSP and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
 // tools and the write tools advance, items_write, notes_write, deps_write, docs_write and runs_write. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
 // Two jobs:
 //
@@ -22,8 +22,8 @@
 //    `guidance` (the forms that return no body text) or `describe: true`,
 //    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
 //    `altitudeSafe: true` and no `scriptPath` or `resumeFromRunId`, config is denied, runs_read is
-//    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch and the MCP resource readers
-//    are denied, Skill is always allowed (it loads instructions only; each tool a skill calls is checked on its own
+//    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch, the MCP resource readers,
+//    Artifact, ArtifactData, ArtifactComments, TaskOutput and LSP are denied, Skill is always allowed (it loads instructions only; each tool a skill calls is checked on its own
 //    call), every host MCP tool (a name
 //    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
@@ -80,8 +80,12 @@ export const GH_PR_JSON_FIELDS = Object.freeze([
 ]);
 
 const NEVER_DENIED = new Set(['SendMessage', 'ListAgents']);
-/** Tools that fetch a page or an MCP resource and return its content; always denied. */
-const CONTENT_TOOLS = new Set(['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool']);
+/** Tools that fetch or publish page, file, task-output or language-server content; always denied. */
+export const CONTENT_TOOLS = Object.freeze([
+  'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool',
+  'Artifact', 'ArtifactData', 'ArtifactComments', 'TaskOutput', 'LSP',
+]);
+const CONTENT_TOOL_SET = new Set(CONTENT_TOOLS);
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']);
 
 /** Tools that run a shell command and return its output. Bash keeps the bashAllowed allow-list; the rest deny. */
@@ -361,7 +365,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   if (!inDirector) return null;
   // Skill only loads instructions; every tool a skill then calls is checked here on its own call.
   if (tool === 'Skill') return null;
-  if (CONTENT_TOOLS.has(tool)) return denyReason(tool, 'a fetch or resource read that returns page or file content');
+  if (CONTENT_TOOL_SET.has(tool)) return denyReason(tool, 'a tool that returns or publishes page, file, task-output or language-server content');
   if (tool === 'Read') {
     const fp = toolInputOf(input).file_path;
     if (isSkillFile(fp) || isPluginFile(fp)) return null;
