@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools.ADVANCE_TOOL
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -148,7 +150,7 @@ class AdvanceToolTest {
 
     @Test
     fun `parity - every advance scenario of the production catalog agrees across MCP and REST`() {
-        val harness = ParityHarness(ToolRegistry(listOf(advanceTool())))
+        val harness = ParityHarness(ToolRegistry(listOf(LifecycleTools.advance())))
         val scenarios = ProductionParity.scenarios.filter { it.tool == ADVANCE_TOOL }
         assertEquals(
             setOf("transition", "claim", "release", "heartbeat"),
@@ -168,7 +170,7 @@ class AdvanceToolTest {
 
     @Test
     fun `registry - advance is registered with exactly the four ops all gated by the advance capability`() {
-        val spec = advanceTool()
+        val spec = LifecycleTools.advance()
         assertEquals("advance", ADVANCE_TOOL)
         assertEquals(ADVANCE_TOOL, spec.name)
         assertEquals(listOf("transition", "claim", "release", "heartbeat"), spec.ops.map { it.name })
@@ -668,7 +670,7 @@ work_item_schemas:
                 addItem(plain, "Transition without actor")
             }
         ).use { twin ->
-            val registry = ToolRegistry(listOf(advanceTool()))
+            val registry = ToolRegistry(listOf(LifecycleTools.advance()))
 
             fun mcp(
                 args: String,
@@ -912,7 +914,7 @@ work_item_schemas:
                 val rig = EventLogRig.build(db, dir)
                 var status = 0
                 testApplication {
-                    application { installParityRestApp(rig, parityAuthConfig(admin), ToolRegistry(listOf(advanceTool()))) }
+                    application { installParityRestApp(rig, parityAuthConfig(admin), ToolRegistry(listOf(LifecycleTools.advance()))) }
                     val response =
                         client.post("/api/v1/items/${uid(190)}/advance") {
                             header(HttpHeaders.Authorization, "Bearer ${admin.raw}")

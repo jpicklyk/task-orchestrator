@@ -3,10 +3,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsRaiseRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionRaiseCommand
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
-import io.github.jpicklyk.mcptask.current.application.service.BlockInput
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceSupport
+import io.github.jpicklyk.mcptask.current.lifecycle.BlockInput
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -17,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
 import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds

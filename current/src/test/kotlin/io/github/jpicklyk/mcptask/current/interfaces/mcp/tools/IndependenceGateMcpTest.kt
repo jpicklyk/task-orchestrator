@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.lifecycle.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.item.Role

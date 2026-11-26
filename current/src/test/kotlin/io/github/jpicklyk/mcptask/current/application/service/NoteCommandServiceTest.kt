@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
@@ -23,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord

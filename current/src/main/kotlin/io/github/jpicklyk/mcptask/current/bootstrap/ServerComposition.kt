@@ -3,10 +3,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.report.ReportRunRollupSnapshot
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
@@ -32,6 +29,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Sqlit
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.lifecycle.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventSink

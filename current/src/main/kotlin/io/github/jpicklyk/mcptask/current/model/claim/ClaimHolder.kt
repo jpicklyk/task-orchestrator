@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.model.claim
 
-import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import java.util.UUID
 

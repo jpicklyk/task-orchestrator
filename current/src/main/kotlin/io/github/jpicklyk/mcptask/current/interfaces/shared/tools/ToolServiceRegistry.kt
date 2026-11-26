@@ -8,13 +8,13 @@ import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
 import io.github.jpicklyk.mcptask.current.config.StatusGraphSource
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.wire.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import kotlin.reflect.KClass
 

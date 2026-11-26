@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.dependency.internal.app
 
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.Ids
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.blocks
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.isBlockedBy
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.relates
+import io.github.jpicklyk.mcptask.current.dependency.Ids
+import io.github.jpicklyk.mcptask.current.dependency.blocks
+import io.github.jpicklyk.mcptask.current.dependency.isBlockedBy
+import io.github.jpicklyk.mcptask.current.dependency.relates
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.util.UUID

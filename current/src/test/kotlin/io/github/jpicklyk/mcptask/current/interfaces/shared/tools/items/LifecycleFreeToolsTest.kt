@@ -13,10 +13,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.AdvanceTwin
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.wire.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome

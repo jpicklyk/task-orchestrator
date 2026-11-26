@@ -27,7 +27,7 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  * unowned keys). Outside an open run seats stay an orchestration signal.
  *
  * Seat names are opaque to the server except these reserved names:
- * - `unowned`: the bucket (see [io.github.jpicklyk.mcptask.current.application.service.UNOWNED_SEAT_BUCKET]), which a
+ * - `unowned`: the bucket (see [io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.UNOWNED_SEAT_BUCKET]), which a
  *   seat may never be named (a load-time structural error).
  * - `director`: refused the same way (a load-time structural error), since the director never fills a seat or writes
  *   notes.

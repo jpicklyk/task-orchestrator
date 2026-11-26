@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.config.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.service.buildFullSchemaEntriesJson
 import io.github.jpicklyk.mcptask.current.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.config.ConfigPushResult
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.config.GlobalConfigSource
 import io.github.jpicklyk.mcptask.current.config.ParseMode
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.buildFullSchemaEntriesJson
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

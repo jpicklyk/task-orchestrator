@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.item.Role

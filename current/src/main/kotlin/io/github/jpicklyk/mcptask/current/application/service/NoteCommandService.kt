@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
@@ -23,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteOwnershipTransferredEvent

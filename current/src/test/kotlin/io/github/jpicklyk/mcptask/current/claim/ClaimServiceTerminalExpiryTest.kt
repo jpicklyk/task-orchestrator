@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.claim
 
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.claim.internal.wire.ExpirySweeper
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.item.Role

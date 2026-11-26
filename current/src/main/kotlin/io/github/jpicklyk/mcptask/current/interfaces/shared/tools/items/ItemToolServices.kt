@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.ItemStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.PinViews
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
 /**

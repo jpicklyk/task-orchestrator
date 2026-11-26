@@ -1,16 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.claim.ok
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Opened
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
@@ -1174,7 +1176,7 @@ class CascadeSeatBlockedRestTest {
                 openedByKind = "service",
                 coordinatorToken = null
             )
-            application { installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool()))) }
+            application { installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(LifecycleTools.advance()))) }
 
             val response =
                 client.post("/api/v1/ops/advance") {

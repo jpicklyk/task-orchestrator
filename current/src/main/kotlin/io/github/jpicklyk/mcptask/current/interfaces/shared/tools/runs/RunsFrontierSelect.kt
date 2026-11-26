@@ -4,11 +4,11 @@ import io.github.jpicklyk.mcptask.current.application.api.runs.RunsFrontierReque
 import io.github.jpicklyk.mcptask.current.application.read.FrontierWaitReason
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontier
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontierQueries
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director

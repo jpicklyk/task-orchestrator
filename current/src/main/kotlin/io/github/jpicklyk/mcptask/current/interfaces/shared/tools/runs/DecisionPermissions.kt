@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionCaller
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.DecisionRefs
+import io.github.jpicklyk.mcptask.current.lifecycle.DecisionRefs
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext

@@ -3,8 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.TopoOrder
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.dependency.TopoOrder
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.MarkdownSectionSplitter
@@ -29,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import java.util.UUID
 

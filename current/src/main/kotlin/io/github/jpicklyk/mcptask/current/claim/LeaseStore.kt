@@ -49,7 +49,7 @@ sealed class LeaseReleaseResult {
  *
  * This is the storage + concurrency primitive only — no gate enforcement and no MCP tool surface.
  * `acquireAll` / `releaseAllForItem` are wired into the work-phase-entry gate by
- * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] (acquire, release) and
+ * [io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService] (acquire, release) and
  * into item deletion by
  * [io.github.jpicklyk.mcptask.current.application.service.ItemCommandService].
  *

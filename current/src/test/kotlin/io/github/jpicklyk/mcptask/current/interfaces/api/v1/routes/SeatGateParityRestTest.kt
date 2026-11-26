@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
@@ -114,7 +114,9 @@ work_item_schemas:
                     depth = 1
                 )
             )
-            application { installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool(), ItemsReadTool.spec))) }
+            application {
+                installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(LifecycleTools.advance(), ItemsReadTool.spec)))
+            }
 
             val context =
                 rig

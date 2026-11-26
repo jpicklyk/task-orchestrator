@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
-import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
-import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.ItemSchemaView
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig

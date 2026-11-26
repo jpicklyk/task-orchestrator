@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.config.internal.app.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.config.internal.app.LayeredConfig
 import io.github.jpicklyk.mcptask.current.config.internal.app.PinnedBase
 import io.github.jpicklyk.mcptask.current.config.internal.app.TraitResolver
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement

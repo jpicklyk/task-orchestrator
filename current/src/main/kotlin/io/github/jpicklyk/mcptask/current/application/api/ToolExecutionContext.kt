@@ -4,14 +4,11 @@ import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
-import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.config.ConfigService
@@ -25,6 +22,9 @@ import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.RelatedService
 import io.github.jpicklyk.mcptask.current.knowledge.SearchService
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.lifecycle.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource
@@ -223,7 +223,7 @@ class ToolExecutionContext(
 
     /**
      * The shared [AdvanceServiceFactory] for this context, backing every `advance` `transition` /
-     * `items_write` `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
+     * `items_write` `complete_tree` construction of [io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService].
      */
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 }

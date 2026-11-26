@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.read.OverviewEntry
-import io.github.jpicklyk.mcptask.current.application.read.OverviewRequest
-import io.github.jpicklyk.mcptask.current.application.read.OverviewView
 import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.lifecycle.OverviewEntry
+import io.github.jpicklyk.mcptask.current.lifecycle.OverviewRequest
+import io.github.jpicklyk.mcptask.current.lifecycle.OverviewView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.config.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.config.ConfigLayer
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.config.internal.wire.ConfigJsonSchema
 import io.github.jpicklyk.mcptask.current.config.internal.wire.ConfigKeyCatalog
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
