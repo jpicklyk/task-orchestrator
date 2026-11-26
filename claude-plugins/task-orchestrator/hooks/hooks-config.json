@@ -101,7 +101,7 @@
         ]
       },
       {
-        "matcher": "Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL",
+        "matcher": "Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|Artifact|ArtifactData|ArtifactComments|TaskOutput|LSP|REPL",
         "hooks": [
           {
             "type": "command",
