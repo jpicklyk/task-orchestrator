@@ -93,7 +93,7 @@ In code: the work-summary and director skills render it today. Its reads are `ru
 
 ### Director mode
 
-The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying reads that return body text, edits and every Task Orchestrator write except decision ops and run control, and allowing any skill, skill and plugin files, a plugin's scripts (which it does not inspect, so the director runs one only to route or decide) and background dispatch. The director offloads research to background agents and answers from their concise result.
+The session mode in which the user's session plays the director, entered with the director skill. Today it uses two connections: the orchestration connection, with the orchestrator's tools, for board reads and delegation, and the director profile for the decision ops, `pause`, `resume` and `reissue`, which are served there only. The destination is [0003](design/decisions/0003-role-neutral-decisions-surface.md): decision ops on every profile that needs them, answer authority from the decision's class plus a credential's `decide` capability, and one connection. The `director-guard` hook alone enforces altitude, denying reads that return body text, edits and every Task Orchestrator write except decision ops and run control, and allowing any skill, skill and plugin files, a plugin's scripts (which it does not inspect, so the director runs one only to route or decide) and background dispatch. The director offloads research to background agents and answers from their concise result.
 
 Distinct from: director profile, which is a server endpoint. The bare word "director" names the layer, this mode and the profile, so where the context does not settle it, say which.
 Example: a background agent dispatched by a director session is not in director mode.
@@ -101,7 +101,7 @@ In code: today the hardened director agent and the director profile also apply t
 
 ### Director profile
 
-The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director, and it is not where decision authority lives. It stays served, for other platforms and deployments, but director mode no longer depends on it.
+The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director. Today the server checks it as a stand-in for decision authority (`RunPermissions.kt:43`); in the destination authority lives in the decision's class and the credential, not the profile. It stays served, for other platforms and deployments. Today director mode still holds it for the decision ops, `pause`, `resume` and `reissue`, which are served only here; once [0003](design/decisions/0003-role-neutral-decisions-surface.md) puts decision ops on every profile that needs them, with authority from the decision's class plus a credential's `decide` capability, director mode no longer depends on it.
 
 Distinct from: director mode, which is a session state, and the director layer.
 In code: `ToolProfile.DIRECTOR`.

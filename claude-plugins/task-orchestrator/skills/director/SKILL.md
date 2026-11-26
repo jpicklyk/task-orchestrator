@@ -29,7 +29,7 @@ Calling the skill again refreshes the marker and the dashboard.
   scripts, this skill's included) and any file inside an installed plugin (not a plugin's source in the repository
   you work in: that is work content). `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
-- Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
+- Never read a note body, a diff or test output, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
   agent reads the notes and returns ids, a verdict and one line.
 - One board read per wake; act on its ids and do not re-read.

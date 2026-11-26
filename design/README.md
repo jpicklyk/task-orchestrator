@@ -15,7 +15,15 @@ These documents record design intent and the evidence behind it, and [decisions/
 | [acceptance-gate-states.md](acceptance-gate-states.md) | The acceptance gate as state machines (item phases, the decision, how they interact), with the answers to ADR 0012's open questions and the new questions the diagrams raised; ruled in decision 0012 | - |
 | [journey-sequences.md](journey-sequences.md) | Sequence diagrams for four journeys (plan acceptance without plan mode, light touch, knowledge base, build to learn), one lane per layer, with ownership gaps and ADR conflicts | - |
 | [architecture-breakdown.md](architecture-breakdown.md) | The work packages that carry the settled design, their layers, dependencies and order, and the decisions they still need | - |
-| [decisions/](decisions/README.md) | Decision records: one dated, never-edited record per architectural decision, superseded rather than changed | - |
+| [target-architecture.md](target-architecture.md) | The one picture every change is judged against: zones, host channels, actors and the responsibility matrix | - |
+| [seams.md](seams.md) | The seam catalogue: each seam's contract, writer, reader, default, enforcement and status, kept current as seams land | - |
+| [system-context.md](system-context.md) | The context map, today and target, with the edge legend (served fact, declared list, override, conformist) | - |
+| [seat-model.md](seat-model.md) | What a seat is, seat capability and protocol choice, orchestrator notes and the orchestrator binding, test-first and fix seats | - |
+| [config-layering.md](config-layering.md) | Server config and project config, traits, the defaults tables, the client file seams and the delivery paths | - |
+| [run-execution.md](run-execution.md) | A run from front door to retrospective: plan, stages, verify, review hand-off, post-run, hold, rule outputs and label classes | - |
+| [enforcement-map.md](enforcement-map.md) | Every check and where it sits (server gates, hooks, scripts, prose to cut), including known bypasses and the seat-less run scope | - |
+| [journey-overlay.md](journey-overlay.md) | The user journeys walked over the target architecture as evidence, with the gap and leak list as a burn-down re-run after each package lands | - |
+| [decisions/](decisions/README.md) | Decision records: one dated record per architectural decision, edited in place until a release ships it and superseded by a later record after that | - |
 
 Open an HTML file directly in a browser, or use the published view. The published views are private to their owner.
 
@@ -45,5 +53,7 @@ Each settled choice has a decision record; the [index](decisions/README.md) list
 - [0004](decisions/0004-next-means-startable.md) `next` returns an item a build seat can start now; further changes are held.
 
 - [0012](decisions/0012-acceptance-gate-note-form.md) The acceptance gate is a note satisfied by an answered decision.
+- [0015](decisions/0015-note-purpose.md), [0016](decisions/0016-seat-capability-and-orchestrator-notes.md), [0017](decisions/0017-orchestrator-binding.md), [0018](decisions/0018-content-placement.md) From the 2026-11-26 boundary analysis: note purpose; seat capability and orchestrator notes; the orchestrator binding; content placement and the two rule classes.
+- [0019](decisions/0019-learn-reads-upstream-sources.md) Learn reads Task Orchestrator's documents from GitHub at the installed version, plus the user's served schema and config; nothing is bundled.
 
 The [architecture breakdown](architecture-breakdown.md) turns these into work packages.

@@ -1,7 +1,7 @@
 // Tests for item 6a0823e9: Artifact, ArtifactData, ArtifactComments, TaskOutput and LSP are content tools
 // and must be denied under the director marker (scenarios S1-S7 and probes).
 // BLIND author: written from the frozen test-plan note, the supplied declarations and the existing director-guard
-// tests. Oracles: O1 CLAUDE.md altitude rule (the director never opens a file or reads test output), O2 the
+// tests. Oracles: O1 the director skill's altitude rule (the director never opens a file or reads test output), O2 the
 // diagnosis decisions D1-D3 (D1 group-1 matcher, D2 whole-tool deny of the nine content tools), O3 the guard
 // contract (subagents exempt, headless never guarded, fail closed under the marker), O4 Claude Code matcher
 // semantics (a matcher of letters and | is an exact-name list).

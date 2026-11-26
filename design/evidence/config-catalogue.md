@@ -81,7 +81,7 @@ SCHEMA:114-125. A trait is a named bundle; applied per item via the item's `trai
 - Server behaviour (fleet-deployment.md:1407-1447): attempt over cap -> `assign` refused `run_paused`, run pauses, high-severity `attempt-cap` decision (answers `allow_one`, `skip_item`, `stop`); `max_active_seats` over -> `409 run_at_capacity`, no decision. `usage.observedTokens` is an estimate that enforces nothing.
 - Readers: server only. Plugin run-planner reads a separate opt-in `runBudget` in `run-profile.json` (12).
 
-## 9. `decision_classes` SCHEMA:86-103; CR:193-233; KT/application/decision/DecisionClasses.kt
+## 9. `decision_classes` SCHEMA:86-103; CR:193-233; KT/run/internal/app/DecisionClasses.kt
 - Name `^[a-z][a-z0-9_-]{0,63}$`. Keys: `answerers` (`human-only` | `director-or-human` | `any-actor`; a non-built-in defaults to director-or-human), `severity` (high|normal|low; default normal), `expires_after` (int seconds >=1; absent = never overdue), `on_expiry` (`escalate` only), `freeform` (bool; free-text answer).
 - Built-ins: `run-budget` (director-or-human, high, never; legacy, not raised any more), `attempt-cap` (same; server-raised), `deviation` (director-or-human, normal, 14400s), `question` (any-actor, low, freeform). A built-in entry overrides field by field. `run-budget`/`attempt-cap` answerers can be raised to `human-only`, never lowered to `any-actor` (rejected at `/decision_classes/<name>/answerers`).
 - Expresses: who may answer a class of decision raised by a seat or orchestrator (`runs_write raise` with `class`, 1-8 options, `dedupeKey`, `block`); overdue reading one step more urgent after `expires_after`. `on_expiry: escalate` changes only the reported severity.
@@ -98,7 +98,7 @@ SCHEMA:114-125. A trait is a named bundle; applied per item via the item's `trai
 ## 11. Seat skill defaults (`PLUG/hooks/lib/seat-skill-defaults.json`) and skill binding
 - Data: planner [task-orchestrator:planning-standards, task-orchestrator:designing-modules]; implementer [task-orchestrator:implementation-standards]; reviewer [task-orchestrator:review-method]; test-author [task-orchestrator:test-authoring]. Applies to a seat only when it declares no `skills`; a declared list (even `[]`) replaces, never merges. Declared lists honoured only if the server advertises `seatSkills`; otherwise defaults are hint-only (CF:527-535; hooks/lib/seat-skills.mjs).
 - Enforcement (plugin, subagents only): `seat-skill-hint.mjs` writes a required record and hints once per agent; `skill-record.mjs` records loaded skills; `seat-skill-gate.mjs` denies edit calls (and role-matching `notes_write` upserts) of a subagent until the seat's skills are loaded; `skill-enforcement.mjs` denies a note upsert until its note `skill` is loaded; no release (an uninstalled skill ends in a report). Denials need the item's schema view to list `seatSkills`.
-- A skill is bound by a seat's `skills:` or a note's `skill:`/`skill_mode`; no other channel (CLAUDE.md layer table).
+- A skill is bound by a seat's `skills:` or a note's `skill:`/`skill_mode`; no other channel (CLAUDE.md layer table, now [0018](../decisions/0018-content-placement.md)).
 
 ## 12. Run-profile, dispatch-policy, tier policy (plugin files, not server config)
 - `.taskorchestrator/run-profile.json` (this repo, 2013 bytes), read by `PLUG/scripts/run-planner.mjs` + `run-planner-lib.mjs` (snapshot `profile`), shape validated at `run-planner-lib.mjs:325-430`. Keys: `shell` (default bash), `verify[]` ({name, command, seats, appliesTo[], ownedTestsPattern}; `<worktree>`, `<ownedTests>`, `<scratchpad>` placeholders), `searchScope[]`, `worktreeRoot` (default `.claude/worktrees`), `branchPrefix` {shared default `feat/`, perItem default `fix/`}, `maxItems` (default 5), `appendOnlyFiles[]` (repo-relative patterns), `review` ("handoff"|"generic" or {mode, skill, step, onFail: stop|fix-cycle}), `postRun[]` ({step, when: post-run|post-merge, rule, command?, appliesTo?}; unique step names), `knownRed[]` ({test, reason, expires YYYY-MM-DD or tracking}; expired draw a warning), opt-in `runBudget` ({maxActiveSeats, ...}; tokens/costUsd ignored with warning), `defaultModels` ignored with warning.
@@ -139,7 +139,7 @@ SCHEMA:114-125. A trait is a named bundle; applied per item via the item's `trai
 - Config edits to the server file need a restart; per-root pushes hot-reload; in-flight items keep their pin until `repin` (CR:333-366).
 - `config-sync` needs the REST API URL and `project.rootId`; without either nothing is pushed (CF:12).
 - `extensions.*` is opaque to the server and parsed by a minimal YAML reader in the hooks; block form required (CF:765).
-- Two skill systems: a note's `skill:` / seat `skills:` is the only schema-level skill binding (CLAUDE.md layer table).
+- Two skill systems: a note's `skill:` / seat `skills:` is the only schema-level skill binding (CLAUDE.md layer table, now [0018](../decisions/0018-content-placement.md)).
 
 ## Things a journey might want that I could not find any config for (looked, confirmed absent)
 - Custom phase names or more than three work phases: SCHEMA `$defs.role` enum and `phase`/`role` fields; CF "Phase Flow".

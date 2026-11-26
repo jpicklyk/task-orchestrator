@@ -361,8 +361,10 @@ test('S14: HOST_SKILLS is the frozen, sorted host skill list', () => {
 
 // ---- S15 -----------------------------------------------------------------------------------
 
-test('S15: root CLAUDE.md names the guard test as an existing file and has no later-task wording', () => {
-  const text = readFileSync(join(REPO, 'CLAUDE.md'), 'utf8').split(CR).join('');
+// The guard rules moved from the root CLAUDE.md to the repo-architecture project skill, which the implementer and
+// reviewer seats bind; the pin moved with them.
+test('S15: the repo-architecture skill names the guard test as an existing file and has no later-task wording', () => {
+  const text = readFileSync(join(REPO, '.claude', 'skills', 'repo-architecture', 'SKILL.md'), 'utf8').split(CR).join('');
   assert.ok(!text.includes('later task'));
   const start = text.indexOf('## Rules a guard test enforces');
   assert.ok(start >= 0, 'section present');

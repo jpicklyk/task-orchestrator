@@ -6,7 +6,8 @@
 // D8 (audit-workflow.md Stage 2 step names ../../bundled-rules/manifest.json and ../../hooks/lib/seat-rules.json from the skill folder;
 // 'stale copy', 'project-authored', 'protocol rule', 'never an error'), R2 (the docs say what replacing a protocol rule's text costs: the
 // copy stops receiving plugin updates), R7 (the Rule row of the concept table reads "A short must-do for a seat's conduct"; the paragraph
-// after the table names the three classes of R1 once; the plugin CLAUDE.md takes the clause and says the root section states the classes).
+// after the table names the classes of R1 once; the plugin CLAUDE.md takes the clause and points at where the classes are stated:
+// record 0018, which took the table over from the root CLAUDE.md, and config-reference.md for today's three classes).
 // The documents are read at run time; this author did not open them. Needles are the literals the rulings give.
 // Forbidden-construct declaration: none.
 
@@ -52,24 +53,42 @@ test('S12 (R3): the audit reads the manifest itself: the manifest is a key-to-ha
 })
 
 // ---- R7 -------------------------------------------------------------------------------------------------------------
+// The concept table and the binding paragraph moved from the root CLAUDE.md to decision record 0018, which states the
+// target's two classes; the three classes the code applies today stay stated in config-reference.md "Seat rules".
 
-test("R7: the root CLAUDE.md Rule row reads 'A short must-do for a seat's conduct' and the paragraph after the concept table names protocol, plugin-chosen and default rules", () => {
-  const text = read(join(REPO, 'CLAUDE.md'))
+const RECORD = join(REPO, 'design', 'decisions', '0018-content-placement.md')
+const CONFIG_REFERENCE = join(REPO, 'current', 'docs', 'config-reference.md')
+
+test("R7: record 0018's concept table has the Rule row and its binding section names the protocol rule and seat default classes", () => {
+  const text = read(RECORD)
   const row = text.split('\n').find((l) => /^\|\s*Rule\s*\|/.test(l))
   assert.ok(row, 'the concept table has a Rule row')
   const cell = row.split('|')[2].trim()
-  assert.equal(cell, "A short must-do for a seat's conduct")
-  const afterTable = text.slice(text.indexOf(row))
-  const paragraph = afterTable.split('\n').slice(1).join('\n').split('\n\n').find((p, i) => i > 0 && /plugin-chosen/i.test(p))
-  assert.ok(paragraph, 'a paragraph after the table names the plugin-chosen class')
-  assert.match(paragraph, /protocol/i)
-  assert.match(paragraph, /default/i)
+  assert.equal(cell, "A short must-do for a seat's or the orchestrator's conduct")
+  const section = text.slice(text.indexOf(row))
+  assert.match(section, /\*\*Protocol rule:\*\*/)
+  assert.match(section, /\*\*Seat default:\*\*/)
+  assert.ok(section.includes('claude-plugins/task-orchestrator/hooks/lib/seat-rules.json'), 'names the one plugin table')
 })
 
-test("R7: claude-plugins/CLAUDE.md takes the clause and points at the root section for the three classes", () => {
+test('R7: config-reference.md "Seat rules" names the three classes of rule key the code applies today', () => {
+  const text = read(CONFIG_REFERENCE)
+  const start = text.indexOf('### Seat rules')
+  assert.ok(start >= 0, 'the Seat rules section is present')
+  const rest = text.slice(start + 4)
+  const section = rest.slice(0, rest.indexOf('\n### '))
+  assert.ok(section.includes('three classes of rule key'), 'names the three classes')
+  assert.match(section, /protocol rule/i)
+  assert.match(section, /the rules the plugin adds for the role/)
+  assert.match(section, /defaults/)
+})
+
+test("R7: claude-plugins/CLAUDE.md takes the clause and points at record 0018 and config-reference.md for the rule classes", () => {
   const text = read(join(REPO, 'claude-plugins', 'CLAUDE.md'))
   assert.ok(text.includes("short must-do for a seat's conduct"), 'the R7 clause')
-  assert.ok(text.includes('three classes'), 'says the root section states the three classes')
+  assert.ok(text.includes('design/decisions/0018-content-placement.md'), 'points at the record')
+  assert.ok(text.includes('three classes of rule key'), 'says config-reference.md states the three classes today')
+  assert.ok(text.includes('current/docs/config-reference.md'), 'points at config-reference.md')
   assert.equal(text.includes('binding protocol'), false, 'the old Rule wording is gone')
 })
 

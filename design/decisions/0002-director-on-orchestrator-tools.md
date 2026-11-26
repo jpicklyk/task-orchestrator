@@ -1,10 +1,14 @@
 # 0002 The director uses the orchestrator's tools; the guard hook enforces altitude
 
-**Status:** Accepted, amended by [0014](0014-director-reads-skills-runs-plugin-scripts.md) | **Date:** 2026-11-23, amended 2026-11-25 | **Source:** Entry Skills Design review (option C); [GLOSSARY.md](../../GLOSSARY.md) "Director mode", "Director profile"
+**Status:** Accepted, amended by [0014](0014-director-reads-skills-runs-plugin-scripts.md) | **Date:** 2026-11-23, amended 2026-11-25 and 2026-11-26 | **Source:** Entry Skills Design review (option C); [GLOSSARY.md](../../GLOSSARY.md) "Director mode", "Director profile"; Boundary analysis 2026-11-26, owner answers (plans/boundaries/README.md, not tracked), decisions 9 and 10
+
+**Amended 2026-11-26:** the record said director mode runs on the orchestrator's one connection, which is 0003's destination, not today's code. It now describes two connections as the interim state, names [0003](0003-role-neutral-decisions-surface.md) as the destination, and takes `runs_write open` off the director profile (decision 10). Why: the decision ops are served on the director profile only, and the record stated the target as current. The same amendment marks the hardened agent and the director profile as still the default entry in today's code.
 
 ## Decision
 
-Director mode runs on the same connection and tools as the orchestrator. The `director-guard` hook is the one place altitude is enforced: it denies body reads and every write that drives work, and allows read-only scripts and background dispatch. The director tool profile (`/mcp/director`) stays served, and the hardened director agent stays available, but neither is the default entry any more.
+Director mode runs on the orchestrator's tools. The `director-guard` hook is the one place altitude is enforced: it denies body reads and every write that drives work, and allows read-only scripts and background dispatch. The hardened director agent, whose tool list holds only the director profile's tools, and the director profile stay available as optional extra limits, and neither is the default entry (target). **Today** the code still treats them as the default entry: the director skill runs every dashboard call on the director profile and sends the user to the hardened entry when enforcement matters (`claude-plugins/task-orchestrator/skills/director/SKILL.md`, "Connection check" and "Dashboard"), and `claude-plugins/task-orchestrator/agents/director.md` is that entry for `claude --agent director`.
+
+**Connections.** Today director mode uses two connections: the orchestration connection for board reads and delegation, and the director profile (`/mcp/director`, or stdio with `MCP_TOOL_PROFILE=director`) for the decision reads and ops (`runs_read` `decision` and `decisions`, `runs_write` `answer` and `ack`) and for `pause`, `resume` and `reissue`, which are served there only (for example `RunsAnswerOp.kt:28`, `RunsResumeOp.kt:26` under `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/run/internal/wire/`). That is the interim state. The destination is [0003](0003-role-neutral-decisions-surface.md): `decisions_read` and `decisions_write` on every profile that needs them, with answer authority from the decision's class plus a credential's `decide` capability, so director mode then needs one connection. The profile is not the director's identity: today the server tests it (`RunPermissions.kt:45`) as a stand-in that 0003 replaces. `runs_write` `open` leaves the director profile (target; it is served there today, `RunsOpenOp.kt:38`).
 
 The guard draws three lines:
 
@@ -21,6 +25,8 @@ Director mode was hardened three ways: the director profile, the guard hook and 
 
 An earlier ruling (2026-11-15) kept the `/mcp/director` endpoint for flexibility, other platforms and large deployments. This decision narrows that ruling and does not reverse it.
 
+The 2026-11-26 amendment (edited in place: director mode has not shipped in a release): the record said director mode runs "on the same connection" as the orchestrator, but the decision ops and run control are served on the director profile only, so a director-mode session needs that second connection. One proposal was to record the serving profile as the director's identity; it was rejected, because 0003 already rules that who may answer comes from the decision's class and the caller's credential, never from the role or profile making the call. So the conflict is between this record and today's code, and 0003 settles which way it closes. `open` is denied by the guard already, and a session that opens a run is that run's orchestrator, so the director profile has no client that needs it.
+
 The 2026-11-25 amendment (edited in place, once, because director mode had not shipped in a public build): the guard still allowed only the director skill and the model-effort reference through `Skill`, which kept every entry skill unusable, and it did not check writes at all, so the glossary's "never drives work" had no enforcement. Opening `Skill` without denying writes would have let a loaded skill drive work; the write line is what makes an open `Skill` safe. The user journeys (`design/journey-sequences.md`), written after the guard, put note reads in the orchestrator's lane and the answer in the director's: in director mode the accept step's notes are read by a background orchestrator, and the director answers. A category ban on reads was also denying metadata reads (note and document lists) that return no body at all.
 
 ## Alternatives rejected
@@ -33,6 +39,7 @@ The 2026-11-25 amendment (edited in place, once, because director mode had not s
 ## Consequences
 
 - Altitude stays the rule; only the enforcement point moves to one hook.
+- Until 0003's decisions surface lands, director mode needs the director entry beside the orchestration entry; the plugin's `init` and `configure-server` skills render it (`claude-plugins/task-orchestrator/skills/init/SKILL.md:51-53`).
 - The director path is not a security boundary. Decision authority lives in a credential's capabilities and scope ([0003](0003-role-neutral-decisions-surface.md)).
 - Raisers do not fill `context` and `links` with evidence yet; until they do, a decision that needs evidence goes to a background agent that reads the notes and returns a fixed-shape summary.
 - Read-only scripts are allowed by this decision but the guard still runs only a fixed set of read-only shell commands; helper scripts stay denied until "read-only" is defined for them.
