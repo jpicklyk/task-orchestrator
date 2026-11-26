@@ -1060,7 +1060,12 @@ test('the title and status rows: the title with the bar; alerts first, then what
   const left = (board: Board) => statusRow(board, feature, null).left.map(c => c.text)
   // A quiet orchestrator with no seat in flight.
   expect(left(one({ ...RUN, members: [], inFlight: 0, stalled: 0 }))).toEqual(['Orchestrator not responding'])
-  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'run-budget', members: [] }))).toEqual(['Run paused: run budget'])
+  // The wire pause reasons read as plain labels; an unknown one keeps its words, none reads bare.
+  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'budget', members: [] }))).toEqual(['Run paused: run budget'])
+  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'attempts', members: [] }))).toEqual(['Run paused: attempt cap'])
+  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'manual', members: [] }))).toEqual(['Run paused: manual'])
+  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'some-new-reason', members: [] }))).toEqual(['Run paused: some new reason'])
+  expect(left(one({ ...RUN, status: 'paused', members: [] }))).toEqual(['Run paused'])
   // Every agent of a Workflow finished: the orchestrator's move.
   const finished: BoardRun = { ...RUN, workflowLaunched: true, inFlight: 0, stalled: 0, members: [{ id: 'x', status: 'finished' }] }
   expect(statusRow(one(finished), feature, null).left).toEqual([{ text: 'All agents finished · advance the items', tone: 'needsYouBold' }])
