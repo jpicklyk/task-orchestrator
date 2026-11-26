@@ -37,7 +37,7 @@ const ITEMS_READ_DIRECTOR = 'mcp__mcp-task-orchestrator-director__items_read';
 const PLUGIN_DOCS_READ = 'mcp__plugin_x_task-orchestrator__docs_read';
 const IMPLEMENT_WAVE = 'task-orchestrator:implement-wave';
 
-const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL';
+const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|Artifact|ArtifactData|ArtifactComments|TaskOutput|LSP|REPL';
 const GROUP2_TOOLS = ['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write'];
 const GROUP2_MATCHER = orchestratorToolMatcher(GROUP2_TOOLS);
 
