@@ -84,7 +84,8 @@ exception is an atomic batch (`atomic: true`): it answers only the failing eleme
 | `note_owned_by_other {ownerSeat}`, `seat_forbidden`, `not_claim_holder`, `decision_closed {decisionId, status}`, `forbidden` (`detail.required`), `not_found` (`detail.kind` `seat` or `decision`), `invalid_run_state`, `run_closed` | permanent: never retry unchanged; read `error.fix` |
 
 **Decisions.** A writing seat that needs a ruling raises `runs_write` `raise {class: "deviation",
-block: true, dedupeKey, question, options, recommended, itemId}` under its own token and stops with
+block: true, dedupeKey, question, options, recommended, context, links, itemId}` under its own token (the
+`context` and `links` carry the evidence, per the seat's protocol rule) and stops with
 `reason: "awaiting_decision"` and the `decisionId`. A raise with `block: true` blocks the item; an
 answer never resumes it, and a blocked item allows only `resume` and `cancel`. The orchestrator
 withdraws (`runs_write` `withdraw {decisionId}`, run token as `seatToken`) only decisions it or its seats

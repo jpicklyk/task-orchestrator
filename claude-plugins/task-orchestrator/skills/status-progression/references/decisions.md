@@ -21,8 +21,14 @@ Nobody withdraws a server-raised decision (`attempt-cap`, `run-budget`).
 Raise with `block: true` so the item blocks as `awaiting_decision` in the same unit. A bare
 `block` has no `decisionId` and nothing for anyone to answer.
 
+A raise carries its evidence: `context` holds what the answer needs (at most 1000 characters) and
+`links` points at the notes or commits it came from (at most 10, `{kind, ref}`, kind `item`, `note`,
+`doc`, `commit` or `url`; a note is `<item-id>#<note-key>`). The user or the director answers from
+the request alone, without reading the notes. The protocol rules and `orchestration-discipline`
+hold the duty.
+
 ```to-call
-{"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "c04baf7c:implementer:dev-1", "question": "The planned approach fails because X. Proceed with Y?", "options": [{"key": "proceed", "label": "Use Y", "consequence": "Y replaces the planned approach"}, {"key": "keep", "label": "Keep the plan", "consequence": "The plan stands and X is worked around"}], "recommended": "proceed", "itemId": "c04baf7c"}}
+{"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "c04baf7c:implementer:dev-1", "question": "The planned approach fails because X. Proceed with Y?", "options": [{"key": "proceed", "label": "Use Y", "consequence": "Y replaces the planned approach"}, {"key": "keep", "label": "Keep the plan", "consequence": "The plan stands and X is worked around"}], "recommended": "proceed", "context": "X fails on the fixture in the task-scope test plan (step 3); Y passes it and keeps the public signature.", "links": [{"kind": "note", "ref": "c04baf7c#task-scope"}], "itemId": "c04baf7c"}}
 ```
 
 - `dedupeKey` convention: `<short-id>:<raiser>:<kind>-<n>`. Re-raising the same key returns the

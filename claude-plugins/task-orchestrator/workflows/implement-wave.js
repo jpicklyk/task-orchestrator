@@ -1712,7 +1712,8 @@ function promptDeviation(plan, item, stage) {
   return [
     head,
     `Then raise it with your seat token: runs_write(ops:[{op:"raise", class:"deviation", block:true, dedupeKey:"${item.short}:${stage.seat}:dev-<n>", ` +
-      `question, options:[{key, label, consequence}], recommended, itemId:"${item.id}"}]) where n counts your raises on this item from 1.`,
+      `question, options:[{key, label, consequence}], recommended, context, links:[{kind:"note", ref:"${item.id}#<note-key>"}], itemId:"${item.id}"}]) where n counts your raises on this item from 1, ` +
+      `context holds the evidence the answer needs (what you found, where, why the options differ; at most 1000 characters) and links point at the notes it came from.`,
     'Return status "stopped", reason "awaiting_decision", decisionId = the raised decision\'s id. A stall is never a reason to raise.',
   ].join('\n')
 }
