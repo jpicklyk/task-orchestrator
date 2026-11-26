@@ -1,0 +1,30 @@
+package io.github.jpicklyk.mcptask.current.run.internal.app
+
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
+import io.github.jpicklyk.mcptask.current.run.SeatService
+import java.util.UUID
+
+/**
+ * The run limits an assign must pass (R27), asked by [SeatService.assign] inside its unit once the assign is otherwise
+ * valid: [attempt] is the attempt the assign would create for [seat] on [itemId], and [supersedes] is true when it would
+ * end an active assignment of the same (item, seat). A returned error refuses the assign (its unit rolls back).
+ * [OPEN] admits every assign; `RunLimits` enforces the attempt cap and `maxActiveSeats`.
+ */
+fun interface SeatAdmission {
+    suspend fun admit(
+        scope: WriteScope<RunStoreProvider>,
+        run: Run,
+        itemId: UUID,
+        seat: String,
+        attempt: Int,
+        supersedes: Boolean
+    ): DomainError?
+
+    companion object {
+        /** Admits every assign. */
+        val OPEN: SeatAdmission = SeatAdmission { _, _, _, _, _, _ -> null }
+    }
+}

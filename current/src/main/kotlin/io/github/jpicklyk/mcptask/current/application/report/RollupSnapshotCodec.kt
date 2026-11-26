@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
-import io.github.jpicklyk.mcptask.current.application.port.RunHeader
-import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.run.AttemptCounts
+import io.github.jpicklyk.mcptask.current.run.DecisionCounts
+import io.github.jpicklyk.mcptask.current.run.RunHeader
+import io.github.jpicklyk.mcptask.current.run.StalledSeat
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.application.api.RunRefs
 import io.github.jpicklyk.mcptask.current.application.port.AnchorRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
 import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
@@ -11,8 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
 import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
 import io.github.jpicklyk.mcptask.current.application.port.NoteWritesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReportStoreProvider
-import io.github.jpicklyk.mcptask.current.application.port.RunFacts
-import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.RunRollupQuery
 import io.github.jpicklyk.mcptask.current.application.port.SubtreeEventSpan
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
@@ -20,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.port.WasteCount
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
-import io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -41,6 +37,10 @@ import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.run.RunFacts
+import io.github.jpicklyk.mcptask.current.run.RunHeader
+import io.github.jpicklyk.mcptask.current.run.RunRefs
+import io.github.jpicklyk.mcptask.current.run.StoreRunFacts
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration

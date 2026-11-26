@@ -111,7 +111,7 @@ Keeping a knowledge base on the knowledge endpoint is a first-class journey. Evi
 | K2 | `GLOSSARY.md` Building item | Building is "the default", and its opposite is a question or a container; a knowledge entry is neither. | Word it as work a seat does, and say a lifecycle-free item is off that axis. | glossary |
 | K3 | `GLOSSARY.md` (no entry) | Lifecycle-free items appear only under Building item's "Distinct from". | Candidate entry: Lifecycle-free item (`lifecycle: none`). Run the defining-project-terms entry test first. | glossary |
 | K4 | `GLOSSARY.md` (no entry) | A parsed `[[...]]` reference and a `relates_to` edge are both called links. | Candidate entry: Link, distinct from a dependency edge. Run the entry test first. | glossary |
-| K5 | `CurrentMcpServer.kt:652-658`, `ItemsWriteTool.kt:117-118` | The knowledge profile describes itself in terms of work items. | Knowledge-profile text names items, notes, links and documents. | server text |
+| K5 | `CurrentMcpServer.kt:652-658`, `itemwrite/ItemWriteTools.kt:12,:15` | The knowledge profile describes itself in terms of work items. | Knowledge-profile text names items, notes, links and documents. | server text |
 | K6 | `items_write` `create` doc | "Create an item in queue": true only for a type with a lifecycle. | Say where a lifecycle-free item lands. | server text |
 | K7 | `notes_write` `role`, note entry `role` | Every note names a phase, even on a lifecycle-free type. | Hold until a knowledge user needs it (R36); record the wording problem only. | server contract |
 

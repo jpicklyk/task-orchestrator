@@ -302,6 +302,8 @@ class IdentityPackageTest {
             "platform/idempotency/",
             "itemwrite/ItemCommandService.kt",
             "itemwrite/internal/app/WorkTreeService.kt",
+            "itemwrite/internal/app/ItemEvents.kt",
+            "note/NoteEvents.kt",
             "claim/ClaimService.kt",
             "claim/FenceGuard.kt",
             "dependency/DependencyCommandService.kt",

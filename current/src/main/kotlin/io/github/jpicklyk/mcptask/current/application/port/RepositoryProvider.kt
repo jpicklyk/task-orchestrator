@@ -28,6 +28,10 @@ import io.github.jpicklyk.mcptask.current.note.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
+import io.github.jpicklyk.mcptask.current.run.DecisionRequestStore
+import io.github.jpicklyk.mcptask.current.run.RunSeatStore
+import io.github.jpicklyk.mcptask.current.run.RunStore
+import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.telemetry.TelemetryStoreProvider
 import io.github.jpicklyk.mcptask.current.telemetry.UsageDailyStore
 import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore

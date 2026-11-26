@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.perf
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SeatWorld
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.asCoroutineDispatcher

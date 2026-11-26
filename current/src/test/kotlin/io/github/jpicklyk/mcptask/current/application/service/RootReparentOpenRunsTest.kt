@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite

@@ -1,10 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.run.RunCloseHook
-import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
-import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
-import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.config.RunsConfig
@@ -17,6 +13,10 @@ import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.run.RunEndedSnapshot
+import io.github.jpicklyk.mcptask.current.run.RunOpenCommand
+import io.github.jpicklyk.mcptask.current.run.RunService
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunCloseHook
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

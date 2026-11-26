@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SEAT_WORLD_CONFIG
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Reply
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SEAT_WORLD_CONFIG
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SeatWorld
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

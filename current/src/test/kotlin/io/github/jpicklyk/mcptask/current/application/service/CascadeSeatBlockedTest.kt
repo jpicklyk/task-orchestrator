@@ -3,9 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Opened
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
@@ -19,6 +16,9 @@ import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Opened
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Reply
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SeatWorld
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.rejections
 import io.github.jpicklyk.mcptask.current.test.SettableClock

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
-import io.github.jpicklyk.mcptask.current.application.api.AnswerProvenance
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller

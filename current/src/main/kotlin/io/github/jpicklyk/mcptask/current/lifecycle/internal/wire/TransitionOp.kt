@@ -114,7 +114,7 @@ private suspend fun WriteScope<LifecycleStoreProvider>.runTransition(
     // A decision named by prefix resolves under the call scope before the advance; the unit re-checks its state (R26).
     val decisionId =
         req.decisionId?.let { ref ->
-            when (val resolved = DecisionRefs.resolveId(stores, ctx.scope, ref)) {
+            when (val resolved = DecisionRefs.resolveId(stores.decisionReads(), stores.workItemRepository(), ctx.scope, ref)) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }

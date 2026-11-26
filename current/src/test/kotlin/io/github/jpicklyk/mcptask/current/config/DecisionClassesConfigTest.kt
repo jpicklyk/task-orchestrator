@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.decision.DecisionClass
-import io.github.jpicklyk.mcptask.current.application.decision.DecisionClasses
 import io.github.jpicklyk.mcptask.current.config.internal.app.LayeredConfig
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
@@ -9,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionClass
+import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionClasses
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import kotlinx.coroutines.runBlocking

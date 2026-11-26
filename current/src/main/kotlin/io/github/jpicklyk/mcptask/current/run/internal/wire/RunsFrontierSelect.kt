@@ -1,0 +1,142 @@
+package io.github.jpicklyk.mcptask.current.run.internal.wire
+
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.run.RunToolServices
+import io.github.jpicklyk.mcptask.current.run.internal.app.FrontierWaitReason
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunFrontier
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunFrontierQueries
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunsFrontierRequest
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunsSupport
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
+
+/** `runs_read frontier`: what a run can do next. */
+internal val runsFrontierSelect =
+    SelectSpec.Single<RunToolServices, RunsFrontierRequest, JsonObject>(
+        name = "frontier",
+        doc =
+            "A run's frontier: member counts by role, the ready members (no active seat, no unmet dependency, no " +
+                "claim held outside the run; none on a closed run), the active seats with their stalled flag, and the " +
+                "waiting members with a reason. Members and blockers outside the call scope are left out.",
+        profiles = orchestration() + director(),
+        services = RunToolServices::class,
+        request = serializer<RunsFrontierRequest>(),
+        errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
+        handler = { env, ctx, req -> frontier(env, ctx, req) },
+        data = { it }
+    )
+
+private suspend fun frontier(
+    env: RunToolServices,
+    ctx: CallContext,
+    req: RunsFrontierRequest
+): Outcome<JsonObject> {
+    val read: Outcome<RunFrontier> =
+        env.unitOfWork.read {
+            val run =
+                when (val r = RunsSupport.loadRun(stores, ctx, req.runId)) {
+                    is Outcome.Ok -> r.value
+                    is Outcome.Err -> return@read Outcome.Err(r.error)
+                }
+            val found =
+                RunFrontierQueries(env.unitOfWork).frontier(run.id, env.clock.now(), ctx.scope)
+                    ?: return@read Outcome.Err(RunsSupport.runNotFound(run.id.toString()))
+            Outcome.Ok(found)
+        }
+    val found =
+        when (read) {
+            is Outcome.Ok -> read.value
+            is Outcome.Err -> return Outcome.Err(read.error)
+        }
+    // The terminal members a cancel left: those whose status label is the cancel label of the run's root (the one
+    // label policy: per-root, then server, then the built-in `cancelled`), resolved after the read unit.
+    val cancelLabel = env.configResolver.labelFor(found.run.rootId, Trigger.User.CANCEL, Role.TERMINAL)
+    val cancelled = cancelLabel?.let { found.terminalLabels[it] } ?: 0
+    return Outcome.Ok(FrontierView.of(found, cancelled))
+}
+
+/**
+ * The wire form of a run frontier. `runId` is the full UUID; item ids are 8-hex short ids. It never carries a body,
+ * summary, token, principal or assignment id; absent members are omitted, never null; every array is present.
+ * [cancelled] is how many of the terminal members a cancel left, already counted in `counts.terminal`.
+ */
+internal object FrontierView {
+    fun of(
+        frontier: RunFrontier,
+        cancelled: Int = 0
+    ): JsonObject =
+        buildJsonObject {
+            put("runId", frontier.run.id.toString())
+            put("status", frontier.run.status.wire)
+            put("stalled", frontier.stalled)
+            put(
+                "counts",
+                buildJsonObject { Role.entries.forEach { put(role(it), frontier.counts[it] ?: 0) } }
+            )
+            put("cancelled", cancelled)
+            put(
+                "ready",
+                buildJsonArray {
+                    frontier.ready.forEach { item ->
+                        add(
+                            buildJsonObject {
+                                put("id", ItemView.shortId(item.id))
+                                put("title", item.title)
+                                item.role?.let { put("role", role(it)) }
+                                item.type?.let { put("type", it) }
+                            }
+                        )
+                    }
+                }
+            )
+            put(
+                "inFlight",
+                buildJsonArray {
+                    frontier.inFlight.forEach { seat ->
+                        add(
+                            buildJsonObject {
+                                put("id", ItemView.shortId(seat.itemId))
+                                seat.role?.let { put("role", role(it)) }
+                                seat.title?.let { put("title", it) }
+                                put("seat", seat.seat)
+                                put("attempt", seat.attempt)
+                                seat.lastSeenAt?.let { put("lastSeenAt", it.toString()) }
+                                put("stalled", seat.stalled)
+                            }
+                        )
+                    }
+                }
+            )
+            put(
+                "waiting",
+                buildJsonArray {
+                    frontier.waiting.forEach { entry ->
+                        add(
+                            buildJsonObject {
+                                put("id", ItemView.shortId(entry.itemId))
+                                put("reason", entry.reason.wire)
+                                entry.decisionId?.let { put("decisionId", it.toString()) }
+                                if (entry.reason == FrontierWaitReason.DEPENDENCY) {
+                                    put("blockers", buildJsonArray { entry.blockers.forEach { add(ItemView.shortId(it)) } })
+                                }
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
+    private fun role(role: Role): String = role.name.lowercase()
+}
