@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.run.internal.wire
+package io.github.jpicklyk.mcptask.current.run.internal.app
 
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.call.SeatContext
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
@@ -56,6 +57,11 @@ import kotlin.test.assertTrue
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
  */
 class RunPermissionsTest {
+    @Test
+    fun `the director profile constant equals the tool profile wire value`() {
+        assertEquals(ToolProfile.DIRECTOR.wire, RunPermissions.DIRECTOR_PROFILE)
+    }
+
     private fun principal(
         id: String = "svc",
         kind: PrincipalKind = PrincipalKind.SERVICE

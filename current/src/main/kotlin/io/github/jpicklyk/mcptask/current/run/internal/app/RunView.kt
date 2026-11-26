@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.run.internal.wire
+package io.github.jpicklyk.mcptask.current.run.internal.app
 
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
 import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.run.RunEndedSnapshot
-import io.github.jpicklyk.mcptask.current.run.internal.wire.RunWireKeys.putWithAlias
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunWireKeys.putWithAlias
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray

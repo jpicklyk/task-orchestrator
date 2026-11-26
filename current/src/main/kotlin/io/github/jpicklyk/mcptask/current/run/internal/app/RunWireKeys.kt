@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.run.internal.wire
+package io.github.jpicklyk.mcptask.current.run.internal.app
 
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

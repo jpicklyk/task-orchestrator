@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.run.internal.wire
 
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunWireKeys
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

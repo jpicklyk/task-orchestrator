@@ -11,9 +11,11 @@ import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.run.ReissuedOrchestrator
 import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.run.RunToolServices
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunPermissions
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunWireKeys
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunWireKeys.putWithAlias
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsReissueRequest
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsSupport
-import io.github.jpicklyk.mcptask.current.run.internal.wire.RunWireKeys.putWithAlias
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject

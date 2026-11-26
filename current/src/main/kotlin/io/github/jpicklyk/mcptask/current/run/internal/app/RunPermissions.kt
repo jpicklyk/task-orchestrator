@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.run.internal.wire
+package io.github.jpicklyk.mcptask.current.run.internal.app
 
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.isHumanCaller
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 
 /**
  * Who may do what to a run (plan section 3.2), one predicate per row. Every predicate runs AFTER the run's root passed
@@ -31,6 +30,9 @@ internal object RunPermissions {
 
     private const val LIFTED_KIND = "agent"
 
+    /** The `ToolProfile.DIRECTOR` wire value: `platform/tool` counts as interfaces, which the app layer may not import; `RunPermissionsTest` pins the two equal. */
+    internal const val DIRECTOR_PROFILE = "director"
+
     /** The audited id of the caller: the credential `api:<id>`, or `local` for the local principal. */
     fun callerId(ctx: CallContext): String = ctx.principal.claim.id
 
@@ -40,7 +42,7 @@ internal object RunPermissions {
             ?.kind
             ?.wire ?: LIFTED_KIND
 
-    fun isDirector(ctx: CallContext): Boolean = ctx.seat == null && ctx.profile == ToolProfile.DIRECTOR.wire
+    fun isDirector(ctx: CallContext): Boolean = ctx.seat == null && ctx.profile == DIRECTOR_PROFILE
 
     fun isHuman(ctx: CallContext): Boolean = isHumanCaller(ctx)
 

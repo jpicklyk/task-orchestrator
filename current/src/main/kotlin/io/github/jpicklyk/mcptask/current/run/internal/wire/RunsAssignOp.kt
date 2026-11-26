@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.run.RunToolServices
 import io.github.jpicklyk.mcptask.current.run.SeatAssignCommand
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunPermissions
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsAssignRequest
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsSupport
 import kotlinx.serialization.json.JsonObject
