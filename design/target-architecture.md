@@ -128,10 +128,10 @@ One row per system concept. **Owning zone** is the target. **Seam** names the pl
 | M60 | SessionStart orchestration core | Z2 | S52, S20, S45 | Main session | None | leak: presentation, closure policy and orchestrator prose; closed by S45, S46 |
 | M61 | Agent definitions | Z2 | none | Subagent | Tool list | leak: protocol in prose; dogfood note keys |
 | M62 | MCP instructions and `@Doc` | Z1 | S53 | Every client | Server, goldens | clean |
-| M63 | Headless iteration and guard bypass | Z2 (ralph) | `TASK_ORCHESTRATOR_MODE=headless-iteration` | Hooks | Most hooks return early; the decision guard, seat skill gate and skill enforcement still apply to the subagents an iteration dispatches | gap: the ralph documentation does not say which guards it turns off ([enforcement-map.md](enforcement-map.md)) |
+| M63 | Headless iteration and guard bypass | Z2 (ralph) | `TASK_ORCHESTRATOR_MODE=headless-iteration` | Hooks | Most hooks return early; the decision guard, seat skill gate and skill enforcement still apply to the subagents an iteration dispatches | gap: the ralph documentation does not say which guards it turns off ([enforcement-map.md](enforcement-map.md)); closed by P13 text (pass 10 decision G9) |
 | M64 | Mod plugins | Z2 (host integration) | S56 | Host | Generation check (target) | leak: own config locator and retrospective text |
 | M65 | Knowledge domain | Z1 profile; Z2 profile-aware hooks; Z3 knowledge template | S21, S35 | Knowledge sessions | Hooks | partial: [0010](decisions/0010-two-domains.md) work not finished |
-| M66 | Task Orchestrator's own vocabulary for users | Z2 | none (S61 not taken) | learn, authors | None | gap: the owner declined to ship the glossary; learn's vocabulary needs another answer ([journey-overlay.md](journey-overlay.md)) |
+| M66 | Task Orchestrator's own vocabulary for users | Z2 (learn); the documents are Z1 and Z2 docs and records, read upstream | S68 (S61 not taken) | learn, authors | None | gap closed by decision: learn fetches the docs, glossary and design from GitHub at the installed version, plus the user's served schema and config; nothing is bundled ([0019](decisions/0019-learn-reads-upstream-sources.md)); not built (P7) |
 
 ## 5. How to judge a change
 

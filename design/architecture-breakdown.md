@@ -1,6 +1,6 @@
 # Architecture breakdown
 
-**Status:** Reviewed; its three decisions are settled (2026-11-24). Each package becomes items only when the owner approves materializing it. | **Date:** 2026-11-24, packages P9-P13 and additions to P2, P4, P6 and P7 on 2026-11-26
+**Status:** Reviewed; its three decisions are settled (2026-11-24). Each package becomes items only when the owner approves materializing it. | **Date:** 2026-11-24, packages P9-P13 and additions to P2, P4, P6 and P7 on 2026-11-26, and the pass 10 decisions G1-G12 applied the same day
 
 This document turns the settled design into work packages: what each one changes, which layer it lands in, what it depends on and in what order the packages can run. It is the bridge between the design documents in this folder and the work items that will carry the work. It is not an implementation plan: once the owner approves a package, it becomes a parent item, and its planner seat writes the plan.
 
@@ -55,18 +55,20 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
 ### P3 One board
 
 - **Records:** the board ruling (glossary "Board"); entry-skills investigation 4.
-- **Layer:** server (`report board`, every `report` select on both profiles), plugin (one board skill).
-- **Contents:** a board read of ids, counts and a closed list of attention kinds (no score); one rendering shared by orchestration mode and director mode, with a way to hand work to the director. A knowledge root gets its own view (recent, untouched, orphans) and never shows as empty.
+- **Layer:** server (`report board`, every `report` select on the orchestration and director profiles), plugin (one board skill).
+- **Contents:**
+  - A board read of ids, counts and a closed list of attention kinds (no score); one rendering shared by orchestration mode and director mode, with a way to hand work to the director.
+  - A knowledge root gets its own view, recent and untouched entries, and never shows as empty. The board skill composes it from the knowledge profile's own list reads (`items_read` `list` with `createdAfter`, `modifiedBefore` and `sort`, and `overview`), because the knowledge profile serves no `report` and every `report` select is director-only today (`report/internal/wire/ReportRollupSelect.kt:45`). No orphans while the root-wide orphan read is held (pass 10 decision G8).
 - **Depends on:** P2 for the decision inbox.
 - **Size:** M-L.
 
 ### P4 Acceptance gate
 
 - **Records:** [0008](decisions/0008-acceptance-is-a-server-gate.md).
-- **Layer:** server (the gate), plugin (accept card, post-plan grant, ship step).
+- **Layer:** server (the gate), plugin (accept card, the grant recorded in the user's words, ship step).
 - **Contents:**
   - The gate, opt-in per type, as a required acceptance note satisfied only by an answered decision of a named class and option ([0012](decisions/0012-acceptance-gate-note-form.md)).
-  - The conditional grant: plan approval in Auto mode records a grant; it satisfies the gate only when review passed, findings were disposed, the build is green at HEAD and no decision is open (the accept card's deterministic checks).
+  - The conditional grant: on a gated type the plan proposal offers it as one plain choice ("yes" or "yes, and accept on green"), and the orchestrator records the user's own words as the answer with the conditional option. It counts only when those words say so, on every host; no hook reads `permission_mode` for it ([0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md), amended by pass 10 decision G1). It satisfies the gate only when review passed, findings were disposed, the build is green at HEAD and no decision is open (the accept card's deterministic checks).
   - The claims as evidence: the accept skill raises the acceptance decision with its claims (commit, verify command and result, count of disposed findings) in `context` and `links`, and the gate counts the note filled only when the answered decision carries them. That records the claims; it does not prove the build ([0012](decisions/0012-acceptance-gate-note-form.md)). No separate claims note.
   - The accept mechanics skill: one card, a verbal yes or a send-back. Send-back reuses the fix cycle. On an item in an open run it acts with the run token from the run files, or hands the step to that run's orchestrator; no server rule changes for it ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)).
   - The ship seam: a run-profile `postRun` step with `when: accept`, running a project rule. On a gated type merge is armed only on acceptance; on an ungated type the project's own merge step arms merge, as today ([0008](decisions/0008-acceptance-is-a-server-gate.md)).
@@ -75,12 +77,15 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
 
 ### P5 Profile-aware hooks
 
-- **Records:** [0010](decisions/0010-two-domains.md) guard rails 1-3, 6, 9.
-- **Layer:** plugin hooks and three skills.
+- **Records:** [0010](decisions/0010-two-domains.md) guard rails 1-3, 6, 9 and 11; pass 10 decisions G6, G7 and G10.
+- **Layer:** plugin hooks, three skills and the knowledge mechanics text.
 - **Contents:**
   - Hooks learn which tool profile the session is connected through and name only what it serves, or stay silent: `session-start`, `orchestration-context`, the plan-mode hooks, the dispatch guard.
   - `config-sync` pushes no bundled build rules to a root whose declared types are all `lifecycle: none`, and archives the copies pushed before (done: #780, #790).
   - `create-item`, `work-summary` and `dependency-manager` stop framing a lifecycle-free root as bugs, backlog or blockers.
+  - Knowledge mechanics text (the knowledge session guidance and the prune moment): nothing deletes an entry or a page without the user's explicit yes, and pruning prefers the archive tag or another tag (guard rail 11). It is generic to every knowledge base, so it is mechanics, not a binding; a binding for project-specific knowledge conduct stays held ([0017](decisions/0017-orchestrator-binding.md)).
+  - A write-up goes through the topic's synthesis note when its schema declares one, so the method that note's `skill:` binds is hinted when the note is written (S03).
+  - Retrieval and pruning honour the root's maturity rule when it has one (S69): its hidden tags stay out of retrieval, and its archive tag replaces a delete.
 - **Depends on:** nothing.
 - **Size:** M. **Risk:** low, and it protects real knowledge-base users today.
 
@@ -94,6 +99,9 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
   - Upgrades: compare the recorded template and version, replace what matches a known old version, leave customised parts and report them (the bundled-rules policy).
   - Approval routing: an `extensions.claude-code` key saying what plan approval sets in motion (materialize only, materialize and build inline, or materialize and dispatch), defaulting to today's behaviour and set by each template. The post-plan skill and hook read it instead of deciding it in their own text.
   - Templates mark their notes with note purposes (P10).
+  - Template guidance for the build-to-learn small node's `finding` note: the kept and the thrown commits, by SHA. How thrown code leaves a shared branch is a project rule bound through the orchestrator binding or the writing seat's `rules:`; the plugin ships none, since projects differ (revert, squash, no rebase) (pass 10 decision G4).
+  - The knowledge template: the topic type gains an optional synthesis note beside the page, whose guidance is a pointer to the page and what it covers and whose `skill:` the user may set (S03, pass 10 decision G6); and a maturity rule document under the plugin-owned key (S69, pass 10 decision G7).
+  - start says that learn needs network access to the repository host, a host permission ([0019](decisions/0019-learn-reads-upstream-sources.md)).
   - `init` and `quick-start` fold into start, or call it.
 - **Depends on:** P5 (the knowledge template needs profile-aware hooks), the steering rename in P0, and P10 for the purposes the templates carry.
 - **Size:** L.
@@ -106,15 +114,17 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
   - `scripts/entry.mjs` on pure libraries (scope, board, node-state, order, audit-preview, dispatch, route-decision, close-preview, config-change), read-only, rendering ops for the model to send; the entry skills shape, learn, tune, audit (user-only), board, director, accept and start at about 100 lines each; tactical skills demoted per the fate table.
   - The plan store on every host: the skill that agrees a plan (shape, or the orchestrator) stores it as a plan document before `create_tree`; plan mode stays the Claude Code fast path, and shape plans a single known change too.
   - Shape, accept and the orchestrator find the goal, the finding and the ruling by note purpose (P10), not by key.
-  - Not in this package: a served vocabulary for learn. Shipping the tool's glossary as a plugin reference was not taken, so learn's explanation of the tool's own terms stays open ([journey-overlay.md](journey-overlay.md), burn-down).
-- **Depends on:** P1, P2, P3, P4 and P6 for the interfaces each skill calls, P10 for note purposes, and P11 for the binding that carries shape's method into the main session. Learn and tune can start earlier.
+  - Learn reads Task Orchestrator's docs, glossary and design from GitHub at the installed version's tag (else `main`) through the index pages, plus the user's served schema and config; nothing is bundled, and fetched text is data (S68, [0019](decisions/0019-learn-reads-upstream-sources.md)). On the knowledge profile it lists the root's types through S63 (P8).
+  - A ruling's dependents: after a ruling changes, shape re-walks the ruling node's subtree and the `linked_from` hits that `items_read` `related` returns for the item holding the ruling note, and the user confirms the candidates. A test pins that a link to one of the ref's notes comes back as `linked_from`. A dedicated read follows only an observed miss (S62, pass 10 decision G5).
+  - Keep or throw: the orchestrator reads the building seat's `finding` as a pointer and writes the `ruling`; in director mode no diff read is needed (pass 10 decision G4).
+- **Depends on:** P1, P2, P3, P4 and P6 for the interfaces each skill calls, P8 for the provenance links and the declared-types read, P10 for note purposes, and P11 for the binding that carries shape's method into the main session. Learn and tune can start earlier.
 - **Size:** L.
 
 ### P8 Shape support on the server
 
 - **Records:** entry-skills server change table.
 - **Layer:** server.
-- **Contents:** `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token. A sibling `rank` stays out ([0013](decisions/0013-no-sibling-rank-yet.md)).
+- **Contents:** `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token; declared types readable on the knowledge profile: `items_read` `schema` with neither `type` nor `itemId` returns the root's declared type names and their `lifecycle`, no config body, on every profile that serves `schema` (S63, reopened by pass 10 decision G3; a `@Doc` edit, so both goldens and the api reference regenerate). A sibling `rank` stays out ([0013](decisions/0013-no-sibling-rank-yet.md)).
 - **Depends on:** nothing.
 - **Size:** M.
 
@@ -137,6 +147,7 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
   - Server: `purpose` on note entries with the closed value list in 0015, in the JSON Schema, key catalog and parser, served in `items_read` `schema` and `config` `effective`, an unknown value an error under strict parsing (a warning in migration mode), behind a feature flag. Response-shape tests change; no `@Doc` or tool golden does.
   - Server config: ships the seat-less mechanism traits (`session-tracked`, `delegated`, `reviewed`, `has-carry-ins`) carrying purposes, `container` becomes permanent, and `delegation-metadata` is optional by default, with prose accepted on hand dispatch.
   - Plugin: code and prompts find notes by purpose, with today's keys as a reported fallback for one release; the retrospective's triage reads `closure-record` by purpose. Public docs teach purposes, not the dogfood keys.
+  - Keep or throw: the building seat records its kept and thrown commits in its `finding` note, guided by a short section of the `implementation-standards` engineering skill on code built to answer a question (keep only what meets the production bar and the plan; say which commits were probes) (pass 10 decision G4).
 - **Depends on:** P0.
 - **Size:** M-L.
 
@@ -171,15 +182,22 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
 - **Contents:**
   - Run execution: stage `ruleOutputs` with `hold` for the post-run advance; `postRun[].skill` beside `rule`; meter label classes from `postRun[].step`, with `coordinator` read as `orchestrator`; `review.step` removed and `onFail` read on every path ([run-execution.md](run-execution.md)).
   - Hooks: the dispatch-model guard narrowed to Task Orchestrator agents and labels; the director guard closes plugin skill sources in the work tree ([0014](decisions/0014-director-reads-skills-runs-plugin-scripts.md)); SubagentStart reaches every seat agent; the config-sync guidance scan and the skill-enforcement length test removed; the core hook's protocol, closure and presentation prose moved out ([enforcement-map.md](enforcement-map.md)).
-  - Text: the shared status-presentation reference that the rendering skills cite; `config-reference.md` owns the server side of the config contract and its seat-rules section becomes a pointer; the workflow guide states the seat-less run scope in one sentence.
+  - Text: ralph's text names the guards `headless-iteration` turns off and those that still apply (M63, pass 10 decision G9); the shared status-presentation reference that the rendering skills cite; `config-reference.md` owns the server side of the config contract and its seat-rules section becomes a pointer; the workflow guide states the seat-less run scope in one sentence.
   - Root `CLAUDE.md` (done 2026-11-26): Session Layers moved to [0001](decisions/0001-two-session-layers.md) and [0002](decisions/0002-director-on-orchestrator-tools.md), with "Identity is declared" naming the run token, and Git workflow to the `implement` project skill. Left: the project rules `merge-gate` and `commit-message` take the merge and commit conduct over from that skill.
 - **Depends on:** P10 (post-run finds notes by purpose) and P12 (rule classes).
 - **Size:** L.
 
 ### Held until evidence asks
 
-- Knowledge retrieval contract: notes without a phase (R36), relation words a walk follows (R38), a document-kind search filter (R49), a read of declared types on the knowledge profile, a root-wide orphan read. Wait until a knowledge user needs them.
-- `next` ordering and traversal.
+Each hold names the sign that reopens it (pass 10 decision G11).
+
+- Knowledge retrieval contract: notes without a phase (R36), relation words a walk follows (R38), a document-kind search filter (R49). Wait until a knowledge user needs them. The read of declared types on the knowledge profile left this list for P8 (pass 10 decision G3).
+- Root-wide orphan and wanted-page read. Reopen when a knowledge user asks for orphans or wanted pages, recorded as unmet in an observation or a learn or board request.
+- `next` ordering and traversal (graph, rank). Reopen on the trigger in [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md): an observation or proposal recording that the user had to name the next item, or shape creating `blocks` edges that carry only order.
+- Config delivery on the knowledge profile off Claude Code. Reopen when a knowledge-profile connection whose MCP `initialize` client name is not Claude Code shows in server logs or a user report; meanwhile a REST push, documented by configure-server, is the workaround.
+- A persisted standing-work policy. Unattended drain is carried by ralph's arguments and host scheduling (pass 10 decision G9); reopen when a scheduled host task runs ralph with the same arguments again and again, or a headless misfire is seen that a bypassed hook would have stopped.
+- A server archive for items. Reopen when a knowledge user reports a miss the maturity rule (S69) cannot carry (pass 10 decision G7).
+- A binding for a knowledge-base agent's own conduct ([0017](decisions/0017-orchestrator-binding.md), Reopen when). The generic delete-needs-a-yes is mechanics text in P5 (pass 10 decision G10).
 - Recurring work (host scheduling) and per-scope certainty (judgement, [0007](decisions/0007-certainty-is-judgement.md)).
 
 ## Order
@@ -220,7 +238,7 @@ flowchart LR
 2. **Rank** (P8): kept out, [0013](decisions/0013-no-sibling-rank-yet.md).
 3. **Where the template record lives** (P6): an `extensions.claude-code` key in the project config that the plugin reads. It is enough for setup and learn and needs no server change; a server field can follow if another harness needs to read it.
 
-The boundary analysis of 2026-11-26 settled the decisions behind P9-P13 and the additions to P2, P4, P6 and P7: records [0015](decisions/0015-note-purpose.md) to [0018](decisions/0018-content-placement.md), and amendments to [0002](decisions/0002-director-on-orchestrator-tools.md), [0008](decisions/0008-acceptance-is-a-server-gate.md) and [0012](decisions/0012-acceptance-gate-note-form.md).
+The boundary analysis of 2026-11-26 settled the decisions behind P9-P13 and the additions to P2, P4, P6 and P7: records [0015](decisions/0015-note-purpose.md) to [0018](decisions/0018-content-placement.md), and amendments to [0002](decisions/0002-director-on-orchestrator-tools.md), [0008](decisions/0008-acceptance-is-a-server-gate.md) and [0012](decisions/0012-acceptance-gate-note-form.md). Its pass 10 (decisions G1-G12, cited in the packages above) added [0019](decisions/0019-learn-reads-upstream-sources.md) and amended [0004](decisions/0004-next-means-startable.md), [0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md) and [0013](decisions/0013-no-sibling-rank-yet.md).
 
 ## Gate form
 

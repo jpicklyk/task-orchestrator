@@ -4,7 +4,7 @@ The user journeys walked step by step against the target architecture, as the ev
 
 The architecture graded here is [target-architecture.md](target-architecture.md), with its seams in [seams.md](seams.md), the seat model in [seat-model.md](seat-model.md), config in [config-layering.md](config-layering.md), runs in [run-execution.md](run-execution.md) and checks in [enforcement-map.md](enforcement-map.md). The journeys are the four sequence diagrams in [journey-sequences.md](journey-sequences.md) (step numbers are the diagrams' own) and the eight journeys of the [Strategic Journey Map](user-journey-map.html) at stage level. Terms follow [GLOSSARY.md](../GLOSSARY.md).
 
-Owner decisions are cited by their number in the boundary analysis owner answers of 2026-11-26 (`plans/boundaries/README.md`, not tracked), as revised after the simplicity review; where a decision has a record, the record is linked instead. Path prefixes: `KT/` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`; `PLUG/` is `claude-plugins/task-orchestrator/`.
+Owner decisions are cited by their number in the boundary analysis owner answers of 2026-11-26 (`plans/boundaries/README.md`, not tracked), as revised after the simplicity review; where a decision has a record, the record is linked instead. The owner's decisions on pass 10 of that analysis (journey gap closure, 2026-11-26) are cited as G1 to G12. Path prefixes: `KT/` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`; `PLUG/` is `claude-plugins/task-orchestrator/`.
 
 ## How to read it
 
@@ -20,25 +20,26 @@ Owner decisions are cited by their number in the boundary analysis owner answers
 3. An overlay proposal (a seam the walk itself found missing) counts as a gap until the owner accepts it. Once accepted, the step fits in the target and moves to the burn-down list until its package lands.
 4. Re-run after each package lands: re-walk the steps that package names in the burn-down list, move the ones that now fit today, and re-walk every step whose "Rests on" names a seam the package changed. Re-run the knowledge journey (journey 3 and stages 8.x) when anything held in "Held until evidence asks" is released.
 
-The first walk graded the target before the owner answered its decisions. This revision re-grades it under the owner's answers and under the simplicity review that followed: the orchestrator is never a seat ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)), a seat declares only `writes` (no `kind`), the acceptance claims travel as evidence on the acceptance decision ([0012](decisions/0012-acceptance-gate-note-form.md), amended), the orchestrator binding sits at root and trait level only ([0017](decisions/0017-orchestrator-binding.md)), and there are two rule classes ([0018](decisions/0018-content-placement.md)).
+The first walk graded the target before the owner answered its decisions. This revision re-grades it under the owner's answers and under the simplicity review that followed: the orchestrator is never a seat ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)), a seat declares only `writes` (no `kind`), the acceptance claims travel as evidence on the acceptance decision ([0012](decisions/0012-acceptance-gate-note-form.md), amended), the orchestrator binding sits at root and trait level only ([0017](decisions/0017-orchestrator-binding.md)), and there are two rule classes ([0018](decisions/0018-content-placement.md)). A third grading applies the pass 10 decisions G1-G12, all taken as recommended: they close every undecided gap and two holds, correct the basis of three steps, and keep three holds with reopen triggers anyone can observe.
 
 ## Results
 
-| Source | Steps | Fits | Gaps | Leaks | First walk (fits, gaps, leaks) |
-|---|---|---|---|---|---|
-| Journey 1: plan acceptance without plan mode | 25 | 24 | 1 | 0 | 21, 3, 1 |
-| Journey 2: light touch | 27 | 26 | 1 | 0 | 24, 2, 1 |
-| Journey 3: keep a knowledge base | 29 | 23 | 6 | 0 | 23, 6, 0 |
-| Journey 4: build to learn | 22 | 20 | 2 | 0 | 18, 4, 0 |
-| Map stages | 62 | 52 | 10 | 0 | 43, 15, 4 |
-| **Total** | **165** | **145** | **20** | **0** | 129, 30, 6 |
+| Source | Steps | Fits | Gaps | Leaks | Before pass 10 (fits, gaps, leaks) | First walk (fits, gaps, leaks) |
+|---|---|---|---|---|---|---|
+| Journey 1: plan acceptance without plan mode | 25 | 25 | 0 | 0 | 24, 1, 0 | 21, 3, 1 |
+| Journey 2: light touch | 27 | 27 | 0 | 0 | 26, 1, 0 | 24, 2, 1 |
+| Journey 3: keep a knowledge base | 29 | 27 | 2 | 0 | 23, 6, 0 | 23, 6, 0 |
+| Journey 4: build to learn | 22 | 22 | 0 | 0 | 20, 2, 0 | 18, 4, 0 |
+| Map stages | 62 | 60 | 2 | 0 | 52, 10, 0 | 43, 15, 4 |
+| **Total** | **165** | **161** | **4** | **0** | 145, 20, 0 | 129, 30, 6 |
 
 What the results show:
 
 1. **No leak is left in the target.** The six leaks of the first walk had two causes, and the owner took the decision for each: what plan approval sets in motion becomes project config (owner decision 16; journey 2 step 14 and stages 2.4, 3.2, 6.5, 7.3), and the acceptance grant's claims become evidence the gate checks for on the answered decision ([0012](decisions/0012-acceptance-gate-note-form.md); journey 1 step 17).
 2. **The simplicity review changed no verdict.** Every fit that rested on the orchestrator seat, `kind` or a token-borrowing server rule still fits on the simpler representation. The steps whose basis changed are listed in the next section.
-3. **Most remaining gaps are held on purpose.** 11 of the 20 are in the knowledge journey (journey 3 and stages 8.x), and each is held until a knowledge user needs it. Of the rest, two need an owner decision that has not been made (journey 1 step 7; the learn vocabulary, which owner decision 27 left open), and the others are a held `next` change, an unattended-drain policy, the keep-or-throw judgement and a ruling's dependents.
-4. **The seat and run machinery is sound.** No seat, run, review-lane, fix-cycle or orchestrator-note step leaks or gaps. Every crossing is a served fact (`enters`, `transitions`, `writes`, each note's computed owner) or a declared list (seat `rules:` and `skills:`, the orchestrator binding).
+3. **Every remaining gap is an accepted hold.** The four gaps left rest on three holds that pass 10 decision G11 keeps: graph, rank or traversal `next` (stage 7.4), config delivery on the knowledge profile off Claude Code (journey 3 step 5), and a root-wide orphan and wanted-page read (journey 3 step 23, stage 8.6). Each now names a reopen trigger anyone can observe. No step waits on an owner decision.
+4. **Pass 10 closed sixteen gaps with no new enforcement and one new server read.** The read is S63 (declared types on the knowledge profile, P8). Everything else rests on seams that exist or are already planned: an answered decision, note purposes, a note's `skill:`, `related`, a rule document, ralph's arguments and host scheduling. The verdicts it flipped and the bases it corrected are listed below.
+5. **The seat and run machinery is sound.** No seat, run, review-lane, fix-cycle or orchestrator-note step leaks or gaps. Every crossing is a served fact (`enters`, `transitions`, `writes`, each note's computed owner) or a declared list (seat `rules:` and `skills:`, the orchestrator binding).
 
 ### Fits whose basis changed with the simplicity review
 
@@ -64,6 +65,26 @@ What the results show:
 | Stage 4.8 | gap | fits | Owner decision 29: the stage reads "cost by meter and model, against the run's sizing tier"; no planned-cost field |
 | Stage 5.4 | gap | fits | [0018](decisions/0018-content-placement.md): the layer test leaves this repository's `CLAUDE.md` for a record and a shipped mechanics reference that tune and manage-schemas read |
 
+### Fits whose basis changed with pass 10
+
+| Steps | Rested on | Now rests on |
+|---|---|---|
+| Journey 2 step 16 | Host integration: the grant read from Claude Code's permission mode | The grant offered as one plain choice and recorded in the user's own words, on every host (G1; [0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md), amended). The step is harness-neutral |
+| Journey 3 steps 21-22 | One board with a knowledge view (P3), which assumed `report` reads the knowledge profile does not serve (every `report` select is director-only today, `KT/report/internal/wire/ReportRollupSelect.kt:45`) | The knowledge view composed from the knowledge profile's own list reads, with no orphans while the orphan read is held (G8; P3) |
+
+### Verdicts that flipped with pass 10
+
+| Steps | Before | Now | Closed by |
+|---|---|---|---|
+| Journey 1 step 7 | gap | fits | G1: a grant counts only when the user's own words say so, on every host, and the orchestrator records them ([0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md), amended) |
+| Journey 2 step 25; journey 3 step 29; stages 7.5, 8.8 | gap | fits | G2: learn reads the docs, glossary and design from GitHub at the installed version, plus the user's served schema and config ([0019](decisions/0019-learn-reads-upstream-sources.md), S68); on the knowledge profile with G3 |
+| Journey 3 step 9; stage 8.2 | gap | fits | G3: S63 reopened, declared types readable on the knowledge profile |
+| Journey 3 step 20; stage 8.5 | gap | fits | G6: the knowledge template declares a synthesis note beside the page, its `skill:` binding the method (S03) |
+| Journey 3 step 27; stage 8.7 | gap | fits | G10: "nothing deletes without a yes" is knowledge mechanics text; G7: the maturity rule (S69) gives "archive" a meaning for items. The binding hold stays ([0017](decisions/0017-orchestrator-binding.md)) |
+| Journey 4 step 12; stage 6.4 | gap | fits | G4: the building seat records kept and thrown commits in its `finding`, the orchestrator writes the `ruling`, and a project rule removes thrown code |
+| Journey 4 step 21; stage 6.7 | gap | fits | G5: shape re-walks the ruling's subtree and the `linked_from` hits of `items_read` `related` (S62 reader) |
+| Stage 3.7 | gap | fits | G9: carried by ralph's arguments and host scheduling, with the `headless-iteration` bypass documented in ralph's text; only a persisted policy stays held |
+
 ## J-F1 and the resume gate
 
 Two server facts the journeys depend on, checked against the code.
@@ -80,7 +101,7 @@ Two server facts the journeys depend on, checked against the code.
 | 2 | fits (was gap) | Shape plans a single known change (owner decision 26; P7) |
 | 3 | fits | Queue notes found by purpose ([0015](decisions/0015-note-purpose.md); P10) |
 | 4-6 | fits | Orchestrator binding at root carries the planning method ([0017](decisions/0017-orchestrator-binding.md); P11) |
-| 7 | **gap** | Whether a plain yes is a grant on a host with no permission mode: [0008](decisions/0008-acceptance-is-a-server-gate.md) against entry-skills call 11. No decision |
+| 7 | fits (was gap) | A grant counts only when the user's own words say so, on every host; the orchestrator records them as the answer with the conditional option (G1; [0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md), amended; P4, P7) |
 | 8 | fits (was gap) | Plan store on every host (owner decision 26; P7) |
 | 9 | fits | `create_tree` validation |
 | 10-11 | fits | Relayed answer on the decisions surface, class `answerers`, credential (P2) |
@@ -108,13 +129,13 @@ Two server facts the journeys depend on, checked against the code.
 | 9-13 | fits | Host plan-mode events (host integration) |
 | 14 | fits (was leak) | Approval routing as project config (owner decision 16; P6) |
 | 15 | fits | `create_tree` |
-| 16 | fits | Host integration (Claude Code permission mode only; see journey 1 step 7) |
+| 16 | fits | The grant offered as one plain choice and recorded in the user's own words; harness-neutral (G1; P4, P7) |
 | 17 | fits | Decisions surface, acceptance gate (P2, P4) |
 | 18 | fits | `writes`, defaults by seat name, dispatch guard ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md); P9) |
 | 19-20 | fits | Seat-less type, no run; phase gates |
 | 21-23 | fits | `next` returns startable work ([0004](decisions/0004-next-means-startable.md); P1) |
 | 24 | fits | - |
-| 25 | **gap** | learn has no served vocabulary for the tool's own terms (owner decision 27 not taken) |
+| 25 | fits (was gap) | learn fetches Task Orchestrator's docs, glossary and design at the installed version, plus the user's served schema and config (G2; [0019](decisions/0019-learn-reads-upstream-sources.md); S68; P7) |
 | 26-27 | fits | Template record compared on upgrade (P6) |
 
 ## Journey 3: keep a knowledge base
@@ -122,20 +143,20 @@ Two server facts the journeys depend on, checked against the code.
 | Steps | Verdict | Rests on |
 |---|---|---|
 | 1-4 | fits | Setup on the knowledge profile (P6) |
-| 5 | **gap** | Config delivery off Claude Code: the knowledge profile serves no `config`, and only a Claude Code hook pushes it over REST. Held until a non-Claude-Code knowledge client exists |
+| 5 | **gap** | Config delivery off Claude Code: the knowledge profile serves no `config`, and only a Claude Code hook pushes it over REST. Held (G11): reopen when a knowledge-profile connection whose MCP `initialize` client name is not Claude Code shows in server logs or a user report |
 | 6 | fits | Profile-aware hooks (P5) |
 | 7-8 | fits | - |
-| 9 | **gap** | Declared types are not readable on the knowledge profile. Held ("Held until evidence asks") |
+| 9 | fits (was gap) | Declared types readable on the knowledge profile: `items_read` `schema` with no type (S63 reopened, G3; P8) |
 | 10-14 | fits | - |
 | 15 | fits | Relation words held by the breakdown's decision |
 | 16-19 | fits | - |
-| 20 | **gap** | A page has no schema to bind a synthesis method to. No decision |
-| 21-22 | fits | One board with a knowledge view (P3) |
-| 23 | **gap** | Orphans and wanted pages have no root-wide read. Held |
+| 20 | fits (was gap) | A synthesis note the knowledge template declares beside the page, its `skill:` binding the method (S03; G6; P5, P6) |
+| 21-22 | fits | One board; the knowledge view composed from knowledge-profile list reads, no orphans while the orphan read is held (G8; P3) |
+| 23 | **gap** | Orphans and wanted pages have no root-wide read. Held (G11): reopen when a knowledge user asks for orphans or wanted pages, recorded as unmet |
 | 24-26 | fits | - |
-| 27 | **gap** | "Nothing deletes without a yes" rests on conduct with nothing to bind it to; whether the orchestrator binding also binds a knowledge session's agent is held ([0017](decisions/0017-orchestrator-binding.md), Reopen when) |
+| 27 | fits (was gap) | "Nothing deletes without a yes" as knowledge mechanics text (G10; P5); "archive" is the maturity rule's archive tag (S69, G7; P5, P6). A binding for a knowledge agent's own conduct stays held ([0017](decisions/0017-orchestrator-binding.md), Reopen when) |
 | 28 | fits | - |
-| 29 | **gap** | As journey 2 step 25 (owner decision 27 not taken) |
+| 29 | fits (was gap) | As journey 2 step 25, with the root's types read through S63 on the knowledge profile (G2, G3; P7, P8) |
 
 The knowledge-base guard rails on [journey-config-fit.html](journey-config-fit.html) all hold: the target adds no phase, gate, seat, decision class or detector to this domain.
 
@@ -150,13 +171,13 @@ The knowledge-base guard rails on [journey-config-fit.html](journey-config-fit.h
 | 6-7 | fits | `next` ([0004](decisions/0004-next-means-startable.md)) |
 | 8 | fits | Dispatch guard, narrowed to Task Orchestrator dispatches |
 | 9-11 | fits | Seat facts; seat gate, note gate |
-| 12 | **gap** | Keep or throw: no engineering skill holds the judgement, and no rule says how thrown code leaves a shared branch. A `finding` or `ruling` note can now hold the outcome ([0015](decisions/0015-note-purpose.md)), but nobody owns the judgement |
+| 12 | fits (was gap) | Keep or throw: the building seat records kept and thrown commits in its `finding` (an `implementation-standards` section, P10; template guidance, P6); the orchestrator writes the `ruling` from that pointer (P7); a project rule removes thrown code (G4) |
 | 13-16 | fits | Decisions surface (P2) |
 | 17 | fits | Decisions surface on every profile ([0003](decisions/0003-role-neutral-decisions-surface.md); P2) |
 | 18 | fits (was gap) | Ruling by purpose `ruling`; evidence links on the answer ([0015](decisions/0015-note-purpose.md); P2, P10) |
 | 19 | fits | Acceptance gate where the type opts in (P4) |
 | 20 | fits | - |
-| 21 | **gap** | Nothing finds the nodes built on a ruling that changed: `derived_from` links exist (P8), but no reader in shape is agreed |
+| 21 | fits (was gap) | Shape re-walks the ruling's subtree and the `linked_from` hits of `items_read` `related`; a dedicated read only after an observed miss (S62 reader, G5; P7, links P8) |
 | 22 | fits | Resume gate (P2); missing today |
 
 ## The journey map at stage level
@@ -187,7 +208,7 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 | 3.4 Watch the board | L | fits | P3 |
 | 3.5 Decisions | D | fits | Decisions surface, class, credential (P2) |
 | 3.6 Steer | I | fits | Director hands work to orchestrators |
-| 3.7 Drain unattended | G | **gap** | No standing-work policy; under `headless-iteration` most hooks return early, and only the decision guard, seat skill gate and skill enforcement still apply, to subagents ([enforcement-map.md](enforcement-map.md)). Held |
+| 3.7 Drain unattended | G | fits (was gap) | Ralph's arguments and host scheduling; under `headless-iteration` most hooks return early, and only the decision guard, seat skill gate and skill enforcement still apply, to subagents ([enforcement-map.md](enforcement-map.md)), which ralph's text is to say (G9; P13). A persisted policy stays held |
 | 3.8 Close and improve | M | fits | Retrospective per run |
 | 4.1 Capture | I | fits | create-item |
 | 4.2 Triage | I | fits | shape |
@@ -207,48 +228,40 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 | 6.1 Frame | I | fits (was gap) | Goal note by purpose (P10) |
 | 6.2 Shape | I | fits | Classification bound through the root orchestrator binding (P11) |
 | 6.3 Decide shared calls | D | fits | Decisions surface (P2) |
-| 6.4 Build to learn | D | **gap** | As journey 4 step 12 |
+| 6.4 Build to learn | D | fits (was gap) | As journey 4 step 12 (G4) |
 | 6.5 Start | G | fits (was leak) | As 2.4 |
 | 6.6 Decide as they surface | D | fits | Blocking raise; resume gate (P2) |
-| 6.7 Adjust scope | I | **gap** | As journey 4 step 21 |
+| 6.7 Adjust scope | I | fits (was gap) | As journey 4 step 21 (G5) |
 | 6.8 Accept the node | A | fits | Acceptance gate (P4) |
 | 6.9 Look back | M | fits | Retrospective per completed scope |
 | 7.1 Set up | S | fits | Light template (P6) |
 | 7.2 Say what you want | I | fits (was gap) | Sizing recorded as a `ruling` (P10) |
 | 7.3 Agree the plan | I | fits (was leak) | Approval routing (owner decision 16); merge arming for an ungated type stays with the project's merge step (owner decision 17) |
-| 7.4 Keep going | G | **gap** | Graph, rank or traversal `next`: held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) |
-| 7.5 Learn the words | E | **gap** | As journey 2 step 25 |
+| 7.4 Keep going | G | **gap** | Graph, rank or traversal `next`: held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) (G11), reopened on their amended trigger |
+| 7.5 Learn the words | E | fits (was gap) | As journey 2 step 25 (G2) |
 | 7.6 Stay current | S | fits | Template record (P6) |
 | 8.1 Set up | S | fits | Setup on the knowledge profile (P6) |
-| 8.2 Capture | I | **gap** | As journey 3 step 9 |
+| 8.2 Capture | I | fits (was gap) | As journey 3 step 9 (G3) |
 | 8.3 Link | I | fits | Relation words held |
 | 8.4 Find | L | fits | search, related, links |
-| 8.5 Synthesise | G | **gap** | As journey 3 step 20 |
-| 8.6 Revisit | L | **gap** | As journey 3 step 23 |
-| 8.7 Prune and reshape | M | **gap** | As journey 3 step 27 |
-| 8.8 Learn | E | **gap** | As journey 2 step 25 |
+| 8.5 Synthesise | G | fits (was gap) | As journey 3 step 20 (G6) |
+| 8.6 Revisit | L | **gap** | As journey 3 step 23: the digest shows recent and untouched entries; orphans and wanted pages stay held (G11) |
+| 8.7 Prune and reshape | M | fits (was gap) | As journey 3 step 27 (G7, G10) |
+| 8.8 Learn | E | fits (was gap) | As journey 3 step 29 (G2, G3) |
 
-Per map journey (fits, gaps, leaks): J1 8, 0, 0; J2 8, 0, 0; J3 7, 1, 0; J4 8, 0, 0; J5 7, 0, 0; J6 7, 2, 0; J7 4, 2, 0; J8 3, 5, 0.
+Per map journey (fits, gaps, leaks): J1 8, 0, 0; J2 8, 0, 0; J3 8, 0, 0; J4 8, 0, 0; J5 7, 0, 0; J6 9, 0, 0; J7 5, 1, 0; J8 7, 1, 0.
 
 ## Burn-down
 
 ### Open in the target
 
-Each needs a decision, or is held until evidence asks. None is closed by a package alone.
+Each is an accepted hold: pass 10 decision G11 keeps it and names the sign that reopens it. None is closed by a package alone.
 
-| Item | Steps | What closes it |
+| Item | Steps | What reopens it |
 |---|---|---|
-| Is a plain yes a grant on a host with no permission mode? | Journey 1 step 7 | An owner decision between [0008](decisions/0008-acceptance-is-a-server-gate.md) ("every surface satisfies the gate the same way") and entry-skills call 11 (the grant read from Claude Code's `permission_mode`); then P4 and P7 |
-| The learn journey's vocabulary | Journey 2 step 25, journey 3 step 29, stages 7.5, 8.8 | Open. Owner decision 27 (ship Task Orchestrator's glossary as a generated plugin reference) was not taken: the glossary is not shipped. Needs another answer |
-| Keep or throw after a build-to-learn node | Journey 4 step 12, stage 6.4 | An owner decision on which engineering skill holds the judgement, and a project rule for how thrown code leaves a shared branch; the outcome's record can use purpose `finding` or `ruling` (P10) |
-| A ruling's dependents | Journey 4 step 21, stage 6.7 | Agreement that shape reads `derived_from` links back from a changed ruling (a P7 addition; the links exist through P8) |
-| Graph, rank or traversal `next` | Stage 7.4 | Held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) |
-| Standing-work policy for unattended drain | Stage 3.7 | Held; the `headless-iteration` bypass is documented in [enforcement-map.md](enforcement-map.md) |
-| Config delivery on the knowledge profile off Claude Code | Journey 3 step 5 | Held until a non-Claude-Code knowledge client exists |
-| Declared types readable on the knowledge profile | Journey 3 step 9, stage 8.2 | Held ("Held until evidence asks" in [architecture-breakdown.md](architecture-breakdown.md)) |
-| A synthesis method bound to a page | Journey 3 step 20, stage 8.5 | No decision; a page has no schema |
-| Root-wide orphan and wanted-page read | Journey 3 step 23, stage 8.6 | Held |
-| Bound conduct for the agent keeping a knowledge base | Journey 3 step 27, stage 8.7 | Held ([0017](decisions/0017-orchestrator-binding.md), Reopen when) |
+| Graph, rank or traversal `next` | Stage 7.4 | Held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) (amended): an `agent-observation` or proposal recording that the user had to name the next item because priority, complexity and edges could not express the order, or shape creating `blocks` edges that carry only order |
+| Config delivery on the knowledge profile off Claude Code | Journey 3 step 5 | A knowledge-profile connection whose MCP `initialize` client name is not Claude Code, seen in server logs or a user report. The REST push documented by configure-server stays the workaround |
+| Root-wide orphan and wanted-page read | Journey 3 step 23, stage 8.6 | A knowledge user asking for orphans or wanted pages, recorded as unmet in an observation or a learn or board request |
 
 ### Closed by a decision, open until its package lands
 
@@ -257,13 +270,17 @@ These fit in the target and not today. A row leaves this list when its package l
 | Package ([architecture-breakdown.md](architecture-breakdown.md)) | Steps it turns into fits today |
 |---|---|
 | P2 Decisions surface | Journey 1 steps 10-11, 21, 22; journey 2 step 17; journey 4 steps 13-17 and 22 (the resume gate); stages 1.6, 3.3, 3.5, 6.3, 6.6 |
-| P4 Acceptance gate | Journey 1 steps 17 (claims as decision evidence), 18, 23, 24, 25; journey 4 step 19; stages 1.7, 2.5, 2.6, 6.8, 7.3 (ungated merge arming) |
-| P6 Setup and templates, with approval routing | Journey 2 steps 1-5, 14, 26-27; journey 3 steps 1-4; stages 1.1, 2.4, 3.2, 6.5, 7.1, 7.3, 7.6, 8.1 |
-| P7 Entry skills | Journey 1 steps 2 and 8 (plan store, single-change planning), 18-21, 23 (accept card, accept with the run token, claims raised as evidence); stage 5.2 |
+| P3 One board | Journey 3 steps 21-22 (the knowledge view from knowledge-profile list reads, G8) |
+| P4 Acceptance gate | Journey 1 steps 7 (the grant in the user's own words, G1), 17 (claims as decision evidence), 18, 23, 24, 25; journey 2 step 16 (G1); journey 4 step 19; stages 1.7, 2.5, 2.6, 6.8, 7.3 (ungated merge arming) |
+| P5 Profile-aware hooks | Journey 3 steps 20 (write-up through the synthesis note, G6) and 27 (delete-needs-a-yes as mechanics text and the maturity rule, G10, G7); stages 8.5, 8.7 |
+| P6 Setup and templates, with approval routing | Journey 2 steps 1-5, 14, 26-27; journey 3 steps 1-4, 20 (the synthesis note, G6) and 27 (the maturity rule, G7); journey 4 step 12 (`finding` guidance, G4); stages 1.1, 2.4, 3.2, 6.4, 6.5, 7.1, 7.3, 7.6, 8.1, 8.5, 8.7 |
+| P7 Entry skills | Journey 1 steps 2 and 8 (plan store, single-change planning), 7 (the grant offered in the plan proposal, G1), 18-21, 23 (accept card, accept with the run token, claims raised as evidence); journey 2 steps 16 (G1) and 25 (learn's upstream sources, G2); journey 3 step 29 (G2); journey 4 steps 12 (the ruling from the `finding`, G4) and 21 (a ruling's dependents, G5); stages 5.2, 6.4, 6.7, 7.5, 8.8 |
+| P8 Shape support on the server | Journey 3 steps 9 and 29 (declared types on the knowledge profile, G3); journey 4 step 21 (`derived_from` links); stages 6.7, 8.2, 8.8 |
 | P9 Seat model | Journey 1 steps 12-14, 21, 23 (orchestrator notes in every schema, served owner, `fixArgs` hint); journey 2 step 18; stage 1.5 |
-| P10 Note purpose | Journey 1 steps 3, 15-16; journey 2 step 8; journey 4 steps 5, 18; stages 1.2, 1.8, 6.1, 7.2 |
+| P10 Note purpose | Journey 1 steps 3, 15-16; journey 2 step 8; journey 4 steps 5, 12 (the `implementation-standards` section, G4), 18; stages 1.2, 1.8, 6.1, 6.4, 7.2 |
 | P11 Orchestrator binding | Journey 1 steps 4-6; journey 2 step 6; journey 4 step 1; stages 1.4, 6.2 |
 | P12 Plugin defaults and rule classes | Journey 1 step 12 (rules resolved by two classes); stage 5.4 (the layer-test reference) |
+| P13 Plugin boundary fixes | Stage 3.7 (ralph's text names the guards `headless-iteration` turns off, G9) |
 | No package | Stage 4.8: the stage is reworded (owner decision 29). The retrospective reports cost by meter and model today (`PLUG/skills/session-retrospective/references/metrics.md`); setting it against the run's sizing tier is not built |
 
-Steps named in neither list fit today on seams that already exist, or fit once P1, P3, P5 or P8 lands; none of those four carries an open decision.
+Steps named in neither list fit today on seams that already exist, or fit once P1, P3, P5 or P8 lands for work those packages held before pass 10; none of them carries an open decision.

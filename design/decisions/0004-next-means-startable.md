@@ -1,6 +1,8 @@
 # 0004 `next` returns an item a build seat can start now
 
-**Status:** Accepted | **Date:** 2026-11-23 | **Source:** Entry Skills Design, call 7; [GLOSSARY.md](../../GLOSSARY.md) "Building item", "Refined"
+**Status:** Accepted | **Date:** 2026-11-23, amended 2026-11-26 | **Source:** Entry Skills Design, call 7; [GLOSSARY.md](../../GLOSSARY.md) "Building item", "Refined". Amendment: Boundary analysis 2026-11-26, pass 10 decisions (plans/boundaries/README.md, not tracked), decision G11.
+
+**Amended 2026-11-26:** "Reopen when" is reworded to a trigger anyone can observe; the hold on ordering and traversal stays. Why: "the owner reopens" gave no one a sign to look for.
 
 ## Decision
 
@@ -22,4 +24,4 @@ By default `items_read next` returns only items a build seat can start now: a le
 
 ## Reopen when
 
-The owner reopens ordering and traversal for `next`.
+For ordering and traversal: an `agent-observation` or an improvement proposal records that the user had to name the next item because priority, complexity and dependency edges could not express the order, or shape is seen creating `blocks` edges that carry no real dependency, only order.

@@ -54,5 +54,6 @@ Each settled choice has a decision record; the [index](decisions/README.md) list
 
 - [0012](decisions/0012-acceptance-gate-note-form.md) The acceptance gate is a note satisfied by an answered decision.
 - [0015](decisions/0015-note-purpose.md), [0016](decisions/0016-seat-capability-and-orchestrator-notes.md), [0017](decisions/0017-orchestrator-binding.md), [0018](decisions/0018-content-placement.md) From the 2026-11-26 boundary analysis: note purpose; seat capability and orchestrator notes; the orchestrator binding; content placement and the two rule classes.
+- [0019](decisions/0019-learn-reads-upstream-sources.md) Learn reads Task Orchestrator's documents from GitHub at the installed version, plus the user's served schema and config; nothing is bundled.
 
 The [architecture breakdown](architecture-breakdown.md) turns these into work packages.

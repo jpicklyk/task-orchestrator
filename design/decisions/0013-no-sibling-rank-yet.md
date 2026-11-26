@@ -1,6 +1,8 @@
 # 0013 No sibling rank until a need appears
 
-**Status:** Accepted | **Date:** 2026-11-24 | **Source:** [architecture-breakdown.md](../architecture-breakdown.md) P8; Entry Skills Design server change table; [user-journey-map.html](../user-journey-map.html) gap "No backlog rank"
+**Status:** Accepted | **Date:** 2026-11-24, amended 2026-11-26 | **Source:** [architecture-breakdown.md](../architecture-breakdown.md) P8; Entry Skills Design server change table; [user-journey-map.html](../user-journey-map.html) gap "No backlog rank". Amendment: Boundary analysis 2026-11-26, pass 10 decisions (plans/boundaries/README.md, not tracked), decision G11.
+
+**Amended 2026-11-26:** "Reopen when" is reworded to a trigger anyone can observe. Why: "a need appears" and "the owner reopens" gave no one a sign to look for.
 
 ## Decision
 
@@ -16,4 +18,4 @@ The Entry Skills Design listed a sparse integer rank as a server change for the 
 
 ## Reopen when
 
-A user's work needs an order that priority, complexity and dependency edges cannot express, or the owner reopens `next` ordering.
+An `agent-observation` or an improvement proposal records that the user had to name the next item because priority, complexity and dependency edges could not express the order, or shape is seen creating `blocks` edges that carry no real dependency, only order (the same trigger as [0004](0004-next-means-startable.md)).

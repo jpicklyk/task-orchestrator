@@ -4,6 +4,8 @@ Each requirement says what a project's configuration must be able to SAY for a j
 
 Principles carried from the discussion: the schema defines the journey; Task Orchestrator concepts stay method-neutral (no epic/story/charter in the tool); no sync with external tools; no enforcement machinery without data; nodes show current state.
 
+**Note (2026-11-26):** pass 10 of the boundary analysis marked R19 (as framed), R24, R27, R32, R34, R47 and R50 obsolete as config requirements, and treats R15 like R27 (invocation arguments, with only a persisted policy held). R28-R34 are in [journey-config-critique.md](journey-config-critique.md) and R35-R50 in [journey-knowledge-base.md](journey-knowledge-base.md); the current grades are on [journey-config-fit.html](../journey-config-fit.html). The rows below are kept as first written.
+
 ## Structure of the work
 
 | # | The config must be able to say | Stages |
