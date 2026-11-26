@@ -21,9 +21,9 @@ Inputs: the [decision records](decisions/README.md), the server change table and
 
 Sizes are rough: S a day or less, M a few days, L a week or more of agent work.
 
-### P0 Terminology alignment (in progress)
+### P0 Terminology alignment (done)
 
-Running in a separate session over container `f2b1432b`: the plugin and docs sweeps, server text, run-token and run-seat renames with aliases, seat-name validation, the steering rename and the knowledge-journey glossary rows. It goes first because P2 and P6 edit the same code.
+Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs sweeps, server text, run-token and run-seat renames with aliases, seat-name validation, the steering rename and the knowledge-journey glossary rows. It went first because P2 and P6 edit the same code.
 
 ### P1 `next` returns startable work
 
@@ -133,8 +133,8 @@ flowchart LR
   P6 --> P7
 ```
 
-- **Now, beside P0:** P1 phase 1, P5 and P8. None touches P0's files, and each removes a workaround or a leak on its own.
-- **After P0:** P2, then P3 and P4.
+- **Beside P0:** P1 phase 1, P5 and P8. None touches P0's files, and each removes a workaround or a leak on its own.
+- **After P0 (done 2026-11-26):** P2, then P3 and P4.
 - **Then:** P6, and last P7, which consumes everything else.
 
 ## Decisions settled for this breakdown (2026-11-24)
