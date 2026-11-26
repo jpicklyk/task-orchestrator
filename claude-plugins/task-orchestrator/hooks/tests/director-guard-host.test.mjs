@@ -22,7 +22,6 @@ import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
 import {
   REASON_PREFIX,
   DIRECTOR_SKILL_NAMES,
-  DIRECTOR_SKILL_ALLOW,
   DIRECTOR_HOST_MCP_ALLOW,
   DIRECTOR_RUNS_READ_SELECTS,
   GH_PR_JSON_FIELDS,
@@ -245,24 +244,17 @@ test('S5: GH_PR_JSON_FIELDS is frozen and holds status and body fields but no co
   for (const f of ['comments', 'reviews', 'latestReviews']) assert.ok(!GH_PR_JSON_FIELDS.includes(f), f);
 });
 
-// ---- S6: Skill allow-list -----------------------------------------------------------------------------
+// ---- S6: Skill is open ---------------------------------------------------------------------------------
+// A Skill call only loads instructions; each tool the skill then calls is checked on its own call (W1-W3 in
+// director-guard-coverage for the writes that would let a loaded skill drive work).
 
-test('S6: Skill director, task-orchestrator:director, a padded name and task-orchestrator:model-effort are allowed', () => {
-  for (const skill of ['director', 'task-orchestrator:director', ' director ', 'task-orchestrator:model-effort']) {
+test('S6: every Skill call is allowed under the marker: director names, entry skills, odd inputs', () => {
+  for (const skill of [...DIRECTOR_SKILL_NAMES, ' director ', 'task-orchestrator:model-effort', 'task-orchestrator:work-summary',
+    'task-orchestrator:init', 'task-orchestrator:run-wave', 'implement', '']) {
     allows(call('Skill', { skill }), JSON.stringify(skill));
   }
-});
-
-test('S6: any other Skill, an absent skill and a non-string skill are denied', () => {
-  denies(call('Skill', { skill: 'task-orchestrator:init' }));
-  denies(call('Skill', { skill: 'task-orchestrator:run-wave' }));
-  denies(call('Skill', {}));
-  denies(call('Skill', { skill: 5 }));
-});
-
-test('S6: DIRECTOR_SKILL_ALLOW is the director names plus model-effort, frozen', () => {
-  assert.deepEqual([...DIRECTOR_SKILL_ALLOW].sort(), [...DIRECTOR_SKILL_NAMES, 'task-orchestrator:model-effort'].sort());
-  assert.ok(Object.isFrozen(DIRECTOR_SKILL_ALLOW));
+  allows(call('Skill', {}));
+  allows(call('Skill', { skill: 5 }));
 });
 
 // ---- S7: Workflow scriptPath / resumeFromRunId --------------------------------------------------------
@@ -292,8 +284,6 @@ const NEW_DENY_INPUTS = [
   call(RUNS_READ_DIRECTOR, {}),
   cmd('gh pr view 12 --comments'),
   cmd('gh pr view 12 --json reviews'),
-  call('Skill', { skill: 'task-orchestrator:init' }),
-  call('Skill', { skill: 'task-orchestrator:run-wave' }),
   call('Workflow', { ...SAFE_WORKFLOW, scriptPath: 'x.js' }),
   call('Workflow', { ...SAFE_WORKFLOW, resumeFromRunId: 'r-1' }),
 ];
@@ -318,10 +308,10 @@ test('S8 R1: without the marker, in a subagent or in the headless env every host
   }
 });
 
-test('S8: under the marker SendMessage is never denied, TO notes_write is not guarded, notes_read is denied', () => {
+test('S8: under the marker SendMessage is never denied, TO notes_write and notes_read are denied', () => {
   allows(call('SendMessage', {}));
   allows(call('ListAgents', {}));
-  allows(call(NOTES_WRITE, { ops: [] }));
+  denies(call(NOTES_WRITE, { ops: [] }));
   denies(call(NOTES_READ, { select: 'get' }));
 });
 
@@ -346,7 +336,7 @@ test('S9: hooks-config registers three director-guard groups, one hook each, tim
   const group1 = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|' + CONTENT_TOOL_NAMES.join('|') + '|REPL';
   assert.deepEqual(groups.map((g) => g.matcher).sort(), [
     group1,
-    orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']),
+    orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write']),
     hostToolMatcher(),
   ].sort());
 });
@@ -394,13 +384,13 @@ function e2e() {
 
 const e2eCall = (tool_name, tool_input) => ({ tool_name, tool_input, session_id: 'host-session' });
 
-test('S10: through the hook process, host, web, config and foreign Skill calls deny under the marker and pass without it', () => {
+test('S10: through the hook process, host, web, config and write calls deny under the marker and pass without it', () => {
   const { exec, plant } = e2e();
   const denyInputs = [
     e2eCall('mcp__terminal__read_terminal', {}),
     e2eCall('WebFetch', { url: 'http://localhost:3001/x' }),
     e2eCall(CONFIG, { ops: [{ op: 'get' }] }),
-    e2eCall('Skill', { skill: 'task-orchestrator:init' }),
+    e2eCall('mcp__mcp-task-orchestrator__advance', { ops: [{ op: 'transition' }] }),
   ];
   for (const i of denyInputs) assert.deepEqual(exec(i), {}, 'control, no marker: ' + i.tool_name);
   assert.deepEqual(exec(e2eCall('mcp__ccd_session__start_session', {})), {}, 'no marker, allow-listed host tool');
@@ -463,12 +453,12 @@ test('probe: Workflow scriptPath null versus absent are different states', () =>
   denies(call('Workflow', { ...SAFE_WORKFLOW, scriptPath: null }));
 });
 
-test('probe: an empty skill name denies', () => {
-  denies(call('Skill', { skill: '' }));
+test('probe: an empty skill name is allowed (Skill is open)', () => {
+  allows(call('Skill', { skill: '' }));
 });
 
 test('probe: unusable tool_input denies for each guarded tool, while an allow-listed host tool still allows', () => {
-  for (const tool of ['mcp__terminal__read_terminal', 'WebFetch', CONFIG, RUNS_READ, 'Skill', 'Workflow']) {
+  for (const tool of ['mcp__terminal__read_terminal', 'WebFetch', CONFIG, RUNS_READ, 'mcp__mcp-task-orchestrator__runs_write', 'Workflow']) {
     for (const ti of [null, 'x']) denies({ tool_name: tool, tool_input: ti, session_id: 's' }, `${tool} ${JSON.stringify(ti)}`);
   }
   for (const t of HOST_ALLOW_TOOLS) {

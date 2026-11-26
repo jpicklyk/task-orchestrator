@@ -15,7 +15,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Workflow`, the reads and writes on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -29,15 +29,18 @@ Calling the skill again refreshes the marker and the dashboard.
   denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
-  run rollup (`report` `rollup`).
+  run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
+  agent reads the notes and returns ids, a verdict and one line.
+- One board read per wake; act on its ids and do not re-read.
+- Never drive work. `advance`, `items_write`, `notes_write`, `deps_write` and `docs_write` are denied;
+  `runs_write` runs only `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` and `reissue`.
+- `Skill` is open: each call a loaded skill makes is checked on its own.
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
   `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
-  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list; the common ones, not the whole list): `git log`
-  takes `--oneline`, `--format=`, `-n <k>`, `--graph`, `--since=`, `--author=`, `--grep=` and
-  `--stat`, never `-p` or another patch flag; `git status` takes `-s`, `-b`, `--porcelain` and
-  `-uno`, never `-v`; `git branch` may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`,
-  `--merged <ref>`, `--contains <ref>`). Revisions and paths are allowed as operands.
+  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log` never `-p` or another
+  patch flag, `git status` never `-v`, and `git branch` may only list. Revisions and paths are allowed
+  as operands; the full flag lists are in guard-coverage.md.
 - `Agent` runs only in the background: `run_in_background: true`. A foreground dispatch is denied,
   as its result would land here. Code Mode's `Agent` has no such field and is always background; the
   guard allows it after a `REPL` call.
@@ -62,16 +65,15 @@ The whole tool budget of a director session:
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
 | `Agent` | Background only (`run_in_background: true`; always so in Code Mode), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to orchestrators and other sessions |
-| `Skill` | Re-invoke this skill, or `off`; may also load `task-orchestrator:model-effort` |
+| `Skill` | Any skill (`task-orchestrator:model-effort`, entry skills); each call it makes is guarded |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director profile. Anything else (notes, items writes,
-`advance`, config) is an orchestrator's job. `runs_write` `open` is in the director profile on purpose:
-a session that opens a run holds that run's token.
+`advance`, config) is an orchestrator's job. `runs_write` `open` is denied: a session that opens a run
+holds its token and is its orchestrator.
 
-The guard enforces the altitude rule, not this whole budget: it does not deny `notes_write`, `items_write`
-or `advance`, so keep to the budget yourself. Only the hardened entry enforces the whole budget, through
-its tool list. What the guard denies, and where it stops: [references/guard-coverage.md](references/guard-coverage.md).
+The guard enforces the altitude and write rules, not this whole budget; only the hardened entry does,
+through its tool list. What the guard denies, and where it stops: [references/guard-coverage.md](references/guard-coverage.md).
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
@@ -88,10 +90,9 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 That connection uses the server's director profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
-`items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects, and `runs_read` only with
-`get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). `Skill` runs only the director
-skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The guard tells the orchestration connection from a host server by its server key; the limit is in
+stays registered, and the guard enforces the rule there too: any read that returns body text is denied
+(`config`, `notes_read` and `docs_read` `get`, `search` with snippets, `schema` with guidance), their metadata
+forms run, and `runs_read` runs `get`, `list`, `frontier`, `decisions` and `decision`. The guard tells the orchestration connection from a host server by its server key; the limit is in
 guard-coverage.md. Use the hardened entry (below)
 when enforcement matters.
 

@@ -69,7 +69,7 @@ Example: run-wave hands a wave to a background agent. That agent is the run's or
 
 ### Director
 
-The layer that decides on the user's behalf, within the authority each decision class gives it. It works through the decision inbox, sends a background agent when an answer needs evidence and reads only that agent's summary, and escalates what it may not settle. It acts on the board at the user's instruction; it does not own the board. It reads only ids, counts, one decision in full at a time, and run rollups. It never drives work: it hands work to orchestrators.
+The layer that decides on the user's behalf, within the authority each decision class gives it. It works through the decision inbox and decides from each decision request, which carries the evidence its answer needs; when it does not, the director sends a background agent and reads only that agent's summary. It escalates what it may not settle. It acts on the board at the user's instruction; it does not own the board. It never reads a note or document body: it reads ids, counts, state and short reasons, one decision in full at a time, and run rollups. It never drives work: it hands work to orchestrators.
 
 Distinct from: orchestrator, which drives and never decides. The director is also distinct from the director profile, its tool set, and from director mode, the session mode in which the user's own session plays this layer.
 
@@ -93,7 +93,7 @@ In code: the work-summary and director skills render it today. Its reads are `ru
 
 ### Director mode
 
-The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying body reads and edits and allowing read-only scripts and background dispatch. The director offloads research to background agents and answers from their concise result.
+The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying reads that return body text, edits and every Task Orchestrator write except decision ops and run control, and allowing any skill, read-only scripts and background dispatch. The director offloads research to background agents and answers from their concise result.
 
 Distinct from: director profile, which is a server endpoint. The bare word "director" names the layer, this mode and the profile, so where the context does not settle it, say which.
 Example: a background agent dispatched by a director session is not in director mode.

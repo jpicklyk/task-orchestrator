@@ -113,7 +113,7 @@
       }
 ,
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$",
+        "matcher": "^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write)$",
         "hooks": [
           {
             "type": "command",
