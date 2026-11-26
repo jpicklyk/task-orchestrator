@@ -294,7 +294,7 @@ How a rejection reaches you:
 
 | Surface | Rejection |
 |---------|-----------|
-| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid` (`422` only on an atomic call, `207 partial_failure` otherwise: `EnvelopeEncoder.kt` `batch` answers the failing element's own error for `atomic` and a `partial_failure` envelope for a non-atomic batch, see `BatchResult.kt:37` and `ErrorCode.kt:45`); `detail.errors` holds the `{path, reason}` list. Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
+| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid`, and `detail.errors` holds the `{path, reason}` list. The call answers it as every batch does (see [Batch answers](api-reference.md#response-envelope)): `422` on an atomic call, otherwise `207 partial_failure`, with the code and its detail shape in the [error catalog](api-reference.md#error-catalog). Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
 
 `force` bypasses the rootId-mismatch and older-content guards (the latter is `version_conflict` otherwise). It does not bypass validation or `expectedVersion`.
 
