@@ -27,10 +27,10 @@ object ErrorFixTemplates {
             ErrorCode.NOT_CLAIM_HOLDER to "Claim item {itemId} before advancing it.",
             ErrorCode.SEAT_FORBIDDEN to
                 "Action {action} on item {itemId} is restricted to the allowed seats and the run token of run {runId}; " +
-                    "act from one of them or hand the step to that run's orchestrator.",
+                "act from one of them or hand the step to that run's orchestrator.",
             ErrorCode.NOTE_OWNED_BY_OTHER to
                 "Note {key} on item {itemId} is owned by another principal or seat; use a different note key, " +
-                    "or, when detail.runId is set, write it with that run's token or hand the step to that run's orchestrator.",
+                "or, when detail.runId is set, write it with that run's token or hand the step to that run's orchestrator.",
             ErrorCode.NOTE_TOO_LONG to "Shorten note {key} to at most {max} characters.",
             ErrorCode.RESOURCE_UNAVAILABLE to "Retry advancing item {itemId} after the contended resources are released.",
             ErrorCode.RUN_CLOSED to "Run {runId} is closed ({terminalReason}); open a new run to continue.",

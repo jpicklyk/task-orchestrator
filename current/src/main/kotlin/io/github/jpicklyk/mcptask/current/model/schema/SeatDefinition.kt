@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.model.schema
 
 import io.github.jpicklyk.mcptask.current.model.item.Role
-import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
 
 /**
  * One entry in a schema's or trait's `seats:` list: a role within a phase.
