@@ -532,7 +532,7 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 - Run meta-evaluation if 3+ prior retrospectives exist
 - Render a dashboard
 
-> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend container and tag names, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates the cache is keyed by version and can stay stale, and remove and re-add does not refresh it: delete `~/.claude/plugins/cache/task-orchestrator-marketplace`, then run `claude plugin marketplace update task-orchestrator-marketplace` (re-extraction is lazy; see "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md#plugin-discovery-and-cache-refresh)).
+> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend container and tag names, dimension definitions, and graduation thresholds may differ in your setup. After a plugin update the version-keyed plugin cache can stay stale; refresh it as "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md#plugin-discovery-and-cache-refresh) describes.
 
 **6.** Wire a retrospective nudge so the agent suggests `/session-retrospective` after implementation runs end. Two layered options — pick one or use both:
 
@@ -560,7 +560,7 @@ This relies on the agent noticing the run close and remembering to nudge. Soft s
 | `retro-backstop.mjs` | Stop | End-of-turn backstop: finds completed scopes (or closed, unmarked runs) so a close is never silently missed; retries a failed dispatch |
 | `retro-subagent-stop.mjs` | SubagentStop | Marks a dispatched retrospective that stopped without the `retro` mark as failed, so the next Stop retries it |
 
-All three are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
+All three are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md#plugin-discovery-and-cache-refresh)) is enough.
 
 Behavior is configured per workspace via `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled). See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 

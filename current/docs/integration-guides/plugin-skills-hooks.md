@@ -28,7 +28,7 @@ Two commands in Claude Code:
 
 Verify with `/plugin list` — you should see `task-orchestrator` as enabled.
 
-After editing plugin files, the plugin cache is version-keyed: while the plugin version is unchanged, a marketplace update and a full remove and re-add both reuse the stale cached copy. Delete the cache directory first, then update the marketplace; see "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md). For initial installation this is not required.
+After editing plugin files, the plugin cache is version-keyed, so neither a marketplace update nor a remove and re-add refreshes it; refresh it as "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md#plugin-discovery-and-cache-refresh) describes. For initial installation this is not required.
 
 See [Quick Start](../quick-start.md) Step 4 for the full installation walkthrough.
 
