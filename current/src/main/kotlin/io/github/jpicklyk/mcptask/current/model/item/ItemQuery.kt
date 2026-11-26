@@ -1,14 +1,12 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.model.item
 
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.model.item.Priority
-import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.time.Instant
 import java.util.UUID
 
 /**
- * What [ItemStore.find] and [ItemStore.count] select. Every non-null field is a condition and the
+ * What `ItemStore.find` and `ItemStore.count` select. Every non-null field is a condition and the
  * conditions are AND-ed; [tagsAny] is OR-ed within its list.
  *
  * @property parentId Direct children of this item.

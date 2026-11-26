@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.lifecycle
 
+import io.github.jpicklyk.mcptask.current.item.OverviewQueries
+import io.github.jpicklyk.mcptask.current.item.OverviewRequest
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder
 import io.github.jpicklyk.mcptask.current.model.item.Priority
@@ -166,17 +168,23 @@ class ViewQueryCountTest {
         return seeded
     }
 
+    /** The two read models the views run on: the work views and the overview. */
+    private class Queries(
+        val work: WorkViewQueries,
+        val overview: OverviewQueries
+    )
+
     private fun view(
         name: String,
-        run: suspend (WorkViewQueries) -> Unit
-    ): Pair<String, suspend (WorkViewQueries) -> Unit> = name to run
+        run: suspend (Queries) -> Unit
+    ): Pair<String, suspend (Queries) -> Unit> = name to run
 
-    private fun views(s: Seeded): List<Pair<String, suspend (WorkViewQueries) -> Unit>> {
+    private fun views(s: Seeded): List<Pair<String, suspend (Queries) -> Unit>> {
         val page = PageRequest(limit = 200)
         return listOf(
-            view("next default") { q -> q.next(NextItemRecommender.Criteria(), page) },
+            view("next default") { q -> q.work.next(NextItemRecommender.Criteria(), page) },
             view("next as agent, subtree scope, by oldest") { q ->
-                q.next(
+                q.work.next(
                     NextItemRecommender.Criteria(
                         requestingAgentId = "agent-0",
                         ancestorIds = setOf(s.anchor, s.firstKitRoot),
@@ -185,26 +193,26 @@ class ViewQueryCountTest {
                     page
                 )
             },
-            view("next includeClaimed") { q -> q.next(NextItemRecommender.Criteria(), page, includeClaimed = true) },
-            view("next role work") { q -> q.next(NextItemRecommender.Criteria(role = Role.WORK), page) },
-            view("blocked unscoped") { q -> q.blocked(BlockedScope(), page) },
-            view("blocked by parent") { q -> q.blocked(BlockedScope(parentId = s.firstKitRoot), page) },
-            view("blocked by ancestor") { q -> q.blocked(BlockedScope(ancestorId = s.anchor), page) },
-            view("overview global") { q -> q.overview(OverviewRequest(page = page)) },
+            view("next includeClaimed") { q -> q.work.next(NextItemRecommender.Criteria(), page, includeClaimed = true) },
+            view("next role work") { q -> q.work.next(NextItemRecommender.Criteria(role = Role.WORK), page) },
+            view("blocked unscoped") { q -> q.work.blocked(BlockedScope(), page) },
+            view("blocked by parent") { q -> q.work.blocked(BlockedScope(parentId = s.firstKitRoot), page) },
+            view("blocked by ancestor") { q -> q.work.blocked(BlockedScope(ancestorId = s.anchor), page) },
+            view("overview global") { q -> q.overview.overview(OverviewRequest(page = page)) },
             view("overview global excludeTerminal includeChildren") { q ->
-                q.overview(OverviewRequest(page = page, excludeTerminal = true, includeChildren = true))
+                q.overview.overview(OverviewRequest(page = page, excludeTerminal = true, includeChildren = true))
             },
-            view("overview scoped") { q -> q.overview(OverviewRequest(itemId = s.firstKitRoot, page = page)) },
+            view("overview scoped") { q -> q.overview.overview(OverviewRequest(itemId = s.firstKitRoot, page = page)) },
             view("overview scoped excludeTerminal") { q ->
-                q.overview(OverviewRequest(itemId = s.firstKitRoot, page = page, excludeTerminal = true))
+                q.overview.overview(OverviewRequest(itemId = s.firstKitRoot, page = page, excludeTerminal = true))
             },
-            view("overview anchored") { q -> q.overview(OverviewRequest(anchorId = s.anchor, page = page)) },
+            view("overview anchored") { q -> q.overview.overview(OverviewRequest(anchorId = s.anchor, page = page)) },
             view("overview anchored excludeTerminal") { q ->
-                q.overview(OverviewRequest(anchorId = s.anchor, page = page, excludeTerminal = true))
+                q.overview.overview(OverviewRequest(anchorId = s.anchor, page = page, excludeTerminal = true))
             },
-            view("context unscoped") { q -> q.context(ContextScope(), page) },
-            view("context scoped to anchor") { q -> q.context(ContextScope(ancestorId = s.anchor), page) },
-            view("context scoped to claimed root") { q -> q.context(ContextScope(ancestorId = s.claimedRoot), page) }
+            view("context unscoped") { q -> q.work.context(ContextScope(), page) },
+            view("context scoped to anchor") { q -> q.work.context(ContextScope(ancestorId = s.anchor), page) },
+            view("context scoped to claimed root") { q -> q.work.context(ContextScope(ancestorId = s.claimedRoot), page) }
         )
     }
 
@@ -212,7 +220,7 @@ class ViewQueryCountTest {
         val result = linkedMapOf<String, Counted>()
         SqliteTestDatabase.open(clock = clock).use { d ->
             val seeded = seed(d, scale)
-            val queries = WorkViewQueries(d.unitOfWork())
+            val queries = Queries(WorkViewQueries(d.unitOfWork()), OverviewQueries(d.unitOfWork()))
             for ((name, run) in views(seeded)) {
                 run(queries) // warm-up, not counted
                 result[name] = countStatements(d) { run(queries) }

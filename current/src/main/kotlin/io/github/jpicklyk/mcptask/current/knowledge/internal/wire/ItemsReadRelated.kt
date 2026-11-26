@@ -2,9 +2,6 @@ package io.github.jpicklyk.mcptask.current.knowledge.internal.wire
 
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemNotFound
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageOf
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageRequest
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.RelatedHit
@@ -19,7 +16,10 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.itemNotFound
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.pageOf
+import io.github.jpicklyk.mcptask.current.platform.tool.pageRequest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

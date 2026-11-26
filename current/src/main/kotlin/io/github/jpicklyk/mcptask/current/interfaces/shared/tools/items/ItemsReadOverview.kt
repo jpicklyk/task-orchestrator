@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.lifecycle.OverviewEntry
-import io.github.jpicklyk.mcptask.current.lifecycle.OverviewRequest
-import io.github.jpicklyk.mcptask.current.lifecycle.OverviewView
+import io.github.jpicklyk.mcptask.current.item.OverviewEntry
+import io.github.jpicklyk.mcptask.current.item.OverviewRequest
+import io.github.jpicklyk.mcptask.current.item.OverviewView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -13,9 +13,14 @@ import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.countsJson
 import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
+import io.github.jpicklyk.mcptask.current.platform.tool.itemNotFound
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.pageRequest
+import io.github.jpicklyk.mcptask.current.platform.tool.pointer
+import io.github.jpicklyk.mcptask.current.platform.tool.putPage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -90,7 +95,7 @@ object ItemsReadOverview {
                         }
                     }
                 val view =
-                    env.workViewQueries.overview(
+                    env.overviewQueries.overview(
                         OverviewRequest(
                             itemId = itemId,
                             anchorId = anchorId,

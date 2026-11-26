@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.lifecycle
+package io.github.jpicklyk.mcptask.current.item
 
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -128,9 +128,9 @@ class OverviewScopeQueryCountTest {
     private fun views(
         s: Seeded,
         scope: AccessScope
-    ): List<Pair<String, suspend (WorkViewQueries) -> Unit>> {
+    ): List<Pair<String, suspend (OverviewQueries) -> Unit>> {
         val page = PageRequest(limit = 200)
-        return listOf<Pair<String, suspend (WorkViewQueries) -> Unit>>(
+        return listOf<Pair<String, suspend (OverviewQueries) -> Unit>>(
             "global" to { q -> q.overview(OverviewRequest(page = page, scope = scope)) },
             "global excludeTerminal includeChildren" to { q ->
                 q.overview(OverviewRequest(page = page, excludeTerminal = true, includeChildren = true, scope = scope))
@@ -153,7 +153,7 @@ class OverviewScopeQueryCountTest {
         val result = linkedMapOf<String, Int>()
         SqliteTestDatabase.open(clock = clock).use { d ->
             val seeded = seed(d, scale)
-            val queries = WorkViewQueries(d.unitOfWork())
+            val queries = OverviewQueries(d.unitOfWork())
             for ((name, run) in views(seeded, scope)) {
                 run(queries)
                 result[name] = countStatements(d) { run(queries) }
@@ -195,7 +195,7 @@ class OverviewScopeQueryCountTest {
         SqliteTestDatabase.open(clock = clock).use { d ->
             val seeded = seed(d, scale)
             val scope = AccessScope.principal(setOf(seeded.anchor), emptySet())
-            val queries = WorkViewQueries(d.unitOfWork())
+            val queries = OverviewQueries(d.unitOfWork())
             for ((name, run) in views(seeded, scope)) {
                 run(queries)
                 result[name] = countStatements(d) { run(queries) }
@@ -209,7 +209,7 @@ class OverviewScopeQueryCountTest {
         runBlocking {
             SqliteTestDatabase.open(clock = clock).use { d ->
                 val seeded = seed(d, 5)
-                val queries = WorkViewQueries(d.unitOfWork())
+                val queries = OverviewQueries(d.unitOfWork())
                 val unscoped = queries.overview(OverviewRequest(itemId = seeded.container, page = PageRequest(limit = 200)))
                 val scoped =
                     queries.overview(OverviewRequest(itemId = seeded.container, page = PageRequest(limit = 200), scope = tagScope))

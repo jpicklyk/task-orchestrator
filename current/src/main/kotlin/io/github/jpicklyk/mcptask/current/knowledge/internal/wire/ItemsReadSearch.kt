@@ -2,12 +2,7 @@ package io.github.jpicklyk.mcptask.current.knowledge.internal.wire
 
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.KindWire
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.MatchModeWire
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.RoleWire
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageOf
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageRequest
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pointer
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveOptionalId
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.MAX_FTS_RESULTS
@@ -23,6 +18,9 @@ import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.pageOf
+import io.github.jpicklyk.mcptask.current.platform.tool.pageRequest
+import io.github.jpicklyk.mcptask.current.platform.tool.pointer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

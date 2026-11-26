@@ -2,11 +2,6 @@ package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemNotFound
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageOf
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageRequest
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pointer
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.putPage
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -18,7 +13,12 @@ import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
+import io.github.jpicklyk.mcptask.current.platform.tool.itemNotFound
 import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.platform.tool.pageOf
+import io.github.jpicklyk.mcptask.current.platform.tool.pageRequest
+import io.github.jpicklyk.mcptask.current.platform.tool.pointer
+import io.github.jpicklyk.mcptask.current.platform.tool.putPage
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

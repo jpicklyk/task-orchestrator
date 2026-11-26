@@ -1,8 +1,6 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.model.item
 
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
-import io.github.jpicklyk.mcptask.current.model.item.Priority
-import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import java.time.Instant
 import java.util.UUID

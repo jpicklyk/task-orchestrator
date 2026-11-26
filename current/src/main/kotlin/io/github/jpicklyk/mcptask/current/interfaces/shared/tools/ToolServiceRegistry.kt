@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
+import io.github.jpicklyk.mcptask.current.item.OverviewQueries
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.wire.StatusGraphBuilder
@@ -70,7 +71,7 @@ class ToolServiceRegistry(
         ItemToolServices(
             items = { tec.workItemRepository() },
             unitOfWork = tec.unitOfWork,
-            workViewQueries = tec.workViewQueries,
+            overviewQueries = OverviewQueries(tec.unitOfWork),
             schemaPin = lazy { tec.schemaPinService }
         )
 

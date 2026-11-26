@@ -1,11 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.ItemFilter
+import io.github.jpicklyk.mcptask.current.model.item.ItemPage
 import io.github.jpicklyk.mcptask.current.model.item.ItemSlice
+import io.github.jpicklyk.mcptask.current.model.item.ItemSort
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.ItemScopeReads
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.util.UUID
 
@@ -18,14 +22,12 @@ import java.util.UUID
  * with [WorkItem.diagnostics] listing its violations (the mapper is total). Writes validate.
  * [update] never writes the claim columns; those belong to `ClaimStore`.
  */
-interface ItemStore {
+interface ItemStore : ItemScopeReads {
     /**
      * A cheap round trip on the reader pool that proves the database is reachable; throws when it
      * is not. Backs the service health probe.
      */
     suspend fun ping()
-
-    suspend fun getById(id: UUID): WorkItem?
 
     @StoreWrite
     suspend fun create(item: WorkItem): WorkItem
@@ -138,11 +140,6 @@ interface ItemStore {
     suspend fun countRootItems(excludeTerminal: Boolean = false): Long
 
     /**
-     * Fetch multiple items by ID in one query. Missing IDs are silently omitted.
-     */
-    suspend fun findByIds(ids: Set<UUID>): List<WorkItem>
-
-    /**
      * Delete multiple items by ID in one query. Returns the number of rows deleted.
      */
     @StoreWrite
@@ -162,17 +159,6 @@ interface ItemStore {
      * [ownerIds]: the rows deleting those owners would leave pointing at a cascaded-away version.
      */
     suspend fun findPinnedToConfigOf(ownerIds: Set<UUID>): List<WorkItem>
-
-    /**
-     * The items whose id, as 32 lower-case hex digits without dashes, starts with [prefix]
-     * (compared ignoring case), in ascending id order, at most [limit] of them. Backs short-id
-     * resolution (`IdResolver`); a prefix that is not hex, or longer than 32 digits, matches
-     * nothing.
-     */
-    suspend fun findByIdPrefix(
-        prefix: String,
-        limit: Int = 10
-    ): List<WorkItem>
 
     /**
      * Count work items within the subtree rooted at any of [rootIds] (roots included), grouped by

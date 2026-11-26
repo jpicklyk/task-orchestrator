@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.ItemScopeReads
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import java.util.UUID
@@ -23,7 +23,7 @@ import java.util.UUID
 object ScopedIds {
     /** Resolves [ref] (request field [field], a JSON pointer) under [scope]; see the class rules. */
     suspend fun resolve(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         ref: IdRef,
         field: String
@@ -31,7 +31,7 @@ object ScopedIds {
 
     /** [resolve] for a raw id string. */
     suspend fun resolve(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         raw: String,
         field: String
@@ -39,7 +39,7 @@ object ScopedIds {
 
     /** [resolve] followed by [ScopeGuard.check]: a target id the caller may not see is `forbidden`. */
     suspend fun resolveTarget(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         ref: IdRef,
         field: String
@@ -47,7 +47,7 @@ object ScopedIds {
 
     /** [resolveTarget] for a raw id string. */
     suspend fun resolveTarget(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         raw: String,
         field: String
@@ -64,7 +64,7 @@ object ScopedIds {
     }
 
     private suspend fun admit(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         resolution: IdResolution,
         field: String
@@ -85,7 +85,7 @@ object ScopedIds {
     }
 
     private suspend fun checked(
-        repo: WorkItemRepository,
+        repo: ItemScopeReads,
         scope: AccessScope,
         resolved: Outcome<UUID>
     ): Outcome<UUID> =

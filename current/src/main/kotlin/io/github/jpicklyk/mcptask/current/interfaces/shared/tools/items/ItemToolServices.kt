@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.ItemStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.PinViews
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.item.OverviewQueries
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
 /**
@@ -14,7 +14,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 class ItemToolServices(
     private val items: () -> WorkItemRepository,
     val unitOfWork: UnitOfWork<ItemStoreProvider>,
-    val workViewQueries: WorkViewQueries,
+    val overviewQueries: OverviewQueries,
     private val schemaPin: Lazy<PinViews>
 ) : ItemLookup {
     val pinViews: PinViews by schemaPin
