@@ -238,7 +238,7 @@ test('S10: hooks-config registers the guard with fail-closed onFailure', () => {
   const groups = cfg.hooks.PreToolUse.filter((g) => g.hooks.some((h) => h.command.includes('director-guard.mjs')));
   assert.equal(groups.length, 3);
   assert.deepEqual(groups.map((g) => g.matcher).sort(), [
-    '^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$',
+    '^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write)$',
     'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL',
     '^mcp__(?!.*task-orchestrator).*$',
   ].sort());

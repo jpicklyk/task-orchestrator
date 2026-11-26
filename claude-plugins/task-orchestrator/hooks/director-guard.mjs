@@ -2,7 +2,7 @@
 // Director Guard Hook - PreToolUse, three registrations. Group 1: the exact tool names Skill, Read, Edit, Write, Bash,
 // PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool and
 // ReadMcpResourceDirTool and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
-// tools. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
+// tools and the write tools advance, items_write, notes_write, deps_write, docs_write and runs_write. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
 // Two jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
@@ -10,14 +10,17 @@
 //    writes the per-session director marker at `directorMarkerPath(session_id)`; the same call
 //    with `args` `off` removes it. A skill body cannot see its session id, the hook can, so the
 //    marker is written here.
-// 2. Altitude rule. While the marker exists, the director session may not open files or run
-//    foreground work: Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
+// 2. Altitude rule. While the marker exists, the director session may not open files, run
+//    foreground work or drive work: advance, items_write, notes_write, deps_write and docs_write are denied,
+//    runs_write is allowed only when every op is in DIRECTOR_RUNS_WRITE_OPS (decision ops and run control),
+//    Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
 //    denied outright, docs_read and notes_read on any task-orchestrator server are denied, items_read
-//    is allowed only for the director selects (get, list, overview, blocked) or `describe: true`,
+//    is allowed only for DIRECTOR_ITEMS_READ_SELECTS (the selects that return no note body) or `describe: true`,
 //    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
 //    `altitudeSafe: true` and no `scriptPath` or `resumeFromRunId`, config is denied, runs_read is
 //    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch and the MCP resource readers
-//    are denied, Skill is allowed only for DIRECTOR_SKILL_ALLOW, every host MCP tool (a name
+//    are denied, Skill is always allowed (it loads instructions only; each tool a skill calls is checked on its own
+//    call), every host MCP tool (a name
 //    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
@@ -51,9 +54,6 @@ export const DIRECTOR_BASH_ALLOW = Object.freeze(['git status', 'git log', 'git 
 /** Every deny reason starts with this. */
 export const REASON_PREFIX = 'Director altitude rule:';
 
-/** Skills a director session may call: the director skill itself and the model-effort reference. */
-export const DIRECTOR_SKILL_ALLOW = Object.freeze([...DIRECTOR_SKILL_NAMES, 'task-orchestrator:model-effort']);
-
 /**
  * Bare names (the segment after the last `__`) of host MCP tools a director session may call: the
  * orchestrator placements' session tools, the tier-1 launch profile calls (get_settings, set_session_output_style) and
@@ -82,13 +82,26 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'NotebookEd
 export const SHELL_TOOLS = Object.freeze(['Bash', 'PowerShell', 'Monitor']);
 const SHELL_TOOL_SET = new Set(SHELL_TOOLS);
 
-/** The items_read selects a director session may use (the director profile set). */
-export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overview', 'blocked']);
+/**
+ * The items_read selects a director session may use: the director profile set (get, list, overview, blocked) plus the
+ * orchestration selects that return no note body (context: gate state or a health view; next: ranked items; history:
+ * transitions). search and related stay denied (they can return note body snippets), and so does schema.
+ */
+export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overview', 'blocked', 'context', 'next', 'history']);
 
 /** The only workflow that honours `altitudeSafe`. */
 const ALTITUDE_SAFE_WORKFLOW = 'task-orchestrator:implement-wave';
 
-const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$/;
+/**
+ * The runs_write ops a director session may send: decision ops and run control. Every other op (open, update, mark,
+ * assign, end_seat, raise) drives a run, which is an orchestrator's job.
+ */
+export const DIRECTOR_RUNS_WRITE_OPS = Object.freeze(['answer', 'ack', 'withdraw', 'pause', 'resume', 'close', 'reissue']);
+
+/** Task Orchestrator write tools a director session never calls: they drive work. runs_write is checked per op. */
+export const DIRECTOR_DENIED_WRITE_TOOLS = Object.freeze(['advance', 'items_write', 'notes_write', 'deps_write', 'docs_write']);
+
+const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write)$/;
 const HOST_TOKEN = 'task-orchestrator';
 
 const REMEDY =
@@ -263,11 +276,8 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   const inDirector =
     typeof director === 'boolean' ? director : typeof director === 'function' ? director(input) === true : isDirectorSession(input);
   if (!inDirector) return null;
-  if (tool === 'Skill') {
-    const skill = toolInputOf(input).skill;
-    if (typeof skill === 'string' && DIRECTOR_SKILL_ALLOW.includes(skill.trim())) return null;
-    return denyReason('Skill', `only ${DIRECTOR_SKILL_ALLOW.map((e) => `\`${e}\``).join(', ')} run; leave director mode with \`/task-orchestrator:director off\` to run another skill`);
-  }
+  // Skill only loads instructions; every tool a skill then calls is checked here on its own call.
+  if (tool === 'Skill') return null;
   if (CONTENT_TOOLS.has(tool)) return denyReason(tool, 'a fetch or resource read that returns page or file content');
   if (FILE_TOOLS.has(tool)) return denyReason(tool, 'the director never opens a file');
   if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
@@ -294,6 +304,17 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   const mcp = typeof tool === 'string' ? MCP_NAME.exec(tool) : null;
   if (mcp !== null) {
     if (mcp[1] === 'config') return denyReason(tool, 'config returns rules and config documents');
+    if (DIRECTOR_DENIED_WRITE_TOOLS.includes(mcp[1])) {
+      if (toolInputOf(input).describe === true) return null;
+      return denyReason(tool, 'a write that drives work; the director never drives, it hands work to an orchestrator');
+    }
+    if (mcp[1] === 'runs_write') {
+      const ti = toolInputOf(input);
+      if (ti.describe === true) return null;
+      const ops = Array.isArray(ti.ops) ? ti.ops : [];
+      if (ops.length > 0 && ops.every((o) => isPlainObject(o) && DIRECTOR_RUNS_WRITE_OPS.includes(o.op))) return null;
+      return denyReason(tool, `only the ${DIRECTOR_RUNS_WRITE_OPS.map((e) => `\`${e}\``).join(', ')} ops run (decision ops and run control); every op of the call must be one of them`);
+    }
     if (mcp[1] === 'runs_read') {
       const ti = toolInputOf(input);
       if (ti.describe === true || (typeof ti.select === 'string' && DIRECTOR_RUNS_READ_SELECTS.includes(ti.select))) return null;

@@ -38,7 +38,8 @@ const PLUGIN_DOCS_READ = 'mcp__plugin_x_task-orchestrator__docs_read';
 const IMPLEMENT_WAVE = 'task-orchestrator:implement-wave';
 
 const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL';
-const GROUP2_MATCHER = orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']);
+const GROUP2_TOOLS = ['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write'];
+const GROUP2_MATCHER = orchestratorToolMatcher(GROUP2_TOOLS);
 
 const tracked = [];
 function tmp(prefix) {
@@ -93,10 +94,16 @@ test('S5: items_read get|list|overview|blocked are allowed on both connections',
   }
 });
 
-test('S5: items_read search|related|schema|context|next|history and an absent select are denied on both connections', () => {
+test('S5: items_read search|related|schema and an absent select are denied on both connections', () => {
   for (const tool of [ITEMS_READ, ITEMS_READ_DIRECTOR]) {
-    for (const select of ['search', 'related', 'schema', 'context', 'next', 'history']) denies(call(tool, { select }), `${tool} ${select}`);
+    for (const select of ['search', 'related', 'schema']) denies(call(tool, { select }), `${tool} ${select}`);
     denies(call(tool, {}), `${tool} absent select`);
+  }
+});
+
+test('S5: items_read context, next and history (no note body) are allowed on both connections', () => {
+  for (const tool of [ITEMS_READ, ITEMS_READ_DIRECTOR]) {
+    for (const select of ['context', 'next', 'history']) allows(call(tool, { select }), `${tool} ${select}`);
   }
 });
 
@@ -104,8 +111,8 @@ test('S5: items_read with describe:true is allowed on both connections', () => {
   for (const tool of [ITEMS_READ, ITEMS_READ_DIRECTOR]) allows(call(tool, { describe: true }), tool);
 });
 
-test('S5: DIRECTOR_ITEMS_READ_SELECTS is the frozen director profile set', () => {
-  assert.deepEqual([...DIRECTOR_ITEMS_READ_SELECTS].sort(), ['blocked', 'get', 'list', 'overview']);
+test('S5: DIRECTOR_ITEMS_READ_SELECTS is the frozen set of selects that return no note body', () => {
+  assert.deepEqual([...DIRECTOR_ITEMS_READ_SELECTS].sort(), ['blocked', 'context', 'get', 'history', 'list', 'next', 'overview']);
   assert.ok(Object.isFrozen(DIRECTOR_ITEMS_READ_SELECTS));
 });
 
@@ -153,7 +160,9 @@ const NEW_DENY_INPUTS = [
   call(NOTES_READ, { describe: true }),
   call(DOCS_READ, { select: 'get' }),
   call(ITEMS_READ, { select: 'search' }),
-  call(ITEMS_READ_DIRECTOR, { select: 'context' }),
+  call(ITEMS_READ_DIRECTOR, { select: 'search' }),
+  call('mcp__mcp-task-orchestrator__advance', { ops: [{ op: 'transition' }] }),
+  call('mcp__mcp-task-orchestrator__runs_write', { ops: [{ op: 'open' }] }),
   call(ITEMS_READ, {}),
   call('Workflow', { name: IMPLEMENT_WAVE }),
   call('Workflow', { name: IMPLEMENT_WAVE, args: { altitudeSafe: false } }),
@@ -224,15 +233,54 @@ test('S10: group 1 matches the file, shell, agent and workflow tools and not Sen
   assert.ok(!re.test('ListAgents'));
 });
 
-test('S10: group 2 is the builder-shaped matcher for config, docs_read, items_read, notes_read and runs_read on any task-orchestrator server', () => {
+test('S10: group 2 is the builder-shaped matcher for the guarded reads and the write tools on any task-orchestrator server', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG_PATH, 'utf8'));
   const group2 = cfg.hooks.PreToolUse.find((g) => g.matcher === GROUP2_MATCHER && g.hooks.some((h) => h.command.includes('director-guard.mjs')));
   assert.ok(group2, 'group 2 present');
-  assert.equal(group2.matcher, orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']));
+  assert.equal(group2.matcher, orchestratorToolMatcher(GROUP2_TOOLS));
   const re = matcherRe(group2.matcher);
-  for (const t of [NOTES_READ, DOCS_READ, ITEMS_READ, PLUGIN_DOCS_READ, ITEMS_READ_DIRECTOR]) assert.ok(re.test(t), t);
-  for (const t of ['mcp__other__notes_read', NOTES_READ + '_x', 'mcp__mcp-task-orchestrator__notes_write', 'mcp__mcp-task-orchestrator__advance']) {
+  const positives = [NOTES_READ, DOCS_READ, ITEMS_READ, PLUGIN_DOCS_READ, ITEMS_READ_DIRECTOR,
+    'mcp__mcp-task-orchestrator__notes_write', 'mcp__mcp-task-orchestrator__advance', 'mcp__mcp-task-orchestrator-director__runs_write'];
+  for (const t of positives) assert.ok(re.test(t), t);
+  for (const t of ['mcp__other__notes_read', NOTES_READ + '_x', 'mcp__mcp-task-orchestrator__report', 'mcp__mcp-task-orchestrator__deps_read']) {
     assert.ok(!re.test(t), t);
+  }
+});
+
+// ---- W: the director never drives (Task Orchestrator writes) ---------------------------------
+
+const TO = (name) => `mcp__mcp-task-orchestrator__${name}`;
+const TO_DIR = (name) => `mcp__mcp-task-orchestrator-director__${name}`;
+
+test('W1: advance, items_write, notes_write, deps_write and docs_write deny under the marker; describe:true is allowed', () => {
+  for (const name of ['advance', 'items_write', 'notes_write', 'deps_write', 'docs_write']) {
+    const r = decide(call(TO(name), { ops: [{ op: 'x' }] }));
+    assert.ok(typeof r === 'string' && r.startsWith(REASON_PREFIX) && r.includes('drives work'), name);
+    allows(call(TO(name), { describe: true }), `${name} describe`);
+  }
+});
+
+test('W2: runs_write decision ops and run control are allowed, alone or batched, on both connections', () => {
+  for (const tool of [TO('runs_write'), TO_DIR('runs_write')]) {
+    for (const op of ['answer', 'ack', 'withdraw', 'pause', 'resume', 'close', 'reissue']) allows(call(tool, { ops: [{ op }] }), `${tool} ${op}`);
+    allows(call(tool, { ops: [{ op: 'ack' }, { op: 'answer' }] }), `${tool} batch`);
+    allows(call(tool, { describe: true }), `${tool} describe`);
+  }
+});
+
+test('W3: runs_write ops that drive a run deny, and one such op denies the whole batch', () => {
+  for (const tool of [TO('runs_write'), TO_DIR('runs_write')]) {
+    for (const op of ['open', 'update', 'mark', 'assign', 'end_seat', 'raise', 'unknown']) denies(call(tool, { ops: [{ op }] }), `${tool} ${op}`);
+    denies(call(tool, { ops: [{ op: 'answer' }, { op: 'open' }] }), `${tool} mixed batch`);
+    for (const ti of [{}, { ops: [] }, { ops: 'answer' }, { ops: [null] }, { ops: [{}] }]) denies(call(tool, ti), `${tool} ${JSON.stringify(ti)}`);
+  }
+});
+
+test('W4: without the marker, from a subagent or headless, every write passes the guard', () => {
+  for (const i of [call(TO('advance'), { ops: [] }), call(TO('runs_write'), { ops: [{ op: 'open' }] }), call(TO('notes_write'), {})]) {
+    assert.equal(decide(i, { director: false }), null, 'no marker');
+    assert.equal(decide({ ...i, agent_id: 'a1' }), null, 'agent_id');
+    assert.equal(decide(i, { env: { TASK_ORCHESTRATOR_MODE: 'headless-iteration' } }), null, 'headless');
   }
 });
 
