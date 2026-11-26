@@ -63,7 +63,7 @@ you owe once you do.
 - **A raise carries its evidence.** When you raise a decision with `runs_write` `raise`, fill
   `context` with what the answer needs (what you found, where, and why the options differ), within
   1000 characters, and `links` with the notes or commits it came from (`{kind: "note", ref:
-  "<item-id>#<note-key>"}`). The answerer decides from the request alone and does not read your notes.
+  "item:<item-id>#<note-key>"}`). The answerer decides from the request alone and does not read your notes.
 - **End the seat on its own.** `runs_write` `end_seat` is sent alone, as the last task-orchestrator
   call, and only after the result of your final `notes_write` has been read as ok. Never batch it with
   a write. If a write failed, report it and leave the seat open for the orchestrator.

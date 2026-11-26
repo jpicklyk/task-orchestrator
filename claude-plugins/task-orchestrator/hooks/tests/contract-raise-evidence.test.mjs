@@ -70,9 +70,19 @@ test('E3: the implement-wave seat prompt for a raise names context and links', (
     let end = i;
     while (end < lines.length - 1 && lines[end].trimEnd().endsWith('+')) end++;
     const template = lines.slice(i, end + 1).join(' ');
-    assert.ok(/\bcontext\b/.test(template), 'the raise prompt names context');
-    assert.ok(template.includes('links:['), 'the raise prompt names links');
+    // Check the call shape itself, runs_write(ops:[{ ... }]), not the prose that follows it.
+    const shape = template.match(/runs_write\(ops:\[\{([\s\S]*?)\}\]\)/);
+    assert.ok(shape, 'the raise prompt spells the call as runs_write(ops:[{...}])');
+    assert.ok(/(^|[\s,])context,/.test(shape[1]), 'the raise call shape names context');
+    assert.ok(shape[1].includes('links:['), 'the raise call shape names links');
   }
+});
+
+test('E5: the run-wave Decisions paragraph lists context and links in the raise shape', () => {
+  const doc = readFileSync(join(PLUGIN, 'skills', 'run-wave', 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  const m = doc.match(/raises `runs_write` `raise \{([^}]*)\}`/);
+  assert.ok(m, 'the Decisions paragraph spells the raise shape');
+  assert.ok(/\bcontext\b/.test(m[1]) && /\blinks\b/.test(m[1]), 'the raise shape names context and links');
 });
 
 test('E4: the rules that bind raisers require the evidence', () => {
