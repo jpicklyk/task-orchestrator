@@ -2,6 +2,8 @@
 
 **Status:** Accepted | **Date:** 2026-11-26 | **Source:** Boundary analysis 2026-11-26, owner answers (plans/boundaries/README.md, not tracked), decision 1 as revised after the simplicity review; companion to [0016](0016-seat-capability-and-orchestrator-notes.md)
 
+**Amended 2026-11-26:** the block is advertised by its own feature string instead of the seat-model change set's one flag. Why: [0016](0016-seat-capability-and-orchestrator-notes.md) now advertises one string per facet, so the binding gets its own when it lands.
+
 ## Decision
 
 The rules and skills a project binds to the orchestrator are declared in an `orchestrator:` block (`rules`, `skills`) at config root and on a trait, outside `seats`. The root list replaces the plugin's orchestrator defaults; a trait's list adds to it for an item that carries the trait; a schema reaches a trait's binding through `default_traits`; `protocol.orchestrator` is always given first and no list removes it. The block is not a seat and never makes a type seat-aware. Whether it also binds a knowledge session's agent is held until there is data.
@@ -23,7 +25,7 @@ A schema level was dropped after the simplicity review: a type that needs extra 
 
 ## Consequences
 
-- The server parses and serves the block (JSON Schema, key catalog, `config` `effective`, `items_read` `schema`) behind the same feature flag as the seat-model change set in 0016 (P9); it never enforces it.
+- The server parses and serves the block (JSON Schema, key catalog, `config` `effective`, `items_read` `schema`) behind its own advertised feature string, when it lands (0016 advertises its facets one string each, P9); it never enforces it.
 - The plugin's rule table gains an `orchestrator` row with `protocol.orchestrator` and the orchestrator's defaults. The plugin delivers one resolved rules and skills line at SessionStart, in the background orchestrator's brief and in the run plan.
 - The dogfood config moves this repository's orchestrator rules from skill prose to the root block, or to the trait that needs them (for example `arbitration` on `needs-test-author`). A root list repeats any plugin default it wants to keep, since it replaces them.
 - The design is in [seat-model.md](../seat-model.md); where the block sits among the config layers is in [config-layering.md](../config-layering.md).

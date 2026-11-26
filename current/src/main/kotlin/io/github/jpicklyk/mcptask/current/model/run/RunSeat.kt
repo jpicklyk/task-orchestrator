@@ -66,7 +66,7 @@ data class RunSeat(
     init {
         require(seat.isNotEmpty() && seat.length <= MAX_SEAT_LENGTH) { "seat must be 1 to $MAX_SEAT_LENGTH characters" }
         require(attempt >= 1) { "attempt must be at least 1" }
-        require((itemId == null) == (seat == ORCHESTRATOR)) { "only the orchestrator seat is run-scoped (no item)" }
+        require((itemId == null) == (seat == ORCHESTRATOR)) { "only the run-token row is run-scoped (no item)" }
         require((status == RunSeatStatus.ACTIVE) == (outcome == null && endedAt == null)) {
             "an active seat has no outcome or end time, an ended one has both"
         }

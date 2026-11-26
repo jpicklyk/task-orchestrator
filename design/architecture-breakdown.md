@@ -136,11 +136,11 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
 - **Records:** [0016](decisions/0016-seat-capability-and-orchestrator-notes.md); the design is [seat-model.md](seat-model.md).
 - **Layer:** server (seat contract, note ownership, run-token reads, refusal details), plugin (seat resolver, run planner and executor), dogfood config.
 - **Contents:**
-  - Server: an optional `writes` on seat entries (default from the phase), parsed and served, never enforced. `orchestrator` becomes a reserved note owner valid in every schema, and each note entry's computed owner is served in `items_read` `schema`. Seat names `orchestrator` and `coordinator` warn for one release, then are refused. `seat_forbidden` stops listing `coordinator` as a seat, and it and `note_owned_by_other` gain a `fixArgs` hint naming the run. The `allowedSeats` change ships first, outside the flag (owner revision N-a). The required-kind value `coordinator` in `RunPermissions.kt:25-29` becomes `orchestrator` in the 5.0 sweep, not in this package. The run-token row is read through its own store method instead of being filtered out at each reader. One server feature flag covers the whole set; no migration.
+  - Server: an optional `writes` on seat entries (default from the phase), parsed and served, never enforced. `orchestrator` becomes a reserved note owner valid in every schema, and each note entry's computed owner is served in `items_read` `schema`. Seat names `orchestrator` and `coordinator` warn for one release, then are refused. `seat_forbidden` stops listing `coordinator` as a seat, and it and `note_owned_by_other` gain a `fixArgs` hint naming the run. The `allowedSeats` change ships first, outside the flag (owner revision N-a). The required-kind value `coordinator` in `RunPermissions.kt:25-29` becomes `orchestrator` in the 5.0 sweep, not in this package. The run-token row is read through its own store method instead of being filtered out at each reader. Each facet is advertised by its own feature string; no migration.
   - Plugin: the protocol rule is chosen from the served `enters` and `writes`; the dispatch lists the seat's effective `transitions`; the planner reads the served note owner instead of re-deriving it; verify order follows `after`; the fix-cycle commit line follows `writes`; review lanes and ralph take seat names from the declared seats; a seat whose name has no defaults row gets none and a lint advisory.
   - Dogfood config: its phased `orchestrator` seat entries go.
 - **Depends on:** P0.
-- **Size:** L. **Risk:** a config-contract change (refused seat names) and a behaviour change for `seat: orchestrator` notes in a seat-aware schema with no declared entry, both behind the flag.
+- **Size:** L. **Risk:** a config-contract change (refused seat names) and a behaviour change for `seat: orchestrator` notes in a seat-aware schema with no declared entry, each behind its own feature string.
 
 ### P10 Note purpose
 
@@ -162,7 +162,7 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
   - Server: the `orchestrator:` block (`rules`, `skills`) at config root and on a trait, parsed and served (JSON Schema, key catalog, `config` `effective`, `items_read` `schema`), never enforced; it is not a seat and never makes a type seat-aware.
   - Plugin: an `orchestrator` row in the rule table with `protocol.orchestrator` first; one resolved rules and skills line at session start, in the background orchestrator's brief and in the run plan.
   - Dogfood config: this repository's orchestrator rules move from skill prose to the root binding, or to the trait that needs them.
-- **Depends on:** P9 (the same feature flag).
+- **Depends on:** P9.
 - **Size:** M.
 
 ### P12 Plugin defaults and rule classes

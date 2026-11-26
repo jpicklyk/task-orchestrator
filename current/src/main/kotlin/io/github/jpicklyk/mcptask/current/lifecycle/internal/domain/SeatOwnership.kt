@@ -25,8 +25,8 @@ const val UNOWNED_SEAT_BUCKET = "unowned"
  * with no owning seat — no declared seat, an unknown seat name, or a phase mismatch (the `orchestrator` owner matches in any phase and needs no seat) — buckets under
  * [UNOWNED_SEAT_BUCKET].
  *
- * Buckets are non-empty only, ordered by [WorkItemSchema.seats]' merged order with
- * [UNOWNED_SEAT_BUCKET] always last; keys within a bucket keep [missingKeys]' own order.
+ * Buckets are non-empty only, ordered by [WorkItemSchema.seats]' merged order, an undeclared `orchestrator` bucket
+ * after them, and [UNOWNED_SEAT_BUCKET] always last; keys within a bucket keep [missingKeys]' own order.
  */
 fun computeMissingBySeat(
     schema: WorkItemSchema?,

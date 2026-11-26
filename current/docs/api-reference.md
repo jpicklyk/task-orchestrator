@@ -510,7 +510,7 @@ guidance?, skill?, skills?, skillMode?, maxLength?, seat?, owningSeat, independe
 `schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). `owningSeat` is the
 entry's computed owner, a string or JSON `null` (unowned), present on every entry of every schema: the seat its `seat` label names
 when that seat is declared for the entry's phase, and `orchestrator` for a label `orchestrator` in every seat-aware schema, declared
-seat or not (the orchestrator is not a seat; it is a reserved note owner). Seats,
+seat or not (the orchestrator is not a seat; it is a reserved note owner); in a schema that declares no seats the label stands as written. By `type` the schema is the base schema with no trait merge, so a note labelled for a seat only a trait declares reads `null` there and gets its owner on the `itemId` path. Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
 No matching schema is not an error: the answer is `{schemaFree: true}`. Giving both or neither of `type`

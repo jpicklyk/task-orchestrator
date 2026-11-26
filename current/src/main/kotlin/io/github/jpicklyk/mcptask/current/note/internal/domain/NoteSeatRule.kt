@@ -14,8 +14,9 @@ import java.util.UUID
  * an admitted write is decisive ([SeatVerdict.Allow], rule 3 is skipped and the note's owner never moves), a refused
  * one is [SeatVerdict.Refuse], and a write outside the rule's scope is [SeatVerdict.Defer] (rule 3 decides).
  *
- * A key's owner seat is its [OwningSeat] (as in [computeMissingBySeat]); any other key (no seat, an undeclared or
- * other-phase non-orchestrator seat, an off-schema key) is unowned and defers here (rule 3 decides).
+ * A key's owner seat is its [OwningSeat] (as in [computeMissingBySeat]); any other key (no seat, an undeclared seat
+ * or a seat of another phase (the orchestrator owner excepted), an off-schema key) is unowned and defers here
+ * (rule 3 decides).
  */
 object NoteSeatRule {
     /**
