@@ -63,9 +63,10 @@ export const REASON_PREFIX = 'Director altitude rule:';
 /**
  * Bare names (the segment after the last `__`) of host MCP tools a director session may call: the
  * orchestrator placements' session tools, the tier-1 launch profile calls (get_settings, set_session_output_style) and
- * the desktop UI tools. None reads a file, a shell or a screen.
+ * the desktop UI tools, and archive_session, which ends a finished orchestrator's session. None reads a file, a shell
+ * or a screen.
  */
-export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style']);
+export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'archive_session', 'get_settings', 'set_session_output_style']);
 
 /** The runs_read selects a director session may use (the director profile set). */
 export const DIRECTOR_RUNS_READ_SELECTS = Object.freeze(['get', 'list', 'frontier', 'decisions', 'decision']);

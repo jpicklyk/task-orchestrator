@@ -4,6 +4,7 @@
 // altitude rule, coordinator-tiers.md (the host UI tools), and the golden runs_read.director.json select set.
 // Review R1 additions (ruling fix-decisions-r1): the allow-list is seven bare names (get_settings and
 // set_session_output_style join the five), O2 cross-server bare-name allow, O8 gh flag spellings.
+// archive_session joins them (2026-11-26 director trial: a director ends a finished orchestrator's session).
 // Harness: guardDecision(input, { env, director }) for decisions; the hook process against a synthetic temp
 // root with a planted marker for the end-to-end scenario, so no real marker path is touched.
 
@@ -65,9 +66,11 @@ const HOST_ALLOW_TOOLS = [
   // Review R1 (B1): the tier-1 launch profile calls these two.
   'mcp__ccd_settings__get_settings',
   'mcp__ccd_session_mgmt__set_session_output_style',
+  // A director archives a finished orchestrator's session.
+  'mcp__ccd_session_mgmt__archive_session',
 ];
 const ALLOWED_HOST_NAMES = [
-  'start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style',
+  'start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'archive_session', 'get_settings', 'set_session_output_style',
 ];
 const HOST_SERVERS = ['terminal', 'ccd_session', 'ccd_session_mgmt', 'ccd_settings', 'ccd_turn', 'computer-use', 'to', 'e773fde7-78fe-4237-be9f-d0d3a7e2057b'];
 const CONTENT_TOOL_NAMES = ['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool', 'Artifact', 'ArtifactData', 'ArtifactComments', 'TaskOutput', 'LSP'];
@@ -100,7 +103,7 @@ test('S1: a host MCP tool (terminal, file store, computer use, session transcrip
 
 // ---- S2: the host allow-list ---------------------------------------------------------------------
 
-test('S2: the seven director host tools are allowed by bare name on any host server', () => {
+test('S2: the eight director host tools are allowed by bare name on any host server', () => {
   for (const t of HOST_ALLOW_TOOLS) allows(call(t, {}), t);
 });
 
@@ -123,20 +126,21 @@ test('S2: a bare name that merely contains or extends an allowed name is denied'
     'mcp__ccd_session__start_session_v2', 'mcp__x__xstart_session', 'mcp__x__list_sessions',
     'mcp__x__get_settings_all', 'mcp__x__xget_settings', 'mcp__x__get_setting',
     'mcp__x__set_session_output_styles', 'mcp__x__xset_session_output_style', 'mcp__x__set_session_output',
+    'mcp__x__archive_sessions', 'mcp__ccd_session_mgmt__unarchive_session', 'mcp__x__archive_session_v2',
   ]) denies(call(t, {}), t);
 });
 
-test('S2 R1: a host tool next to an allowed one but not on the list is still denied (set_setting, set_session_title, set_session_model)', () => {
-  for (const t of ['mcp__ccd_settings__set_setting', 'mcp__ccd_session_mgmt__set_session_title', 'mcp__ccd_session_mgmt__set_session_model']) {
+test('S2 R1: a host tool next to an allowed one but not on the list is still denied (set_setting, set_session_title, set_session_model, delete_session)', () => {
+  for (const t of ['mcp__ccd_settings__set_setting', 'mcp__ccd_session_mgmt__set_session_title', 'mcp__ccd_session_mgmt__set_session_model', 'mcp__ccd_session_mgmt__delete_session']) {
     denies(call(t, {}), t);
     denies(call(t, { value: 'x' }), t + ' with input');
   }
 });
 
-test('S2: DIRECTOR_HOST_MCP_ALLOW is frozen and is exactly the seven names', () => {
+test('S2: DIRECTOR_HOST_MCP_ALLOW is frozen and is exactly the eight names', () => {
   assert.deepEqual(
     [...DIRECTOR_HOST_MCP_ALLOW].sort(),
-    ['get_settings', 'mark_chapter', 'send_message', 'set_session_output_style', 'start_session', 'update_plan', 'wrap_up'],
+    ['archive_session', 'get_settings', 'mark_chapter', 'send_message', 'set_session_output_style', 'start_session', 'update_plan', 'wrap_up'],
   );
   assert.ok(Object.isFrozen(DIRECTOR_HOST_MCP_ALLOW));
 });
@@ -405,7 +409,7 @@ test('S10: through the hook process, host, web, config and write calls deny unde
     assert.ok(out.hookSpecificOutput.permissionDecisionReason.startsWith(REASON_PREFIX), i.tool_name);
   }
   assert.deepEqual(exec(e2eCall('mcp__ccd_session__start_session', {})), {}, 'allow-listed host tool passes under the marker');
-  for (const t of ['mcp__ccd_settings__get_settings', 'mcp__ccd_session_mgmt__set_session_output_style', 'mcp__terminal__start_session']) {
+  for (const t of ['mcp__ccd_settings__get_settings', 'mcp__ccd_session_mgmt__set_session_output_style', 'mcp__terminal__start_session', 'mcp__ccd_session_mgmt__archive_session']) {
     assert.deepEqual(exec(e2eCall(t, {})), {}, 'allow-listed host tool passes under the marker: ' + t);
   }
   const out = exec(e2eCall('mcp__ccd_settings__set_setting', {}));
