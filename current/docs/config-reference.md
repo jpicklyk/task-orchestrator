@@ -86,9 +86,7 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
 - **Orchestrator notes.** A note labelled `seat: orchestrator` is owned in every schema and every phase, with no seat
   declared; in a schema that declares no seats the label stands as written. Inside an open run on a seat-aware pinned
   schema, only the run token of that run (or a human credential) may write it: a member seat token, or an agent with no
-  token, is refused `note_owned_by_other` with `detail.ownerSeat` and `detail.runId`. Outside a run, or in a seat-less
-  schema, ordinary note ownership applies. Every other seat-owned key needs that seat's own token. In `missingBySeat`
-  the buckets follow the merged seat order, an `orchestrator` bucket (when one is owed) follows them, and `unowned` is last.
+  token, is refused `note_owned_by_other` with `detail.ownerSeat` and `detail.runId`. Every other seat-owned key needs that seat's own token.
   The `orchestratorNotes` feature advertises this.
 - **Reserved seat names.** Two seat names are refused and two warn. `unowned` is refused: a schema or trait that
   declares a seat of that name (exact match) is a structural error, because `unowned` is the `missingBySeat` bucket that
@@ -163,11 +161,10 @@ trait that sets it.
 
 ### Seat writes
 
-A seat entry may declare `writes`, a boolean: whether the seat writes files or notes. It is absent when not declared; the
-served value is then `true` in the `work` phase and `false` in the others. A non-boolean value is a parser finding at
-`<entry>/writes` and is ignored (the default applies): an error under `STRICT`, a warning under `MIGRATION`. The server
-serves it on every seat and never enforces it; a plugin reads it to choose the seat's protocol rule. The `seatWrites`
-feature advertises it.
+A seat entry's optional boolean `writes` says whether the seat changes files in the item's worktree and commits them; notes
+are not covered. The field table in
+[config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seat-entry-fields-seats-schema-level-or-trait-level)
+holds the default. The `seatWrites` feature advertises it.
 
 ### Seat rules
 
@@ -332,9 +329,9 @@ resolution and comparison only. The checks: a seat that owns no note of its phas
 schema or trait that declares seats (a required unseated note is reported in `warnings`); the same guidance on several
 notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
 `rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; on a schema or trait that declares seats, an optional
-note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns (`seat: orchestrator` is always owned, so it never draws this),
+note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns,
 and an `independent_of` or seat `after` name no seat declares; a trait `dispatch` seat override no seat declares for its
-phase (an `orchestrator` override never surfaces). Every finding is
+phase. Every finding is
 a point to consider, not a defect.
 
 ## Parse modes

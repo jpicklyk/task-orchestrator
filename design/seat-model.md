@@ -39,7 +39,7 @@ The orchestrator is never a seat in the target. What today is called the orchest
 | Dispatch class | By seat name, then phase (`run-planner-lib.mjs:631-641`) | Unchanged rule; the class for a run's orchestrator is renamed from `coordinator` to `orchestrator` |
 | Lane and ralph seat names | Fixed: review lanes assign `reviewer` (`run-exec-lib.mjs:1846`), ralph assigns `implementer` (`PLUG/scripts/ralph-lib.mjs:431`) | Taken from the declared seats of the item's schema |
 
-Each facet of the server side of the target is advertised by its own feature string (`seatWrites` for `writes`, `orchestratorNotes` for the reserved owner and the served owner), and the plugin gates each behaviour on its own string; the later refusal of the names and the orchestrator binding get their own strings when they land. None of it needs a migration. The packages that carry it are P9, then P11 and P12, in [architecture-breakdown.md](architecture-breakdown.md); the config contract is in [config-layering.md](config-layering.md).
+Each facet of the server side of the target is advertised by its own feature string, and the plugin gates each behaviour on its own string. None of it needs a migration. The packages that carry it are P9, then P11 and P12, in [architecture-breakdown.md](architecture-breakdown.md); the config contract is in [config-layering.md](config-layering.md).
 
 ## Where each attribute comes from
 
