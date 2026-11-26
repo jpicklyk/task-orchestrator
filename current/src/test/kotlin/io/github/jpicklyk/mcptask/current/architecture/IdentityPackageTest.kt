@@ -303,7 +303,23 @@ class IdentityPackageTest {
             "platform/idempotency/",
             "claim/ClaimService.kt",
             "claim/FenceGuard.kt",
-            "dependency/DependencyCommandService.kt"
+            "dependency/DependencyCommandService.kt",
+            "lifecycle/AdvanceService.kt",
+            "lifecycle/AdvanceServiceFactory.kt",
+            "lifecycle/GateStatusQuery.kt",
+            "lifecycle/LifecycleClass.kt",
+            "lifecycle/TreeCompletionService.kt",
+            "lifecycle/NextItemRecommender.kt",
+            "lifecycle/internal/domain/GatePredicate.kt",
+            "lifecycle/internal/domain/PhaseNoteContext.kt",
+            "lifecycle/internal/domain/SeatOwnership.kt",
+            "lifecycle/internal/domain/CredentialRefValidation.kt",
+            "lifecycle/internal/app/TransitionSnapshotLoader.kt",
+            "lifecycle/internal/app/ItemSchemaView.kt",
+            "lifecycle/internal/app/SchemaEntryJsonBuilder.kt",
+            "note/NoteCommandService.kt",
+            "note/internal/domain/NoteOwnership.kt",
+            "note/internal/domain/NoteSeatRule.kt"
         )
 
     private fun isServiceNode(path: String): Boolean = serviceNodePaths.any { GuardSupport.normalizedPath(path).startsWith(it) }

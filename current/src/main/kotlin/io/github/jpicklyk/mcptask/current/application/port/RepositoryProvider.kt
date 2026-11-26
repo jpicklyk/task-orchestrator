@@ -14,6 +14,11 @@ import io.github.jpicklyk.mcptask.current.knowledge.LinkStore
 import io.github.jpicklyk.mcptask.current.knowledge.NoteItems
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.SearchIndex
+import io.github.jpicklyk.mcptask.current.lifecycle.DecisionReads
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleStoreProvider
+import io.github.jpicklyk.mcptask.current.lifecycle.RunReads
+import io.github.jpicklyk.mcptask.current.note.NoteStore
+import io.github.jpicklyk.mcptask.current.note.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores

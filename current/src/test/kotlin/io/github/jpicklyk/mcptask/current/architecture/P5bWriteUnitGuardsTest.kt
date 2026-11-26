@@ -125,7 +125,7 @@ class P5bWriteUnitGuardsTest {
             platform/sqlite/StartupIntegrity.kt 1
             platform/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
             platform/sqlite/repository/ProofClaimsSerialization.kt 1
-            infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
+            note/internal/sqlite/SQLiteNoteRepository.kt 1
             claim/internal/sqlite/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             platform/shutdown/ShutdownCoordinator.kt 1

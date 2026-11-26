@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.platform.rest.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.platform.rest.correlation.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.platform.rest.etag.etagForVersion
+import io.github.jpicklyk.mcptask.current.platform.rest.etag.matchesIfNoneMatch
 import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField

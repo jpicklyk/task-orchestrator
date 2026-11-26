@@ -85,7 +85,8 @@ internal class WriteConfinementTest {
                 "knowledge/DocumentStore.kt",
                 "knowledge/LinkStore.kt",
                 "knowledge/PlanDocumentStore.kt",
-                "config/ConfigStore.kt"
+                "config/ConfigStore.kt",
+                "note/NoteStore.kt"
             )
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
@@ -95,7 +96,9 @@ internal class WriteConfinementTest {
                 "dependency/DependencyCommandService.kt",
                 "knowledge/DocumentService.kt",
                 "knowledge/LinkService.kt",
-                "config/ConfigService.kt"
+                "config/ConfigService.kt",
+                "lifecycle/AdvanceService.kt",
+                "note/NoteCommandService.kt"
             )
 
         private val STORE_OWNER_DIRS = listOf("application/service/")
@@ -773,7 +776,10 @@ internal class WriteConfinementTest {
         assertTrue(declaresAnnotation(STORE_WRITE), "control: the StoreWrite annotation class is declared in $MARKER_FILE")
         assertTrue(declaresAnnotation(CLAIM_WRITE), "control: the ClaimWrite annotation class is declared in $MARKER_FILE")
 
-        val storeUsers = cleaned.filter { (p, c) -> p.startsWith("application/service/") && mentions(c, STORE_WRITE) > 0 }
+        val storeUsers =
+            cleaned.filter { (p, c) ->
+                (p.startsWith("application/service/") || p in STORE_OWNER_FILES) && mentions(c, STORE_WRITE) > 0
+            }
         assertTrue(storeUsers.size >= 2, "control: service files opt in to StoreWrite; saw ${storeUsers.keys}")
         val claimService = cleaned[CLAIM_SERVICE] ?: error("$CLAIM_SERVICE must exist")
         assertTrue(mentions(claimService, CLAIM_WRITE) > 0, "control: ClaimService.kt names ClaimWrite")
@@ -894,7 +900,7 @@ internal class WriteConfinementTest {
             "claim\\ClaimService.kt"
         ).forEach { assertTrue(claimWriteAllowed(it), "ClaimWrite must be allowed in: $it") }
         listOf(
-            "application/service/AdvanceService.kt",
+            "lifecycle/AdvanceService.kt",
             "application/service/ClaimService.kt",
             "claim/ClaimServiceHelper.kt",
             "claim/nested/ClaimService.kt",
@@ -912,7 +918,7 @@ internal class WriteConfinementTest {
         ).forEach { assertFalse(claimWriteAllowed(it), "ClaimWrite must be denied in: $it") }
 
         val claimOptIn = "@OptIn(ClaimWrite::class)\nclass A"
-        assertEquals(1, markerViolations("application/service/AdvanceService.kt", claimOptIn), "ClaimWrite outside ClaimService")
+        assertEquals(1, markerViolations("lifecycle/AdvanceService.kt", claimOptIn), "ClaimWrite outside ClaimService")
         assertEquals(0, markerViolations(CLAIM_SERVICE, "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"), "ClaimService owns both")
         assertEquals(0, markerViolations("application/service/X.kt", "@OptIn(StoreWrite::class)\nclass A"), "services own StoreWrite")
         val storeOptIn = "@OptIn(StoreWrite::class)\nclass A"
@@ -976,13 +982,13 @@ internal class WriteConfinementTest {
         }
         val claimOptIn = "@OptIn(ClaimWrite::class)\nclass A"
         val bothOptIn = "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"
-        assertEquals(1, optInViolations("application/service/AdvanceService.kt", claimOptIn), "ClaimWrite in a service")
+        assertEquals(1, optInViolations("lifecycle/AdvanceService.kt", claimOptIn), "ClaimWrite in a service")
         assertEquals(1, optInViolations("application/service/X.kt", bothOptIn), "only ClaimWrite is denied in a service")
         assertEquals(2, optInViolations("application/tools/X.kt", bothOptIn), "both counted")
 
         // owner files stay green
         listOf(
-            "application/service/AdvanceService.kt",
+            "lifecycle/AdvanceService.kt",
             "application/service/nested/X.kt",
             "knowledge/DocumentService.kt",
             "knowledge/LinkService.kt"

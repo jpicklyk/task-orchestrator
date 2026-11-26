@@ -1,9 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
-import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
-import io.github.jpicklyk.mcptask.current.platform.call.Principal
-import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
-import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 
 /**

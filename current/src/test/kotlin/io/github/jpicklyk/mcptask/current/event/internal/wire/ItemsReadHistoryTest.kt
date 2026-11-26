@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.event.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.strings
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.summary
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

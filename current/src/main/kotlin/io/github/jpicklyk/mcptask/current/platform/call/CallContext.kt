@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
 import io.github.jpicklyk.mcptask.current.application.api.AnswerProvenance
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.currentCallTelemetry
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard

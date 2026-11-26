@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.LinkStore
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.note.NoteStore
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.port.EventPage
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord

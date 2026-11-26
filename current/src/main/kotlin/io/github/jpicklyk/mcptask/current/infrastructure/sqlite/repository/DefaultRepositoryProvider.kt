@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
@@ -22,6 +21,8 @@ import io.github.jpicklyk.mcptask.current.knowledge.internal.sqlite.DocumentBack
 import io.github.jpicklyk.mcptask.current.knowledge.internal.sqlite.document.SqliteDocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.internal.sqlite.document.SqliteLinkStore
 import io.github.jpicklyk.mcptask.current.knowledge.internal.sqlite.search.SqliteSearchEngine
+import io.github.jpicklyk.mcptask.current.note.NoteStore
+import io.github.jpicklyk.mcptask.current.note.internal.sqlite.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore

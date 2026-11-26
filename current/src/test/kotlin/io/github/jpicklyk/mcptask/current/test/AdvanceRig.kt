@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceResult
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
@@ -178,7 +178,7 @@ internal fun JsonObject.uuid(key: String): UUID = UUID.fromString(this[key]!!.js
 internal fun JsonObject.dataObject(): JsonObject = this["data"]!!.jsonObject
 
 /**
- * One advance straight through the shared [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] the
+ * One advance straight through the shared [io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService] the
  * `advance` tool's `transition` op uses, with the same switches (ownership and leases enforced, the event actor
  * installed), for suites whose oracle is the outcome, the rows or the events rather than the response.
  */

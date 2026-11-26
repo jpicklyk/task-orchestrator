@@ -6,9 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference
 import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.config.ParseMode
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
+import io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation

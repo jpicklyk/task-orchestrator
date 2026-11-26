@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.pausedError
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.support.sha256Hex
@@ -188,7 +189,7 @@ class SeatService(
             val runs = stores.runStore()
             val run = runs.getById(command.runId) ?: return@write err(runNotFound(command.runId))
             if (run.status == RunStatus.CLOSED) return@write err(RunService.runClosed(run))
-            if (run.status == RunStatus.PAUSED) return@write err(RunService.runPaused(run))
+            if (run.status == RunStatus.PAUSED) return@write err(run.pausedError())
             if (command.seat == RunSeat.ORCHESTRATOR) {
                 return@write err(invalid(FIELD_SEAT, "coordinator is not an item seat", command.seat))
             }

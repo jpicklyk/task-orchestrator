@@ -26,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.model.run.RunReleased
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.model.run.pausedError
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
 import java.util.UUID
@@ -142,7 +143,7 @@ class RunService(
         unitOfWork.write(OP_UPDATE) {
             val run = runs.getById(runId) ?: return@write err(runNotFound(runId))
             stateGuard(run)?.let { return@write err(it) }
-            if (run.status == RunStatus.PAUSED) return@write err(runPaused(run))
+            if (run.status == RunStatus.PAUSED) return@write err(run.pausedError())
             if (command.expectedVersion != null && command.expectedVersion != run.version) {
                 return@write err(versionConflict(runId, command.expectedVersion, run.version))
             }
@@ -577,16 +578,6 @@ class RunService(
                 message = "Run ${run.id} is closed ($reason)",
                 detail = ErrorDetail.RunClosed(run.id, reason),
                 fixArgs = mapOf("runId" to run.id.toString(), "terminalReason" to reason)
-            )
-        }
-
-        fun runPaused(run: Run): DomainError {
-            val reason = run.pauseReason?.wire ?: RunPauseReason.MANUAL.wire
-            return DomainError(
-                code = ErrorCode.RUN_PAUSED,
-                message = "Run ${run.id} is paused ($reason)",
-                detail = ErrorDetail.RunPaused(run.id, reason, run.pauseDecisionId),
-                fixArgs = mapOf("runId" to run.id.toString(), "pauseReason" to reason)
             )
         }
 

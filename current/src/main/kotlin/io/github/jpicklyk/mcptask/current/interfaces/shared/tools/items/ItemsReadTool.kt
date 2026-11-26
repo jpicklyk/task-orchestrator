@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.event.EventTools
 import io.github.jpicklyk.mcptask.current.knowledge.Corpus
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeTools
 import io.github.jpicklyk.mcptask.current.knowledge.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -77,13 +78,13 @@ object ItemsReadTool {
                 listOf(
                     ItemsReadGet.select,
                     ItemsReadList.select,
-                    ItemsReadSchema.select,
+                    LifecycleTools.itemsReadSchema,
                     KnowledgeTools.itemsReadSearch,
                     ItemsReadOverview.select,
                     KnowledgeTools.itemsReadRelated,
-                    ItemsReadContext.select,
-                    ItemsReadNext.select,
-                    ItemsReadBlocked.select,
+                    LifecycleTools.itemsReadContext,
+                    LifecycleTools.itemsReadNext,
+                    LifecycleTools.itemsReadBlocked,
                     EventTools.itemsReadHistory,
                 )
         )

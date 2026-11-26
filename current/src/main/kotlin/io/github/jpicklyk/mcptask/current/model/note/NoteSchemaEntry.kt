@@ -44,7 +44,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
  *   owns filling this note (an orchestration signal only, A1a). Null means the note has no declared
  *   owner; in a seat-aware schema (see [WorkItemSchema.isSeatAware]) that surfaces as "unowned" —
  *   see [io.github.jpicklyk.mcptask.current.model.note.OwningSeat] for the rule and
- *   `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership` for the gate buckets.
+ *   `io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.SeatOwnership` for the gate buckets.
  * @property independentOf Seat names this note's authorship must be independent of (an
  *   orchestration signal only; A1a parses and serves it, A2 enforces it).
  * @property shared When true the key is exempt from note ownership: any caller may upsert or delete it (last writer
@@ -74,3 +74,6 @@ data class NoteSchemaEntry(
         require(skills.firstOrNull() == skill) { "skill must be the first of skills" }
     }
 }
+
+/** The entries a note gate can require, in schema order: the one selector of "which notes are required". */
+fun Iterable<NoteSchemaEntry>.requiredEntries(): List<NoteSchemaEntry> = filter { it.required }

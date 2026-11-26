@@ -8,18 +8,16 @@ import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.dependencyRemovedEvent
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.ParentFacts
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.lifecycle.Decision
+import io.github.jpicklyk.mcptask.current.lifecycle.FollowUp
+import io.github.jpicklyk.mcptask.current.lifecycle.ItemFacts
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleClass
+import io.github.jpicklyk.mcptask.current.lifecycle.TransitionPolicy
+import io.github.jpicklyk.mcptask.current.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
@@ -38,10 +36,14 @@ import io.github.jpicklyk.mcptask.current.model.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.ParentFacts
+import io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
+import io.github.jpicklyk.mcptask.current.note.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.itemChangedFields
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -290,12 +292,7 @@ class ItemCommandService(
         // A type whose base schema is `lifecycle: none` creates a lifecycle-free item (no role). Lifecycle-free needs
         // pins: with pins off every item is created in QUEUE.
         val pin = if (schemaPinService.enabled) schemaPinService.pinFor(item, rootId, now) else null
-        val pinned =
-            when {
-                pin == null -> item
-                pin.lifecycle == LifecycleMode.NONE -> item.copy(role = null, pin = pin)
-                else -> item.copy(pin = pin)
-            }
+        val pinned = LifecycleClass.pinned(item, pin)
         val created = items.create(pinned)
         val eventRoot = eventRootOf(created, hierarchy)
         events.record(DomainEvent.ItemCreated(created.id, eventRoot, created.parentId))
@@ -486,8 +483,8 @@ class ItemCommandService(
             if (schemaPinService.enabled && moved.isNotEmpty()) {
                 descendantPins = schemaPinService.pinsFor(moved, newRoot, now)
                 moved
-                    .firstOrNull { SchemaPinService.crossesLifecycleClass(it.role, descendantPins.getValue(it.id)) }
-                    ?.let { return Outcome.Err(ItemCommandErrors.lifecycleCrossing(it.id, it.role, PinReason.REPARENT)) }
+                    .firstOrNull { LifecycleClass.crosses(it.role, descendantPins.getValue(it.id)) }
+                    ?.let { return Outcome.Err(LifecycleClass.crossing(it.id, it.role, PinReason.REPARENT)) }
             }
         }
 
@@ -596,8 +593,8 @@ class ItemCommandService(
             pins.putAll(schemaPinService.pinsFor(group, root, now))
         }
         survivors
-            .firstOrNull { SchemaPinService.crossesLifecycleClass(it.role, pins.getValue(it.id)) }
-            ?.let { return ItemCommandErrors.lifecycleCrossing(it.id, it.role, PinReason.REPIN) }
+            .firstOrNull { LifecycleClass.crosses(it.role, pins.getValue(it.id)) }
+            ?.let { return LifecycleClass.crossing(it.id, it.role, PinReason.REPIN) }
         items.writePins(pins)
         events.record(
             survivors.map { SchemaPinService.pinnedEvent(it.id, eventRootOf(it, hierarchy), it.pin, pins.getValue(it.id), PinReason.REPIN) }
@@ -622,13 +619,13 @@ class ItemCommandService(
         pin: SchemaPin,
         reason: PinReason
     ): Outcome<WorkItem> {
-        if (!SchemaPinService.crossesLifecycleClass(existing.role, pin)) return Outcome.Ok(candidate.copy(pin = pin))
-        val crossing = ItemCommandErrors.lifecycleCrossing(existing.id, existing.role, reason)
+        if (!LifecycleClass.crosses(existing.role, pin)) return Outcome.Ok(candidate.copy(pin = pin))
+        val crossing = LifecycleClass.crossing(existing.id, existing.role, reason)
         if (reason != PinReason.TYPE_CHANGE && reason != PinReason.REPIN) return Outcome.Err(crossing)
         if (existing.role != null) {
             if (existing.role != Role.QUEUE && existing.role != Role.TERMINAL) return Outcome.Err(crossing)
             if (hasBlocksEdge(existing.id)) return Outcome.Err(crossing)
-            return Outcome.Ok(candidate.copy(pin = pin, role = null, previousRole = null, statusLabel = null, roleChangedAt = now))
+            return Outcome.Ok(LifecycleClass.leave(candidate, pin, now))
         }
         val parentId = candidate.parentId
         if (parentId != null) {
@@ -637,7 +634,7 @@ class ItemCommandService(
             val decision = policy.evaluate(TransitionSnapshot.forCreate(existing.id, facts), Trigger.Structural.Create(facts))
             if (decision is Decision.Reject) return Outcome.Err(decision.error)
         }
-        return Outcome.Ok(candidate.copy(pin = pin, role = Role.QUEUE, previousRole = null, roleChangedAt = now))
+        return Outcome.Ok(LifecycleClass.enter(candidate, pin, now))
     }
 
     /** True when [itemId] is either endpoint of a BLOCKS edge (an IS_BLOCKED_BY input is stored as BLOCKS). */
@@ -830,7 +827,7 @@ class ItemCommandService(
         val roots = doomed.associate { it.id to eventRootOf(it, hierarchy) }
         // Chunked: a level of a large subtree can exceed the bound-variable limit of one IN list (the edge query
         // binds every id twice).
-        val notesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.application.port.NoteRef>>()
+        val notesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.note.NoteRef>>()
         val edgesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.model.dependency.Dependency>>()
         for (chunk in doomed.map { it.id }.chunked(PRE_READ_CHUNK)) {
             val ids = chunk.toSet()
@@ -1124,25 +1121,6 @@ object ItemCommandErrors {
 
     fun isHierarchyLookupFailure(error: DomainError): Boolean =
         error.code == ErrorCode.INTERNAL && error.message.startsWith(HIERARCHY_LOOKUP_PREFIX)
-
-    /**
-     * A pin point that would move [itemId] across the lifecycle class boundary where it may not (U13b): any pin point
-     * other than a type change or `repin`, or a flip those two do not allow. `fromRole` is [role]'s wire value (`none`
-     * when lifecycle-free), trigger the [reason]'s wire value, nothing allowed.
-     */
-    fun lifecycleCrossing(
-        itemId: UUID,
-        role: Role?,
-        reason: PinReason
-    ): DomainError {
-        val from = role.wireOrNone()
-        return DomainError(
-            code = ErrorCode.INVALID_TRANSITION,
-            message = "Item $itemId cannot change lifecycle class at '${reason.wire}' from role $from.",
-            detail = ErrorDetail.InvalidTransition(itemId, from, reason.wire, emptyList()),
-            fixArgs = mapOf("itemId" to itemId.toString(), "trigger" to reason.wire, "fromRole" to from)
-        )
-    }
 
     /** True when [error] is the closed-parent rejection (a create or reparent under a TERMINAL, AUTO parent). */
     fun isClosedParent(error: DomainError): Boolean = error.code == ErrorCode.INVALID_TRANSITION

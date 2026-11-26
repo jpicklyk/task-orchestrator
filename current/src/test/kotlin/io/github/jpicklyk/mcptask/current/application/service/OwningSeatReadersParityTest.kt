@@ -1,10 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.UNOWNED_SEAT_BUCKET
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.note.internal.domain.NoteSeatRule
+import io.github.jpicklyk.mcptask.current.note.internal.domain.SeatVerdict
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals

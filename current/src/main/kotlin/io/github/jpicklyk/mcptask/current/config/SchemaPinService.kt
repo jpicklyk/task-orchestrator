@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.config.internal.app.TraitResolver
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.event.PinReason
 import io.github.jpicklyk.mcptask.current.model.event.PinRef
-import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
-import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
 import io.github.jpicklyk.mcptask.current.model.schema.PinView
@@ -136,17 +134,6 @@ class SchemaPinService(
                 a?.lifecycle == b?.lifecycle &&
                 (a?.builds ?: true) == (b?.builds ?: true) &&
                 (a == null) == (b == null)
-
-        /**
-         * True when storing [pin] on an item with [role] would move it across the lifecycle class boundary: a
-         * lifecycle-free item (null role) takes a pin whose lifecycle is not [LifecycleMode.NONE], or a role-bearing
-         * item takes a NONE pin. Only a type change and `repin` may flip an item's class; every other pin point
-         * rejects a crossing pin.
-         */
-        fun crossesLifecycleClass(
-            role: Role?,
-            pin: SchemaPin
-        ): Boolean = (role == null) != (pin.lifecycle == LifecycleMode.NONE)
 
         /**
          * The event side of [pin]. `builds` is read as [samePin] reads it (a NULL on a keyed pin is `true`), so two

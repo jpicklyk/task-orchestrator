@@ -9,7 +9,7 @@ package io.github.jpicklyk.mcptask.current.model.item
  * - PERMANENT: never auto-terminate — parent stays in its current role regardless of children
  * - NONE: lifecycle-free: an item pinned to such a schema has no role at all (stored as a NULL `role` column with
  *   pin lifecycle `none`); no trigger, gate or cascade applies to it. Never carried by
- *   [io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts] (see `SchemaFacts.of`).
+ *   [io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts] (see `SchemaFacts.of`).
  */
 enum class LifecycleMode {
     AUTO,

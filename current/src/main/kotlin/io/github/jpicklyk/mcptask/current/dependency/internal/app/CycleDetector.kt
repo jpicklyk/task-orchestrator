@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.dependency.internal.app
 
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.DependencyEdges
+import io.github.jpicklyk.mcptask.current.dependency.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import java.util.UUID

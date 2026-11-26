@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  *
  * Scope: production files under the knowledge slice, `knowledge/`. Rule: such a file must not
  * import or fully-qualify
- *  - anything under `io.github.jpicklyk.mcptask.current.domain.lifecycle`, nor
+ *  - anything under `io.github.jpicklyk.mcptask.current.lifecycle`, nor
  *  - any `io.github.jpicklyk.mcptask.current.*` type whose simple name starts with `Claim`, `Seat`, `Transition`,
  *    `RoleTransition`, `Advance`, `Run` (the run lifecycle, R17) or `DecisionRequest` (the decision request entity, R24).
  * `Role` (a plain value), `ActorClaim` and `ProofClaims` are allowed (their simple names do not start with a forbidden
@@ -26,7 +26,7 @@ import kotlin.test.assertTrue
  *
  * Vacuity: the matcher is proven on shapes it must flag and shapes it must ignore, the scope function on included and
  * excluded paths, the ratchet function on both failure directions, the scan scope on the files the plan names, and a control
- * proves the same matcher flags real lifecycle references in `application/service/AdvanceService.kt` (a blind matcher
+ * proves the same matcher flags real lifecycle references in `lifecycle/AdvanceService.kt` (a blind matcher
  * would otherwise pass the scan vacuously).
  *
  * Known limit (accepted, not hidden): a same-package or wildcard-imported simple name with no fully-qualified token is not
@@ -37,7 +37,7 @@ import kotlin.test.assertTrue
 class KnowledgeBoundaryTest {
     companion object {
         private const val ROOT = "io.github.jpicklyk.mcptask.current"
-        private const val LIFECYCLE = "$ROOT.domain.lifecycle"
+        private const val LIFECYCLE = "$ROOT.lifecycle"
         private val FORBIDDEN_NAME_PREFIXES = listOf("Claim", "Seat", "Transition", "RoleTransition", "Advance", "Run", "DecisionRequest")
         private val FQN = Regex("""io\.github\.jpicklyk\.mcptask\.current(?:\.[A-Za-z0-9_]+)+""")
         private val SCOPE_DIRS = listOf("knowledge/")
@@ -133,15 +133,15 @@ class KnowledgeBoundaryTest {
             "knowledge/internal/sqlite/search/SqliteSearchEngine.kt"
         ).forEach { assertTrue(inScope(it), "must be scanned: $it") }
         listOf(
-            "application/service/AdvanceService.kt",
-            "application/service/NoteCommandService.kt",
+            "lifecycle/AdvanceService.kt",
+            "note/NoteCommandService.kt",
             "application/port/LinkStore.kt",
             "application/knowledgebase/Other.kt",
             "application/knowledge/link/LinkService.kt",
             "knowledgebase/Other.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/knowledge/Other.kt",
-            "domain/lifecycle/TransitionTable.kt",
+            "lifecycle/internal/domain/TransitionTable.kt",
             "CurrentMain.kt"
         ).forEach { assertFalse(inScope(it), "must be excluded: $it") }
     }
@@ -149,9 +149,9 @@ class KnowledgeBoundaryTest {
     @Test
     fun `the matcher flags each forbidden reference shape`() {
         listOf(
-            "import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable",
-            "import io.github.jpicklyk.mcptask.current.domain.lifecycle.*",
-            "import io.github.jpicklyk.mcptask.current.domain.lifecycle.SomethingElseEntirely",
+            "import io.github.jpicklyk.mcptask.current.lifecycle.TransitionTable",
+            "import io.github.jpicklyk.mcptask.current.lifecycle.*",
+            "import io.github.jpicklyk.mcptask.current.lifecycle.SomethingElseEntirely",
             "import io.github.jpicklyk.mcptask.current.application.service.ClaimService",
             "import io.github.jpicklyk.mcptask.current.model.item.SeatOwnership",
             "import io.github.jpicklyk.mcptask.current.model.item.RoleTransition",
@@ -161,7 +161,7 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService as Adv",
             "val s = io.github.jpicklyk.mcptask.current.application.service.ClaimService(x)",
-            "val t = io.github.jpicklyk.mcptask.current.domain.lifecycle.RoleTable.lookup(r)",
+            "val t = io.github.jpicklyk.mcptask.current.lifecycle.RoleTable.lookup(r)",
             "fun f(t: io.github.jpicklyk.mcptask.current.model.item.TransitionRow) = t"
         ).forEach { assertEquals(1, violations(it).size, "not flagged: $it") }
     }
@@ -175,12 +175,12 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.model.knowledge.Link",
             "import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider",
             "import io.github.jpicklyk.mcptask.current.knowledge.DocumentService",
-            "import io.github.jpicklyk.mcptask.current.domain.lifecycleish.NotLifecycle",
-            "// import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable",
+            "import io.github.jpicklyk.mcptask.current.lifecycleish.NotLifecycle",
+            "// import io.github.jpicklyk.mcptask.current.lifecycle.TransitionTable",
             "     * see [io.github.jpicklyk.mcptask.current.application.service.ClaimService]",
-            "/* io.github.jpicklyk.mcptask.current.domain.lifecycle.X */",
+            "/* io.github.jpicklyk.mcptask.current.lifecycle.X */",
             "val msg = \"io.github.jpicklyk.mcptask.current.application.service.AdvanceService\"",
-            "val x = 1 // io.github.jpicklyk.mcptask.current.domain.lifecycle.X trailing comment",
+            "val x = 1 // io.github.jpicklyk.mcptask.current.lifecycle.X trailing comment",
             "import kotlinx.coroutines.flow.Flow",
             "import java.util.UUID"
         ).forEach { assertEquals(emptySet(), violations(it), "wrongly flagged: $it") }
@@ -196,8 +196,8 @@ class KnowledgeBoundaryTest {
 
     @Test
     fun `control - the matcher flags real lifecycle references in AdvanceService`() {
-        val advance = GuardSupport.productionSources().singleOrNull { it.path == "application/service/AdvanceService.kt" }
-        assertNotNull(advance, "fixture: application/service/AdvanceService.kt exists")
+        val advance = GuardSupport.productionSources().singleOrNull { it.path == "lifecycle/AdvanceService.kt" }
+        assertNotNull(advance, "fixture: lifecycle/AdvanceService.kt exists")
         assertTrue(
             violations(advance.text).isNotEmpty(),
             "control: AdvanceService is the lifecycle owner, so the same matcher must see lifecycle references there " +

@@ -8,9 +8,9 @@ import io.github.jpicklyk.mcptask.current.config.ParseMode
 import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.config.TraitDescriptor
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement

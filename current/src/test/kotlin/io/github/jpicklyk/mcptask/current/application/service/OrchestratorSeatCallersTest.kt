@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.GatePredicate
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
@@ -12,8 +13,11 @@ import io.github.jpicklyk.mcptask.current.model.schema.IndependenceConstraint
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.note.internal.domain.NoteSeatRule
+import io.github.jpicklyk.mcptask.current.note.internal.domain.SeatVerdict
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals

@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
-import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.dependency.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import io.github.jpicklyk.mcptask.current.model.item.Role

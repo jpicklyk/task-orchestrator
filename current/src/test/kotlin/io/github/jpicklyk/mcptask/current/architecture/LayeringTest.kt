@@ -47,7 +47,7 @@ class LayeringTest {
             "Expected >= 150 production Kotlin files in scope, found ${files.count()} - " +
                 "the Konsist scope may be misrooted (check the Gradle working directory).",
         )
-        listOf("domain", "model", "application", "infrastructure", "interfaces", "bootstrap", "platform").forEach { layer ->
+        listOf("model", "application", "infrastructure", "interfaces", "bootstrap", "platform").forEach { layer ->
             val count = files.count { normalizedPath(it.path).startsWith("$layer/") }
             assertTrue(count > 0, "Expected package '$layer' to have at least one file in scope, found 0.")
         }

@@ -7,7 +7,7 @@ package io.github.jpicklyk.mcptask.current.model.schema
  *   surface for schemas that would otherwise declare `independent_of`.
  * - [WARN] (default) -- violations are computed and reported, but never block a transition.
  * - [REJECT] -- a non-waived violation blocks `start`/`complete` (and the terminal/start cascade
- *   gates); see [io.github.jpicklyk.mcptask.current.application.service.GatePredicate.blocksAdvance].
+ *   gates); see [io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.GatePredicate.blocksAdvance].
  */
 enum class IndependenceMode {
     OFF,

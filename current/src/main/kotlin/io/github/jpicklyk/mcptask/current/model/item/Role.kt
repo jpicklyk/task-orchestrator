@@ -39,3 +39,6 @@ enum class Role {
         }
     }
 }
+
+/** The `fromRole` reported for a lifecycle-free (null-role) item. */
+internal const val NONE_ROLE_WIRE: String = "none"

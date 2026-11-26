@@ -2,16 +2,16 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.LeaseInput
-import io.github.jpicklyk.mcptask.current.application.service.OwnershipInput
-import io.github.jpicklyk.mcptask.current.application.service.TransitionSnapshotLoader
 import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.lifecycle.Decision
+import io.github.jpicklyk.mcptask.current.lifecycle.GateId
+import io.github.jpicklyk.mcptask.current.lifecycle.TransitionPolicy
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.LeaseInput
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.OwnershipInput
+import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.TransitionSnapshotLoader
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.test.SettableClock

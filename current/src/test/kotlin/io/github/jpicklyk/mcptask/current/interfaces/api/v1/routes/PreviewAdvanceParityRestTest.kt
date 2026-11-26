@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
+import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
@@ -66,7 +66,9 @@ class PreviewAdvanceParityRestTest {
     ): Unit =
         testApplication {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
-            application { installParityRestApp(d.rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool(), ItemsReadTool.spec))) }
+            application {
+                installParityRestApp(d.rig, parityAuthConfig(token), ToolRegistry(listOf(LifecycleTools.advance(), ItemsReadTool.spec)))
+            }
 
             for (state in P11MatrixState.all()) {
                 val (item, holder) = d.setup(state)
