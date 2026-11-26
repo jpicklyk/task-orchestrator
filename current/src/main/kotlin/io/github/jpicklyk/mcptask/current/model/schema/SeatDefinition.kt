@@ -32,12 +32,12 @@ import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
  *   seat may never be named (a load-time structural error).
  * - `director`: refused the same way (a load-time structural error), since the director never fills a seat or writes
  *   notes.
- * - `orchestrator` ([ORCHESTRATOR_WRITABLE_SEAT]): given a meaning, not refused: the orchestrator seat, for notes the
- *   orchestrator writes itself; the plugin's run planner dispatches no agent to it (the server does not refuse an
- *   `assign`). In an open run the run token may write its keys, and it owns its labelled notes in any phase it is
- *   declared (see [OwningSeat]).
+ * - `orchestrator` ([io.github.jpicklyk.mcptask.current.model.note.OwningSeat.ORCHESTRATOR]): the reserved owner of the
+ *   notes the orchestrator writes itself, valid in every schema without a declaration; the orchestrator is not a seat. A
+ *   seat of that name still loads this release, with an advisory, and will be refused later.
  *
- * `coordinator`, a retired word for a run's orchestrator, is not reserved: a seat of that name loads, with a warning.
+ * `coordinator`, a retired word for a run's orchestrator, is not reserved: a seat of that name loads, with an advisory
+ * that it will be refused later.
  *
  * Every other seat owns only notes of its own phase.
  *
@@ -87,8 +87,5 @@ data class SeatDefinition(
     companion object {
         /** The triggers a seat may send when it declares no `transitions:`. */
         val DEFAULT_TRANSITIONS: List<String> = listOf("block", "hold")
-
-        /** The reserved `orchestrator` seat name: a run's token may write the keys this seat owns. */
-        const val ORCHESTRATOR_WRITABLE_SEAT: String = "orchestrator"
     }
 }

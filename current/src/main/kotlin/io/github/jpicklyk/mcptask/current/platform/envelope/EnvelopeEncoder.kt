@@ -261,11 +261,13 @@ object EnvelopeEncoder {
                     detail.seat?.let { put("seat", it) }
                     put("action", detail.action)
                     put("allowedSeats", strings(detail.allowedSeats))
+                    put("runId", detail.runId.toString())
                 }
                 is ErrorDetail.NoteOwnedByOther -> {
                     put("itemId", detail.itemId.toString())
                     put("key", detail.key)
                     detail.ownerSeat?.let { put("ownerSeat", it) }
+                    detail.runId?.let { put("runId", it.toString()) }
                 }
                 is ErrorDetail.NoteTooLong -> {
                     put("key", detail.key)

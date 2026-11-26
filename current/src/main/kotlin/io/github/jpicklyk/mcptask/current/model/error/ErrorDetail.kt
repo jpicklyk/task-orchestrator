@@ -151,18 +151,24 @@ sealed interface ErrorDetail {
         val itemId: UUID
     ) : ErrorDetail
 
-    /** [seat] is the caller's seat-token seat, null when the caller carries no seat token (the member is then omitted). */
+    /**
+     * [seat] is the caller's seat-token seat, null when the caller carries no seat token (the member is then omitted).
+     * [runId] is the open run whose seat rule refused the caller: the run token of that run may always send the trigger.
+     */
     data class SeatForbidden(
         val itemId: UUID,
         val seat: String?,
         val action: String,
-        val allowedSeats: List<String>
+        val allowedSeats: List<String>,
+        val runId: UUID
     ) : ErrorDetail
 
+    /** [runId] is the open run whose seat rule owns the key (null for the plain owner-actor refusal). */
     data class NoteOwnedByOther(
         val itemId: UUID,
         val key: String,
-        val ownerSeat: String? = null
+        val ownerSeat: String? = null,
+        val runId: UUID? = null
     ) : ErrorDetail
 
     data class NoteTooLong(

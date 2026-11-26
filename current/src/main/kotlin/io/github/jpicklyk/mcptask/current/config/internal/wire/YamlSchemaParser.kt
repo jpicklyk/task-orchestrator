@@ -274,6 +274,7 @@ internal object YamlSchemaParser {
 
     /** Retired seat name for a run's orchestrator: loads, with an advisory. Exact match only. */
     private const val RETIRED_COORDINATOR_SEAT_NAME = "coordinator"
+    private const val RESERVED_ORCHESTRATOR_NAME = "orchestrator"
 
     /**
      * Budget-related keys reserved for future use. If present on a `resources:` entry (registry or
@@ -683,8 +684,16 @@ internal object YamlSchemaParser {
                 warnings.advisory(
                     "$entryPath/name",
                     "$context seats[$index] is named '$RETIRED_COORDINATOR_SEAT_NAME', a retired name for a run's " +
-                        "orchestrator; rename the seat (the 'orchestrator' seat holds the notes the orchestrator " +
-                        "writes itself)"
+                        "orchestrator, and this name will be refused in a later release; rename the seat (notes " +
+                        "labelled `seat: orchestrator` are orchestrator notes in every schema)"
+                )
+            }
+            if (name == RESERVED_ORCHESTRATOR_NAME) {
+                warnings.advisory(
+                    "$entryPath/name",
+                    "$context seats[$index] is named '$RESERVED_ORCHESTRATOR_NAME', a reserved note owner; the " +
+                        "orchestrator is not a seat and this name will be refused in a later release: remove the " +
+                        "seat entry (notes labelled `seat: orchestrator` are orchestrator notes in every schema)"
                 )
             }
 

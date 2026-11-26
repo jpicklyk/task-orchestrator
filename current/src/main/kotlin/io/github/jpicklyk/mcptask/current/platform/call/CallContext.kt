@@ -25,7 +25,7 @@ data class CallPrincipal(
 /**
  * The seat a call is made under: the active assignment its valid `seatToken` names (R22). [runId] is the run,
  * [assignmentId] the assignment (the claim holder's second member), [itemId] the member item (null for the run-scoped
- * `coordinator` pseudo-seat) and [seat] the seat name.
+ * `coordinator` run-token row) and [seat] the seat name.
  */
 data class SeatContext(
     val runId: UUID,

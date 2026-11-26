@@ -22,7 +22,7 @@ object NoteSeatRule {
      * The rule-2 verdict on a write of [key] on [itemId] by [caller]. [SeatVerdict.Defer] when the item is in no open run
      * ([openRunId] null), the schema is not seat-aware ([seats] empty), or the key is unowned. For a key owned by seat O:
      * a human caller is [SeatVerdict.Allow]; a member-seat token of THIS run bound to THIS item is allowed iff its seat is
-     * O; the run token of THIS run is allowed iff O is [SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT]; every other
+     * O; the run token of THIS run is allowed iff O is [OwningSeat.ORCHESTRATOR]; every other
      * caller (no token, another run, another item, another seat) is refused with
      * `note_owned_by_other{itemId, key, ownerSeat = O}`.
      */
@@ -38,7 +38,7 @@ object NoteSeatRule {
         if (openRunId == null || seats.isEmpty()) return SeatVerdict.Defer
         val owner = ownerSeatOf(entry, seats) ?: return SeatVerdict.Defer
         if (caller.human || mayWrite(itemId, owner, openRunId, caller)) return SeatVerdict.Allow
-        return SeatVerdict.Refuse(NoteOwnership.ownedByOther(itemId, key, owner))
+        return SeatVerdict.Refuse(NoteOwnership.ownedByOther(itemId, key, owner, openRunId))
     }
 
     /** The [OwningSeat] of [entry] under [seats]; null (unowned) when [seats] is empty, since this rule never applies then. */
@@ -58,7 +58,7 @@ object NoteSeatRule {
     ): Boolean {
         val seat = caller.seat ?: return false
         if (caller.runId == null || caller.runId != openRunId) return false
-        if (seat == RunSeat.ORCHESTRATOR) return owner == SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT
+        if (seat == RunSeat.ORCHESTRATOR) return owner == OwningSeat.ORCHESTRATOR
         return caller.itemId == itemId && seat == owner
     }
 }

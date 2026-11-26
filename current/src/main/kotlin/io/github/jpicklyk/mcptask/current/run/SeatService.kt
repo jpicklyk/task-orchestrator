@@ -68,7 +68,7 @@ data class SeatEndResult(
  *
  * ## Run token
  *
- * `open` creates the run-scoped `coordinator` pseudo-seat ([openOrchestrator]); its token is the run token, the only
+ * `open` creates the run-token row (`coordinator`) ([openOrchestrator]); its token is the run token, the only
  * credential of its kind. It is not a member seat: [activeCount] does not count it and a close's in-flight list never names it.
  * [reissueOrchestrator] replaces a lost one: the old row ends `superseded`, so its token is refused from then on.
  *
@@ -100,7 +100,7 @@ class SeatService(
     // run token
     // -------------------------------------------------------------------------
 
-    /** Creates the `coordinator` pseudo-seat of the just-opened [run] for [principalId] (the opener) and returns its token. */
+    /** Creates the `coordinator` run-token row of the just-opened [run] for [principalId] (the opener) and returns its token. */
     suspend fun openOrchestrator(
         run: Run,
         principalId: String
@@ -292,7 +292,7 @@ class SeatService(
     }
 
     /**
-     * Marks [seat] as seen now (task-scope D9), in its own small unit: `last_seen_at`, and for the `coordinator` pseudo-seat also the
+     * Marks [seat] as seen now (task-scope D9), in its own small unit: `last_seen_at`, and for the `coordinator` run-token row also the
      * run's `coordinator_seen_at`. Skipped while the stored `last_seen_at` is less than [TOUCH_INTERVAL] old.
      */
     suspend fun touch(seat: RunSeat) {

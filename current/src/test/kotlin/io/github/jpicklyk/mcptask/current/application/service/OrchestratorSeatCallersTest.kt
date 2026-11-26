@@ -69,7 +69,7 @@ class OrchestratorSeatCallersTest {
 
     private fun assertRefusedOwnedByOrchestrator(verdict: SeatVerdict) {
         val refuse = assertIs<SeatVerdict.Refuse>(verdict)
-        assertEquals(ErrorDetail.NoteOwnedByOther(itemId, oc.key, "orchestrator"), refuse.error.detail)
+        assertEquals(ErrorDetail.NoteOwnedByOther(itemId, oc.key, "orchestrator", runId), refuse.error.detail)
     }
 
     // ---- S6 missingBySeat
@@ -108,12 +108,14 @@ class OrchestratorSeatCallersTest {
     }
 
     @Test
-    fun `S8 control - without the orchestrator seat declared the key is unowned and every caller defers`() {
+    fun `S8 without an orchestrator seat declared the key is still owned by orchestrator and the run token writes it`() {
         val withoutOrchestrator = seatsO.filter { it.name != "orchestrator" }
-        assertEquals(
-            SeatVerdict.Defer,
+        assertEquals(SeatVerdict.Allow, check(coordinator, seats = withoutOrchestrator))
+        assertEquals(SeatVerdict.Allow, check(human, seats = withoutOrchestrator))
+        assertRefusedOwnedByOrchestrator(
             check(SeatCaller(seat = "reviewer", runId = runId, itemId = itemId, human = false), seats = withoutOrchestrator)
         )
+        assertRefusedOwnedByOrchestrator(check(SeatCaller.NONE, seats = withoutOrchestrator))
     }
 
     @Test

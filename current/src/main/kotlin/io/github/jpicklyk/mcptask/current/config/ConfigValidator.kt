@@ -144,7 +144,7 @@ class ConfigValidator(
      * `default_traits` resolves from this document first, else [serverLayer] (a per-root trait replaces every
      * dimension of the server's trait of the same name). [servedRuleKeys] are the rule keys the root serves.
      *
-     * Checks: a seat that owns no note of its phase (the orchestrator seat counts a note labelled for it in any phase); an unseated optional note on a seat-aware schema or trait; an optional note
+     * Checks: a seat that owns no note of its phase (a note labelled `orchestrator` counts for a seat of that name in any phase); an unseated optional note on a seat-aware schema or trait; an optional note
      * (or a required trait note no schema here lists) whose seat no seat owns; an `independent_of` or seat `after` name no
      * seat declares; a trait `dispatch` seat override no seat declares for its phase; the same guidance on several notes; a per-root schema or trait that shadows a server one; a trait with no
      * `applies_when`; a seat `rules` entry that is not served; a seat or note skill that names a served rule. The

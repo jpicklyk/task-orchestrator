@@ -45,9 +45,16 @@ object ErrorDetailDocs {
                     "itemId" to ID,
                     "seat" to "string, omitted without a token",
                     "action" to "string",
-                    "allowedSeats" to "array of string"
+                    "allowedSeats" to "array of string",
+                    "runId" to ID
                 ),
-            ErrorCode.NOTE_OWNED_BY_OTHER to linkedMapOf("itemId" to ID, "key" to "string", "ownerSeat" to "string, optional"),
+            ErrorCode.NOTE_OWNED_BY_OTHER to
+                linkedMapOf(
+                    "itemId" to ID,
+                    "key" to "string",
+                    "ownerSeat" to "string, optional",
+                    "runId" to "string (UUID), optional: the open run whose seat owns the key"
+                ),
             ErrorCode.NOTE_TOO_LONG to linkedMapOf("key" to "string", "max" to "integer", "actual" to "integer"),
             ErrorCode.RESOURCE_UNAVAILABLE to
                 linkedMapOf(

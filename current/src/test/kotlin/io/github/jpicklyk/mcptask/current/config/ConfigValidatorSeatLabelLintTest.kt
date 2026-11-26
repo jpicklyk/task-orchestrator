@@ -204,7 +204,7 @@ class ConfigValidatorSeatLabelLintTest {
     // ------------------------------------------------------------------ S4 (a, orchestrator)
 
     @Test
-    fun `S4 the orchestrator label is owned in any phase when an orchestrator seat is declared`() {
+    fun `S4 the orchestrator label is owned in any phase whether or not an orchestrator seat is declared`() {
         val withSeat =
             yaml(
                 schemaX(
@@ -218,11 +218,7 @@ class ConfigValidatorSeatLabelLintTest {
         val withoutSeat = withSeat.replace("      - { name: orchestrator, phase: work }\n", "")
 
         assertEquals(emptyList(), lint(withSeat).paths("names seat"), "orchestrator(work) owns a review note")
-        assertEquals(
-            listOf("/work_item_schemas/x/notes/1"),
-            lint(withoutSeat).paths(namesSeat("orchestrator")),
-            "without any orchestrator seat the label is unowned",
-        )
+        assertEquals(emptyList(), lint(withoutSeat).paths("names seat"), "orchestrator is a reserved owner, no seat needed")
     }
 
     // ------------------------------------------------------------------ S5 (seatless schema)

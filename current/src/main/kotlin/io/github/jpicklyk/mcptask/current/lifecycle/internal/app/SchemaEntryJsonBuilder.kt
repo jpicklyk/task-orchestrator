@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.PhaseNoteCon
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
 import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
@@ -80,16 +81,17 @@ fun buildExpectedNotesJson(
  * `maxLength` is included only when set on the entry — it is NOT part of the keys-only
  * default shape produced by [buildExpectedNotesJson].
  *
- * @param seatAware When true, every entry gains a `seat` field (declared owning seat name, or JSON
- *   null when unowned) — callers pass this only when the schema is seat-aware
- *   ([WorkItemSchema.isSeatAware]), preserving byte-identity for seat-less schemas (A1). Independent
- *   of [seatAware], an entry with a non-empty [NoteSchemaEntry.independentOf] always gains that field.
+ * @param seats The schema's declared seats. The schema is seat-aware when this is non-empty, and then every entry
+ *   gains a `seat` field (the seat name the entry declares, or JSON null). Every entry of every schema, seat-aware or
+ *   not, gains `owningSeat`: its [OwningSeat] (a string, or JSON null when unowned), always present. Independent of
+ *   the seats, an entry with a non-empty [NoteSchemaEntry.independentOf] always gains that field.
  */
 fun buildFullSchemaEntriesJson(
     entries: List<NoteSchemaEntry>,
-    seatAware: Boolean = false
-): JsonArray =
-    JsonArray(
+    seats: List<SeatDefinition> = emptyList()
+): JsonArray {
+    val seatAware = seats.isNotEmpty()
+    return JsonArray(
         entries.map { entry ->
             buildJsonObject {
                 put("key", JsonPrimitive(entry.key))
@@ -104,6 +106,7 @@ fun buildFullSchemaEntriesJson(
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
                 }
+                put("owningSeat", OwningSeat.of(entry, seats)?.let { JsonPrimitive(it) } ?: JsonNull)
                 if (entry.independentOf.isNotEmpty()) {
                     put("independentOf", JsonArray(entry.independentOf.map { JsonPrimitive(it) }))
                 }
@@ -122,6 +125,7 @@ fun buildFullSchemaEntriesJson(
             }
         }
     )
+}
 
 /**
  * Build both schemaMatch and expectedNotes for tool responses.

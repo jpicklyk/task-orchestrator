@@ -76,8 +76,8 @@ class FixArgsAgreementTest {
                 Case(ErrorDetail.NotClaimHolder(itemUuid), mapOf("itemId" to itemId)),
             ErrorCode.SEAT_FORBIDDEN to
                 Case(
-                    ErrorDetail.SeatForbidden(itemUuid, "reviewer", "write", listOf("planner")),
-                    mapOf("itemId" to itemId, "seat" to "reviewer", "action" to "write")
+                    ErrorDetail.SeatForbidden(itemUuid, "reviewer", "write", listOf("planner"), otherUuid),
+                    mapOf("itemId" to itemId, "seat" to "reviewer", "action" to "write", "runId" to otherUuid.toString())
                 ),
             ErrorCode.NOTE_OWNED_BY_OTHER to
                 Case(

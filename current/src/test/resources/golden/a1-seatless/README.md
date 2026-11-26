@@ -15,6 +15,10 @@ byte-identical, per `task-scope` §6.1 rule 1 / DEC-1 — this is the byte-ident
 > the 4.0 envelope). They were re-recorded on the new shape; the invariant they guard is unchanged: a seat-less schema emits
 > no `seat` and no `missingBySeat` anywhere.
 
+> **Orchestrator notes re-record.** The three `query_items_schema_*.json` captures gained `"owningSeat": null` on every note entry
+> and `orchestratorNotes` in `features` (the served computed owner, present in every schema). The seat-less invariant is
+> unchanged: still no `seat`, `seats` or `missingBySeat`.
+
 ## Fixtures (checked in, deliberately pinned seat-less snapshots)
 
 - `fixtures/repo-config.yaml` - seat-less snapshot of this repo's tracked `.taskorchestrator/config.yaml`

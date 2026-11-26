@@ -296,7 +296,7 @@ class BootImportTest {
         assertEquals("file-import", v.source)
         assertEquals(text, v.yaml)
         assertEquals(configFingerprint(text), v.fingerprint)
-        assertEquals(emptyList(), v.warnings, "the 4.0 dogfood fixture validates with zero warnings")
+        assertEquals(2, v.warnings.size, "the 4.0 dogfood fixture validates with its two orchestrator seat advisories: ${v.warnings}")
         assertNull(runBlocking { composition.serverConfig.layer() }, "the file did not become the server set")
 
         val events = runBlocking { EventLogRig(db.db, composition).rows() }.filter { it.type == "config.version_created" }

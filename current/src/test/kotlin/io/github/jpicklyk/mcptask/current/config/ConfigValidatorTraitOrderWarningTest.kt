@@ -83,7 +83,6 @@ class ConfigValidatorTraitOrderWarningTest {
             "      - { name: planner,      phase: queue }\n" +
             "      - { name: implementer,  phase: work, enters: true }\n" +
             "      - { name: test-author,  phase: work, after: [implementer] }\n" +
-            "      - { name: orchestrator, phase: work, after: [implementer] }\n" +
             "      - { name: reviewer,     phase: review }\n" +
             "    notes:\n" +
             "      - key: spec\n" +

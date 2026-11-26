@@ -60,14 +60,14 @@ class LiveConfigFilesParseTest {
     }
 
     @Test
-    fun `S4 live dogfood config parses STRICT with zero errors, warnings and warning violations`() {
+    fun `S4 live dogfood config parses STRICT with zero errors and warnings, and only the orchestrator seat advisories`() {
         val live = readUtf8(repoRoot().resolve(".taskorchestrator/config.yaml"))
 
         val parsed = parseStrict(live, "live dogfood config")
 
         assertEquals(emptyList<Any>(), parsed.document.errors, "live dogfood STRICT errors")
-        assertEquals(emptyList<String>(), parsed.document.warnings, "live dogfood STRICT warnings")
-        assertEquals(emptyList<Any>(), parsed.document.warningViolations, "live dogfood STRICT warning violations")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warnings, "live dogfood STRICT warnings")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warningViolations, "live dogfood STRICT warning violations")
         assertTrue(parsed.document.workItemSchemas.isNotEmpty(), "live dogfood config must declare schemas")
     }
 
@@ -78,12 +78,12 @@ class LiveConfigFilesParseTest {
         val parsed = parseStrict(live, "CRLF live dogfood config")
 
         assertEquals(emptyList<Any>(), parsed.document.errors, "CRLF dogfood STRICT errors")
-        assertEquals(emptyList<String>(), parsed.document.warnings, "CRLF dogfood STRICT warnings")
-        assertEquals(emptyList<Any>(), parsed.document.warningViolations, "CRLF dogfood STRICT warning violations")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warnings, "CRLF dogfood STRICT warnings")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warningViolations, "CRLF dogfood STRICT warning violations")
     }
 
     @Test
-    fun `4_0 dogfood fixture parses STRICT with zero errors and zero warnings`() {
+    fun `4_0 dogfood fixture parses STRICT with zero errors and warnings and only the orchestrator seat advisories`() {
         val outcome =
             YamlConfigDocumentParser.parse(
                 StrictConfigCases.dogfoodFixture,
@@ -93,8 +93,8 @@ class LiveConfigFilesParseTest {
 
         val parsed = outcome as? ConfigDocumentParser.Outcome.Parsed ?: throw AssertionError("dogfood-4.0.yaml must parse: $outcome")
         assertEquals(emptyList<Any>(), parsed.document.errors, "dogfood-4.0.yaml STRICT errors")
-        assertEquals(emptyList<String>(), parsed.document.warnings, "dogfood-4.0.yaml STRICT warnings")
-        assertEquals(emptyList<Any>(), parsed.document.warningViolations, "dogfood-4.0.yaml STRICT warning violations")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warnings, "dogfood-4.0.yaml STRICT warnings")
+        assertOnlyOrchestratorSeatAdvisories(parsed.document.warningViolations, "dogfood-4.0.yaml STRICT warning violations")
         assertTrue(parsed.document.workItemSchemas.isNotEmpty(), "dogfood-4.0.yaml must declare schemas")
     }
 
@@ -153,7 +153,7 @@ class LiveConfigFilesParseTest {
         val result = floorValidator().validate(live, YamlConfigDocumentParser, ConfigScope.ROOT)
 
         assertEquals(emptyList<Any>(), result.errors, "live dogfood ROOT validation errors")
-        assertEquals(emptyList<Any>(), result.warnings, "live dogfood ROOT validation warnings")
+        assertOnlyOrchestratorSeatAdvisories(result.warnings, "live dogfood ROOT validation warnings")
         assertTrue(result.isValid)
     }
 
@@ -342,6 +342,18 @@ class LiveConfigFilesParseTest {
         ConfigValidator(NetworkntConfigStructuralValidator(), GlobalConfigSource { floorLayer() })
 
     private fun readUtf8(path: Path): String = String(Files.readAllBytes(path), Charsets.UTF_8)
+
+    /**
+     * The live dogfood config and its 4.0 fixture still declare two `orchestrator` seats each (the reserved note owner,
+     * advisory only this release); sibling item ba4e20f6 drops them and restores the zero expectation.
+     */
+    private fun assertOnlyOrchestratorSeatAdvisories(
+        found: List<Any>,
+        label: String
+    ) {
+        assertEquals(2, found.size, "$label: $found")
+        assertTrue(found.all { it.toString().contains("a reserved note owner") }, "$label: $found")
+    }
 
     private fun repoRoot(): Path {
         var dir: Path? = Paths.get(System.getProperty("user.dir")).toAbsolutePath()

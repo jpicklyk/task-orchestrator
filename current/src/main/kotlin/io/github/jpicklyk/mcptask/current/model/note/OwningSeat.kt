@@ -10,12 +10,15 @@ import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
  * A note's owning seat is the seat its schema entry names ([NoteSchemaEntry.seat]):
  * - when [seats] is empty (the schema is not seat-aware) the named seat stands as written;
  * - otherwise when a seat of that name is declared for the note's own phase ([NoteSchemaEntry.role]), or when the name is
- *   [SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT] and a seat of that name is declared in any phase (the orchestrator seat
- *   owns its labelled notes whatever phase they sit in).
- * Any other note (no seat named, an undeclared seat, a non-orchestrator seat declared for another phase) has no owning
- * seat: it is unowned.
+ *   [ORCHESTRATOR]: the orchestrator is not a seat, so its labelled notes are owned in every seat-aware schema, declared
+ *   seat or not, whatever phase they sit in.
+ * Any other note (no seat named, an undeclared seat, a seat declared for another phase) has no owning seat: it is
+ * unowned.
  */
 object OwningSeat {
+    /** The reserved owner of the notes the orchestrator writes itself (glossary: "Orchestrator note"); never a seat. */
+    const val ORCHESTRATOR: String = "orchestrator"
+
     /** The seat owning [entry] under [seats], or null (unowned, or [entry] is null). */
     fun of(
         entry: NoteSchemaEntry?,
@@ -23,7 +26,7 @@ object OwningSeat {
     ): String? {
         val name = entry?.seat ?: return null
         if (seats.isEmpty()) return name
-        if (name == SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT) return name.takeIf { seats.any { it.name == name } }
+        if (name == ORCHESTRATOR) return name
         return name.takeIf { seats.any { it.name == name && it.phase == entry.role } }
     }
 

@@ -438,9 +438,9 @@ class ConfigValidatorRealMergeTest {
     }
 
     @Test
-    fun `probe an orchestrator seat in the work phase owns a required review note`() {
+    fun `probe a required review note labelled orchestrator is owned without an orchestrator seat`() {
         fun doc(owner: String) =
-            "work_item_schemas:\n  x:\n    seats:\n      - { name: planner, phase: queue }\n      - { name: orchestrator, phase: work }\n" +
+            "work_item_schemas:\n  x:\n    seats:\n      - { name: planner, phase: queue }\n" +
                 "    notes:\n      - { key: confirm, role: review, required: true, seat: " + owner + " }\n"
 
         assertEquals(emptyList(), warnings(doc("orchestrator"), null))

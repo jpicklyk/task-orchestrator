@@ -104,7 +104,7 @@ private suspend fun WriteScope<RunStoreProvider>.openRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    // The `coordinator` pseudo-seat joins the op's unit: a run is never stored without it.
+    // The `coordinator` run-token row joins the op's unit: a run is never stored without it.
     val orchestrator =
         when (val r = env.seatService.openOrchestrator(opened, RunPermissions.callerId(ctx))) {
             is Outcome.Ok -> r.value

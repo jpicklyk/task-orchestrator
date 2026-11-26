@@ -31,7 +31,7 @@ internal object ErrorFixtures {
             ErrorCode.CYCLE_DETECTED -> ErrorDetail.CycleDetected(listOf(id1, id2, id1))
             ErrorCode.CLAIM_HELD -> ErrorDetail.ClaimHeld(id1, Instant.parse("2026-10-07T12:00:00Z"), 5000L)
             ErrorCode.NOT_CLAIM_HOLDER -> ErrorDetail.NotClaimHolder(id1)
-            ErrorCode.SEAT_FORBIDDEN -> ErrorDetail.SeatForbidden(id1, "reviewer", "write", listOf("planner"))
+            ErrorCode.SEAT_FORBIDDEN -> ErrorDetail.SeatForbidden(id1, "reviewer", "write", listOf("planner"), id2)
             ErrorCode.NOTE_OWNED_BY_OTHER -> ErrorDetail.NoteOwnedByOther(id1, "task-scope", null)
             ErrorCode.NOTE_TOO_LONG -> ErrorDetail.NoteTooLong("task-scope", 100, 101)
             ErrorCode.RESOURCE_UNAVAILABLE -> ErrorDetail.ResourceUnavailable(id1, listOf(ResourceRef("gradle", "exclusive")), null)
@@ -67,7 +67,8 @@ internal object ErrorFixtures {
             ErrorCode.DEPENDENCY_UNMET to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
             ErrorCode.CLAIM_HELD to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
             ErrorCode.NOT_CLAIM_HOLDER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
-            ErrorCode.SEAT_FORBIDDEN to mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "action" to "write"),
+            ErrorCode.SEAT_FORBIDDEN to
+                mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "action" to "write", "runId" to "22222222-2222-2222-2222-222222222222"),
             ErrorCode.NOTE_OWNED_BY_OTHER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "key" to "task-scope"),
             ErrorCode.NOTE_TOO_LONG to mapOf("key" to "task-scope", "max" to "100"),
             ErrorCode.RESOURCE_UNAVAILABLE to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
