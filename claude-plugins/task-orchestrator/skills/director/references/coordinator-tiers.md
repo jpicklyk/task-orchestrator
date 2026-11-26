@@ -1,5 +1,13 @@
 # Orchestrator placements and launch profiles
 
+- [Tier 1: desktop session](#tier-1-desktop-session)
+- [Tier 2: one Workflow call, everything else in an orchestrator](#tier-2-one-workflow-call-everything-else-in-an-orchestrator)
+- [Tier 2b: Code Mode orchestrator subagent](#tier-2b-code-mode-orchestrator-subagent)
+- [Tier 3: headless claude -p](#tier-3-headless-claude--p)
+- [Orchestrator reports](#orchestrator-reports)
+- [Limits](#limits)
+- [Tier 4: inline, with a warning](#tier-4-inline-with-a-warning)
+
 A director session never runs a wave itself. An orchestrator does: it plans the run, makes or
 receives the run's seat calls, and runs post-run, then reports a short summary. The tier says where
 that orchestrator lives. `scripts/coordinator-tiers.mjs` holds the rule and the profiles:
@@ -92,7 +100,7 @@ results reach the orchestrator, not the director. When both 2 and 2b are availab
 Method A run and 2b when Method B suits: the plan exits 3 on `--method A` because `maxActiveSeats` is
 below the schema-seat count, or the director wants no `Workflow` call in its context.
 
-The director cannot run `node` and the guard denies it a `Read` of this file, so it composes the one
+The director cannot run `node`, so it composes the one
 `Agent` call from line 1 of the 2b brief alone (model and effort from the `coordinator` class,
 `subagent_type` `general-purpose`, description `coordinator:<target-short>`, prompt the line `Run
 /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.`): the orchestrator's run-wave

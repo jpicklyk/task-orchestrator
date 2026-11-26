@@ -4,11 +4,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseToCallBlocks, checkToCall, RETIRED_3X_TOOLS } from '../../scripts/lib/contract-checks.mjs';
 
-const rd = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf-8');
+const rdPath = (rel) => fileURLToPath(new URL(rel, import.meta.url));
+const rd = (rel) => readFileSync(rdPath(rel), 'utf-8');
 const SKILL = rd('../../skills/director/SKILL.md');
 const AGENT = rd('../../agents/director.md');
 const README = rd('../README.md');
@@ -37,9 +39,27 @@ test('S12 O1: skill frontmatter', () => {
   assert.match(fm, /^argument-hint:.*\boff\b/m);
 });
 
-test('S12 O2: skill body size cap', () => {
-  const n = Buffer.byteLength(SKILL, 'utf8');
-  assert.ok(n <= 18000, 'skill is ' + n + ' bytes, cap 18000');
+// Anthropic's Agent Skills best practices (platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices):
+// keep the SKILL.md body under 500 lines; keep references one level deep from SKILL.md; give a reference file over
+// 100 lines a table of contents; frontmatter name at most 64 characters (lowercase letters, digits, hyphens),
+// description at most 1024 characters.
+test('S12 O2: the skill follows the Agent Skills size and structure guidance', () => {
+  const lines = SKILL.split(/\r?\n/);
+  const fmEnd = lines.indexOf('---', 1);
+  assert.ok(lines[0] === '---' && fmEnd > 0, 'frontmatter block');
+  const body = lines.slice(fmEnd + 1);
+  assert.ok(body.length < 500, 'SKILL.md body is ' + body.length + ' lines; the guidance is under 500');
+  const fm = frontmatter(SKILL);
+  const name = (fm.match(/^name:\s*(.+?)\s*$/m) || [])[1];
+  assert.ok(name && name.length <= 64 && /^[a-z0-9-]+$/.test(name), 'name: ' + name);
+  const desc = ((fm.match(/^description:\s*(.+)$/m) || [])[1] || '').replace(/^"|"$/g, '');
+  assert.ok(desc.length > 0 && desc.length <= 1024, 'description is ' + desc.length + ' characters');
+  const refDir = rdPath('../../skills/director/references');
+  for (const f of readdirSync(refDir).filter((x) => x.endsWith('.md'))) {
+    assert.ok(SKILL.includes('references/' + f), 'SKILL.md links ' + f + ' directly (one level deep)');
+    const ref = readFileSync(join(refDir, f), 'utf8').split(/\r?\n/);
+    if (ref.length > 100) assert.ok(ref.slice(0, 20).some((l) => /^\s*- \[[^\]]+\]\(#/.test(l)), f + ' is over 100 lines and needs a table of contents at the top');
+  }
 });
 
 test('S12 O3: to-call blocks parse, use the director profile and validate', () => {

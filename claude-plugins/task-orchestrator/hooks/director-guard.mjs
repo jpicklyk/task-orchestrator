@@ -13,7 +13,8 @@
 // 2. Altitude rule. While the marker exists, the director session may not open files, run
 //    foreground work or drive work: advance, items_write, notes_write, deps_write and docs_write are denied,
 //    runs_write is allowed only when every op is in DIRECTOR_RUNS_WRITE_OPS (decision ops and run control),
-//    Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
+//    Read is allowed only for a skill's Markdown (isSkillFile: skill files are instructions, not work content),
+//    Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
 //    denied outright, notes_read and docs_read on any task-orchestrator server run only their metadata selects
 //    (DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS; `get` returns a body and is denied), items_read
 //    is allowed only for DIRECTOR_ITEMS_READ_SELECTS, `search` with `snippet: false` and `schema` without
@@ -41,8 +42,8 @@
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
 // sets `onFailure: block` for a crash or timeout). Without the marker the hook is fail-open (`{}`).
 
-import { rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { rmSync, existsSync, readdirSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readHookInput } from './lib/stdin.mjs';
 import { emit, denyOutput } from './lib/emit.mjs';
@@ -281,6 +282,32 @@ export function isAsyncAgentHost(env) {
   return typeof entry === 'string' && ASYNC_AGENT_ENTRYPOINTS.includes(entry);
 }
 
+/**
+ * True when `filePath` is a Markdown file inside a skill: under a `skills` folder, in a sub-folder that holds a
+ * `SKILL.md` (that skill's own files and references), or in a shared folder whose name starts with `_` beside such
+ * skills (`_generated`, `_shared`). Skill files are instructions, not work content, so a director may read them.
+ * Any other path, a non-Markdown file, a path with `..`, or an error is false (the caller then denies).
+ */
+export function isSkillFile(filePath, { exists = existsSync, list = readdirSync } = {}) {
+  try {
+    if (typeof filePath !== 'string' || filePath === '' || !/\.md$/i.test(filePath)) return false;
+    const norm = filePath.replace(/\\/g, '/');
+    if (norm.split('/').includes('..')) return false;
+    const abs = resolve(filePath);
+    const segs = abs.split(sep);
+    for (let k = segs.length - 3; k >= 0; k--) {
+      if (segs[k] !== 'skills') continue;
+      const root = segs.slice(0, k + 1).join(sep);
+      const dir = segs[k + 1];
+      if (exists([root, dir, 'SKILL.md'].join(sep))) return true;
+      if (dir.startsWith('_') && list(root, { withFileTypes: true }).some((d) => d.isDirectory() && exists([root, d.name, 'SKILL.md'].join(sep)))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function denyReason(tool, detail) {
   return `${REASON_PREFIX} a director session does not call \`${tool}\` (${detail}). ${REMEDY}`;
 }
@@ -303,7 +330,8 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   // Skill only loads instructions; every tool a skill then calls is checked here on its own call.
   if (tool === 'Skill') return null;
   if (CONTENT_TOOLS.has(tool)) return denyReason(tool, 'a fetch or resource read that returns page or file content');
-  if (FILE_TOOLS.has(tool)) return denyReason(tool, 'the director never opens a file');
+  if (tool === 'Read' && isSkillFile(toolInputOf(input).file_path)) return null;
+  if (FILE_TOOLS.has(tool)) return denyReason(tool, "the director never opens a file other than a skill's Markdown");
   if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;

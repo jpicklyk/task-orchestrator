@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import { directorMarkerPath } from '../execution-mode.mjs';
 import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
 import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
-import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision } from '../director-guard.mjs';
+import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision, isSkillFile } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
@@ -418,4 +418,49 @@ test('M2: the note and document body-read denial has no nested brackets and name
     assert.ok(!detail.includes('('), `${tool}: ${r}`);
     assert.ok(r.includes('a background agent reads a body and returns a short summary'), r);
   }
+});
+
+// ---- K: a director may Read a skill's Markdown (item d98e684b) -----------------------------------------
+
+function skillTree() {
+  const root = tmp('dg-skills-');
+  const skills = join(root, 'skills');
+  mkdirSync(join(skills, 'alpha', 'references'), { recursive: true });
+  mkdirSync(join(skills, '_generated'), { recursive: true });
+  mkdirSync(join(skills, 'not-a-skill'), { recursive: true });
+  mkdirSync(join(root, 'docs'), { recursive: true });
+  writeFileSync(join(skills, 'alpha', 'SKILL.md'), '# alpha\n');
+  writeFileSync(join(skills, 'alpha', 'references', 'r.md'), '# r\n');
+  writeFileSync(join(skills, 'alpha', 'references', 'tool.mjs'), 'export {}\n');
+  writeFileSync(join(skills, '_generated', 'shapes.md'), '# shapes\n');
+  writeFileSync(join(skills, 'not-a-skill', 'x.md'), '# x\n');
+  writeFileSync(join(root, 'docs', 'guide.md'), '# guide\n');
+  return { root, skills };
+}
+
+test('K1: Read of a skill SKILL.md, its references and a shared _ folder beside skills is allowed under the marker', () => {
+  const { skills } = skillTree();
+  for (const p of [join(skills, 'alpha', 'SKILL.md'), join(skills, 'alpha', 'references', 'r.md'), join(skills, '_generated', 'shapes.md')]) {
+    assert.equal(isSkillFile(p), true, p);
+    allows(call('Read', { file_path: p }), p);
+  }
+});
+
+test('K2: Read of a script in a skill, a folder with no SKILL.md, a non-skill file, a .. escape or no path is denied', () => {
+  const { root, skills } = skillTree();
+  for (const ti of [{ file_path: join(skills, 'alpha', 'references', 'tool.mjs') }, { file_path: join(skills, 'not-a-skill', 'x.md') },
+    { file_path: join(root, 'docs', 'guide.md') }, { file_path: join(skills, 'alpha', '..', '..', 'docs', 'guide.md') }, {}, { file_path: 5 }]) {
+    denies(call('Read', ti), JSON.stringify(ti));
+  }
+});
+
+test('K3: the skill exception is Read only: Edit, Write, Grep and Glob on a skill file still deny', () => {
+  const { skills } = skillTree();
+  const p = join(skills, 'alpha', 'SKILL.md');
+  for (const tool of ['Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']) denies(call(tool, { file_path: p, path: p }), tool);
+});
+
+test('K4: isSkillFile fails closed when the file system check throws', () => {
+  const { skills } = skillTree();
+  assert.equal(isSkillFile(join(skills, 'alpha', 'SKILL.md'), { exists: () => { throw new Error('boom'); } }), false);
 });
