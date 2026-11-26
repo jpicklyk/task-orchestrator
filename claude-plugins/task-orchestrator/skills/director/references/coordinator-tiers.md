@@ -45,7 +45,8 @@ set cross-session inbound messages to accept in the desktop settings, and check 
 five minutes, so an orchestrator's report can be lost.
 
 **Your address.** Before `start_session`, call `ListAgents`: its first line names this session
-(`This session is <name> [<ref>]`). Put that name in the brief's `<director address>`. A tier-1
+(`This session is <name> [<ref>]`, as the desktop app showed it on 2026-11-26; when that line is
+missing, ask the user for the session name). Put that name in the brief's `<director address>`. A tier-1
 orchestrator is a separate session: it has no `"main"` to report to, and without your address its
 reports reach no one, so you see only the app's short turn notes. The `planned` report then carries
 the run id you read the run by.
@@ -173,7 +174,7 @@ carries only the plan's args.
 
 ```
 Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method A).
-Report to <director address> (tier 1: the director's session name; tiers 2 and 4: "main") with SendMessage, only the output of the report helper
+Report to <director address> (tier 1: the director's session name; tiers 2, 3 and 4: "main") with SendMessage, only the output of the report helper
 (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Budget: <X>. Stop on a director close and report closed.
 Never ask the user anything: put what you need (a decision, a permission) on the report's `needs:` line.

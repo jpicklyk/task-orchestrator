@@ -67,8 +67,12 @@ test('validate: the repo run-profile.json passes validateSnapshot in full and sc
   const r = validateSnapshot(snapshot(profile))
   assert.equal(r.ok, true, JSON.stringify(r.errors))
   const byName = Object.fromEntries(profile.verify.map((v) => [v.name, v]))
-  // Gradle runs only for build inputs: a docs-only change under current/docs needs no compile or suite (item d98e684b).
-  for (const n of ['compile-self-check', 'owned-tests', 'wave-build']) assert.deepEqual(byName[n].appliesTo, ['current/src/**', 'current/build.gradle.kts'])
+  // Item d98e684b. The seat checks compile only, so they run for build inputs alone: a docs-only change needs no compile.
+  // The orchestrator's suite also reads current/docs (DistributionManifestConsistencyTest, ApiReferenceFreshnessTest),
+  // so wave-build keeps current/**. Every entry also covers the root Gradle build files and the ktlint config.
+  const ROOT_BUILD = ['build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradle/**', '.editorconfig']
+  for (const n of ['compile-self-check', 'owned-tests']) assert.deepEqual(byName[n].appliesTo, ['current/src/**', 'current/build.gradle.kts', ...ROOT_BUILD])
+  assert.deepEqual(byName['wave-build'].appliesTo, ['current/**', ...ROOT_BUILD])
   for (const n of ['plugin-node-tests', 'plugin-node-owned-tests']) assert.deepEqual(byName[n].appliesTo, ['claude-plugins/**'])
   assert.ok(Array.isArray(profile.knownRed))
 })
