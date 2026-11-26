@@ -3,36 +3,20 @@
 // PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool,
 // ReadMcpResourceDirTool, Artifact, ArtifactData, ArtifactComments, TaskOutput, LSP and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
 // tools and the write tools advance, items_write, notes_write, deps_write, docs_write and runs_write. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
-// Two jobs:
+// Three jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
 //    `task-orchestrator:director`) from the main session (non-empty `session_id`, no `agent_id`)
 //    writes the per-session director marker at `directorMarkerPath(session_id)`; the same call
 //    with `args` `off` removes it. A skill body cannot see its session id, the hook can, so the
 //    marker is written here.
-// 2. Altitude rule. While the marker exists, the director session may not open files, run
-//    foreground work or drive work: advance, items_write, notes_write, deps_write and docs_write are denied,
-//    runs_write is allowed only when every op is in DIRECTOR_RUNS_WRITE_OPS (decision ops and run control),
-//    Read is allowed only for a skill's or a plugin's own files (isSkillFile, isPluginFile: instructions and
-//    deterministic helpers, not work content), a Bash segment may also be `node` on an installed plugin's script,
-//    Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
-//    denied outright, notes_read and docs_read on any task-orchestrator server run only their metadata selects
-//    (DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS; `get` returns a body and is denied), items_read
-//    is allowed only for DIRECTOR_ITEMS_READ_SELECTS, `search` with `snippet: false` and `schema` without
-//    `guidance` (the forms that return no body text) or `describe: true`,
-//    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
-//    `altitudeSafe: true` and no `scriptPath` or `resumeFromRunId`, config is denied, runs_read is
-//    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch, the MCP resource readers,
-//    Artifact, ArtifactData, ArtifactComments, TaskOutput and LSP are denied, Skill is always allowed (it loads instructions only; each tool a skill calls is checked on its own
-//    call), every host MCP tool (a name
-//    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
-//    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
-//    `git branch`, every later token is on that command's flag allow-list or is a plain operand
-//    (so no patch, diff or file output), and Agent is denied unless `run_in_background` is `true`, the host's every Agent call runs in the
-//    background (CLAUDE_CODE_ENTRYPOINT in ASYNC_AGENT_ENTRYPOINTS: the desktop app, whose Agent has no such field and
-//    whose host drops it before this hook runs), or the session is in Code Mode (job 3: Code Mode's Agent has no such
-//    field and always launches in the background). SendMessage and ListAgents are never denied, a call carrying
-//    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
+// 2. Altitude rule. While the marker exists, the director session may not open work files, run foreground work or
+//    drive work. guardDecision holds the per-tool decisions and the constants below hold the lists; the one prose
+//    description of what is allowed is skills/director/references/guard-coverage.md, which the guard's header, the
+//    director SKILL.md, the hooks README and the integration guide summarise. Read and `node` reach a skill's files
+//    and an installed plugin's files (isSkillFile, isPluginFile), never plugin source in the session's work tree.
+//    SendMessage and ListAgents are never denied, a call carrying `agent_id` (a subagent) is exempt, and a headless
+//    ralph iteration is inert.
 //
 // 3. Code Mode marker. A REPL call from the main session (non-empty `session_id`, no `agent_id`, not headless)
 //    creates the per-session code-mode marker at `codeModeMarkerPath(session_id)`, with or without the director
@@ -43,7 +27,7 @@
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
 // sets `onFailure: block` for a crash or timeout). Without the marker the hook is fail-open (`{}`).
 
-import { rmSync, existsSync, realpathSync } from 'node:fs';
+import { rmSync, existsSync, realpathSync, statSync, readFileSync } from 'node:fs';
 import { resolve, sep, dirname, join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readHookInput } from './lib/stdin.mjs';
@@ -326,19 +310,81 @@ export function isSkillFile(filePath, { exists = existsSync, real = realpathSync
   }
 }
 
+/** The root of the plugin this guard was loaded from (the folder above `hooks/`). The host runs it, so it is installed. */
+export const OWN_PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+const foldCase = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+const within = (p, root) => {
+  const a = foldCase(p);
+  const r = foldCase(root);
+  return a === r || a.startsWith(r.endsWith(sep) ? r : r + sep);
+};
+
 /**
- * True when `filePath` is a file inside an installed plugin: an ancestor folder holds `.claude-plugin/plugin.json`
- * (the desktop copy, the marketplace cache, a synced copy or a `--plugin-dir` checkout). A plugin's scripts are its
- * deterministic routing and decision helpers, so a director may read and run them. A path with `..`, a missing
- * file or an error is false.
+ * The real paths of the git work trees `dirs` sit in: for each, the nearest ancestor holding `.git`, and, when that
+ * `.git` is a file (`gitdir: <main>/.git/worktrees/<name>`, a linked worktree), the main checkout as well. A folder
+ * with no `.git` above it adds nothing. Reads no git command.
  */
-export function isPluginFile(filePath, { exists = existsSync, real = realpathSync } = {}) {
+export function workTreeRoots(dirs, { real = realpathSync, stat = statSync, read = readFileSync } = {}) {
+  const roots = new Set();
+  for (const start of dirs) {
+    if (typeof start !== 'string' || start === '') continue;
+    let dir;
+    try {
+      dir = real(resolve(start));
+    } catch {
+      continue;
+    }
+    for (let i = 0; i < 64; i++) {
+      const dotGit = join(dir, '.git');
+      let st = null;
+      try {
+        st = stat(dotGit);
+      } catch {
+        st = null;
+      }
+      if (st !== null) {
+        roots.add(dir);
+        if (st.isFile()) {
+          const m = /^gitdir:\s*(.+?)\s*$/m.exec(String(read(dotGit, 'utf8')));
+          const gitdir = m === null ? null : resolve(dir, m[1]);
+          // <main>/.git/worktrees/<name>: the main checkout is two folders above the worktrees folder.
+          if (gitdir !== null && dirname(gitdir).split(/[\\/]/).pop() === 'worktrees') {
+            try {
+              roots.add(real(dirname(dirname(dirname(gitdir)))));
+            } catch {
+              // a main checkout that is gone adds nothing
+            }
+          }
+        }
+        break;
+      }
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+  }
+  return [...roots];
+}
+
+/**
+ * True when `filePath` is a file inside an installed plugin: its nearest ancestor folder holding
+ * `.claude-plugin/plugin.json` (the desktop copy, the marketplace cache or a synced copy) lies outside every folder in
+ * `workTrees`, or is OWN_PLUGIN_ROOT (the plugin the host loaded this guard from, which keeps a `--plugin-dir`
+ * checkout of it working). A manifest inside the session's work tree is a plugin's source under development, which
+ * is work content. A plugin's scripts are its deterministic routing and decision helpers, so a director may read and
+ * run them. A path with `..`, a missing file or an error is false.
+ */
+export function isPluginFile(filePath, { exists = existsSync, real = realpathSync, workTrees = [], ownRoot = OWN_PLUGIN_ROOT } = {}) {
   try {
     const abs = realFile(filePath, real);
     if (abs === null) return false;
     let dir = dirname(abs);
     for (let i = 0; i < 32; i++) {
-      if (exists(join(dir, '.claude-plugin', 'plugin.json'))) return true;
+      if (exists(join(dir, '.claude-plugin', 'plugin.json'))) {
+        if (typeof ownRoot === 'string' && ownRoot !== '' && foldCase(dir) === foldCase(real(ownRoot))) return true;
+        return !workTrees.some((root) => within(dir, root));
+      }
       const up = dirname(dir);
       if (up === dir) return false;
       dir = up;
@@ -347,6 +393,12 @@ export function isPluginFile(filePath, { exists = existsSync, real = realpathSyn
   } catch {
     return false;
   }
+}
+
+/** The work trees of a hook call: those of its `cwd` (the hook's own working directory when absent) and of CLAUDE_PROJECT_DIR. */
+function sessionWorkTrees(input, env) {
+  const cwd = typeof input.cwd === 'string' && input.cwd !== '' ? input.cwd : process.cwd();
+  return workTreeRoots([cwd, env?.CLAUDE_PROJECT_DIR]);
 }
 
 function denyReason(tool, detail) {
@@ -373,14 +425,15 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   if (CONTENT_TOOL_SET.has(tool)) return denyReason(tool, 'a tool that returns or publishes page, file, task-output or language-server content');
   if (tool === 'Read') {
     const fp = toolInputOf(input).file_path;
-    if (isSkillFile(fp) || isPluginFile(fp)) return null;
+    if (isSkillFile(fp) || isPluginFile(fp, { workTrees: sessionWorkTrees(input, env) })) return null;
   }
-  if (FILE_TOOLS.has(tool)) return denyReason(tool, "the director never opens a file other than a skill's or a plugin's own files");
+  if (FILE_TOOLS.has(tool)) return denyReason(tool, "the director never opens a file other than a skill's or an installed plugin's own files; plugin source in the session's work tree is work content");
   if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with an allow-listed command runs');
   if (tool === 'Bash') {
-    if (bashAllowed(toolInputOf(input).command)) return null;
+    const workTrees = sessionWorkTrees(input, env);
+    if (bashAllowed(toolInputOf(input).command, { pluginFile: (p) => isPluginFile(p, { workTrees }) })) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
-    return denyReason('Bash', `every command segment must start with ${allowed}, or be \`node\` on a script inside an installed plugin; no redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
+    return denyReason('Bash', `every command segment must start with ${allowed}, or be \`node\` on a script inside an installed plugin (not one in the session's work tree); no redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;
