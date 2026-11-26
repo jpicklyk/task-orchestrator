@@ -16,13 +16,17 @@ import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFixture
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportKit
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportRollupRequest
-import io.github.jpicklyk.mcptask.current.report.internal.app.seat
 import io.github.jpicklyk.mcptask.current.run.RunEndedSnapshot
 import io.github.jpicklyk.mcptask.current.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.run.RunService
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunCloseHook
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.SerializationException
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.sql.SQLException
 import java.util.UUID
 import java.util.concurrent.CancellationException
@@ -31,11 +35,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.SerializationException
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.Timeout
-import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * Independent tests (test-author seat, item f65fef01, R29) for scenario S12 (R28 N4): a failure of the rollup computation at close

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.report.internal.app
 
-import io.github.jpicklyk.mcptask.current.report.internal.wire.rollupJson
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.report.internal.wire.rollupJson
 import io.github.jpicklyk.mcptask.current.run.AttemptCounts
 import io.github.jpicklyk.mcptask.current.run.DecisionCounts
 import io.github.jpicklyk.mcptask.current.run.RunHeader

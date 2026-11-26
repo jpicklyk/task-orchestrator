@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.report.internal.app
 
-import io.github.jpicklyk.mcptask.current.report.UsageRow
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.report.UsageRow
 import io.github.jpicklyk.mcptask.current.telemetry.internal.app.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.UsageFoldKit
 import io.github.jpicklyk.mcptask.current.test.SettableClock

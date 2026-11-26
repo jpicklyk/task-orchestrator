@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.report.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
@@ -8,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.config.ConfigStore
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
-import io.github.jpicklyk.mcptask.current.report.ReportStores
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
@@ -28,6 +26,8 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteEventStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteIdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
+import io.github.jpicklyk.mcptask.current.report.ReportQueries
+import io.github.jpicklyk.mcptask.current.report.ReportStores
 import io.github.jpicklyk.mcptask.current.run.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.run.RunSeatStore
 import io.github.jpicklyk.mcptask.current.run.RunStore

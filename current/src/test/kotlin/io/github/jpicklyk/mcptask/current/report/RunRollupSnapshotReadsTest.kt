@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.report.internal.app.RollupRaw
 import io.github.jpicklyk.mcptask.current.report.internal.app.RollupReport
 import io.github.jpicklyk.mcptask.current.report.internal.app.RollupSeats
 import io.github.jpicklyk.mcptask.current.report.internal.app.RunKit
-import io.github.jpicklyk.mcptask.current.report.internal.app.RunRollupQueryCountTest
 import io.github.jpicklyk.mcptask.current.report.internal.app.blocked
 import io.github.jpicklyk.mcptask.current.report.internal.app.moved
 import io.github.jpicklyk.mcptask.current.report.internal.app.seat
@@ -20,11 +19,6 @@ import io.github.jpicklyk.mcptask.current.run.DecisionCounts
 import io.github.jpicklyk.mcptask.current.run.StalledSeat
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import java.util.UUID
-import java.util.concurrent.TimeUnit
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.Transaction
 import org.jetbrains.exposed.v1.core.statements.StatementContext
@@ -32,6 +26,11 @@ import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /**
  * Independent tests (test-author seat, item f65fef01, R29) for scenarios S11 and S13 (R28 N2 and N5): the facts behind a run rollup are

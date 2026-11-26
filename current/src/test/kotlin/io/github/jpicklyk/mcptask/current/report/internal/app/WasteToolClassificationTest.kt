@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.report.internal.app
 
-import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFieldDocs
-import io.github.jpicklyk.mcptask.current.report.internal.app.ReportService
-import io.github.jpicklyk.mcptask.current.report.internal.app.WasteToolClasses
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityCoverage
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFieldDocs
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportService
+import io.github.jpicklyk.mcptask.current.report.internal.app.WasteToolClasses
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject

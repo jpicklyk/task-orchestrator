@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.config.ConfigTools
 import io.github.jpicklyk.mcptask.current.dependency.DependencyTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
-import io.github.jpicklyk.mcptask.current.report.ReportTools
 import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteTools
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeTools
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
+import io.github.jpicklyk.mcptask.current.report.ReportTools
 import io.github.jpicklyk.mcptask.current.run.RunTools
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind

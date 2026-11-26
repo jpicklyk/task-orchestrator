@@ -1,5 +1,15 @@
 package io.github.jpicklyk.mcptask.current.report.internal.sqlite
 
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.report.ContentionKind
 import io.github.jpicklyk.mcptask.current.report.ContentionPage
 import io.github.jpicklyk.mcptask.current.report.ContentionQuery
@@ -29,16 +39,6 @@ import io.github.jpicklyk.mcptask.current.report.internal.app.ReportKit
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportNotesRequest
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportUsageRequest
 import io.github.jpicklyk.mcptask.current.report.internal.wire.noteItem
-import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
-import io.github.jpicklyk.mcptask.current.model.error.Outcome
-import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.model.item.WorkItem
-import io.github.jpicklyk.mcptask.current.platform.call.CallContext
-import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
-import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
-import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

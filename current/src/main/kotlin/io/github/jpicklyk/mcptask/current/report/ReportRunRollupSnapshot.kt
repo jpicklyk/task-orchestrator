@@ -8,10 +8,10 @@ import io.github.jpicklyk.mcptask.current.report.ReportStoreProvider
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportService
 import io.github.jpicklyk.mcptask.current.report.internal.app.RollupSnapshotCodec
 import io.github.jpicklyk.mcptask.current.run.RunRollupSnapshot
-import java.sql.SQLException
-import java.util.UUID
 import kotlinx.serialization.SerializationException
 import org.slf4j.LoggerFactory
+import java.sql.SQLException
+import java.util.UUID
 
 /**
  * The production [RunRollupSnapshot] (R28): the report service's live run rollup in its stored form

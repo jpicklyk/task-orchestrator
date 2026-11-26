@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.report.internal.app
 
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
-import io.github.jpicklyk.mcptask.current.report.internal.wire.rollupJson
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogRecord
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.report.internal.wire.rollupJson
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testReqId

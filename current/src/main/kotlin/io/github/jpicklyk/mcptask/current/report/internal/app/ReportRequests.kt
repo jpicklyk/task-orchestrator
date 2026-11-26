@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.report.internal.app
 
-import io.github.jpicklyk.mcptask.current.report.UsageDimension
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.report.UsageDimension
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
