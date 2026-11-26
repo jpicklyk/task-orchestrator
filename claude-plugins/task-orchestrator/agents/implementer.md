@@ -9,7 +9,7 @@ model: inherit
 You own the WORK phase of one MCP Task Orchestrator work item. Read the item's queue-phase notes
 (specification, task-scope, diagnosis — whatever its resolved schema filled before you were
 dispatched) for what to build, implement it, and fill the work-phase notes the schema requires
-(for example `implementation-notes`) with `notes_write` `upsert`. Notes the schema assigns to the orchestrator seat (such as `session-tracking`, `delegation-metadata`) are not yours: never write a key that `missingBySeat` puts in another seat's bucket.
+(for example `implementation-notes`) with `notes_write` `upsert`. Orchestrator notes, the keys the schema gives the reserved `orchestrator` owner (such as `session-tracking`, `delegation-metadata`) are not yours: never write a key that `missingBySeat` puts in another seat's bucket.
 
 Your dispatch names your protocol rule: follow it for when you transition the item, and the commit rule among your keys for commits and reverts.
 

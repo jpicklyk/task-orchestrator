@@ -472,7 +472,7 @@ orchestrator gives each one an owner before the next dispatch.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it, under the run token while the run is open
-(the note belongs to the orchestrator seat, so a token-less write in an open run is refused `note_owned_by_other`): one line per non-blocking
+(it is an orchestrator note, owned by the reserved `orchestrator` owner, so a token-less write in an open run is refused `note_owned_by_other`): one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review) as
 `fixed <sha>`, `follow-up <item-id>` (the item created first) or `accepted: <reason>`, ending
 `N of N disposed`. Nothing is left for the parent review to carry.
