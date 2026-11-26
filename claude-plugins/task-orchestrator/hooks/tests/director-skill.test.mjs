@@ -150,7 +150,7 @@ test('S12 O12: guard-coverage reference exists, is ASCII, holds the moved text, 
   const flat = (t) => t.replace(/\s+/g, ' ');
   const R = flat(REF);
   for (const s of [
-    'in a skill-entered session it denies the file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies',
+    'in a skill-entered session it denies the file and shell tools, foreground `Agent`, `Bash` outside its allow-list, the `config` tool (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies',
     'and every Task Orchestrator write that drives work: `advance`, `items_write`, `notes_write`, `deps_write`, `docs_write`, and `runs_write` unless every op of the call is',
     '`Skill` is never denied: loading a skill only adds instructions, and each tool the skill calls is checked on its own call. Only the hardened entry enforces the whole budget, through its tool list.',
     'The limit: the guard recognises the orchestration connection by `task-orchestrator` in its server key',

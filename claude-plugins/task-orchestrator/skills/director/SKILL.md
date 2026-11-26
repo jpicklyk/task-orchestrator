@@ -26,7 +26,7 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a work file. `Read` may open a skill's files (its `SKILL.md`, references and
-  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
@@ -265,7 +265,7 @@ Tier 1 `start_session` brief: `Run /task-orchestrator:run-wave <scope> --altitud
 Stop on a director close and report closed.` `<address>`: this session's name, the first `ListAgents`
 line (`This session is <name> [<ref>]`); if absent, ask the user.
 `scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; run it with
-`node` from the plugin folder (this skill's base directory, two folders up). A run of one or two items needs no
+`node` by its absolute path (the plugin folder is this skill's base directory, two folders up). A run of one or two items needs no
 separate orchestrator: dispatch one background agent.
 
 ## Waking up

@@ -5,7 +5,7 @@ This page is for the user, for maintainers and for a director session, which may
 ## What the guard denies
 
 The guard enforces the altitude rule and the write rule, not this whole budget: in a skill-entered session it
-denies the file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool
+denies the file and shell tools, foreground `Agent`, `Bash` outside its allow-list, the `config` tool
 (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies
 (`notes_read` and `docs_read` `get`, `items_read` `search` unless `snippet: false`, and `schema` with
 `fields: ["guidance"]`; the list, history, links and `related` reads run, since they return no body text), and every Task Orchestrator

@@ -375,7 +375,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     if (isSkillFile(fp) || isPluginFile(fp)) return null;
   }
   if (FILE_TOOLS.has(tool)) return denyReason(tool, "the director never opens a file other than a skill's or a plugin's own files");
-  if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
+  if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with an allow-listed command runs');
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
