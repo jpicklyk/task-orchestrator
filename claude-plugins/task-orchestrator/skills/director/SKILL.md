@@ -25,8 +25,8 @@ Calling the skill again refreshes the marker and the dashboard.
 
 ## The altitude rule
 
-- Never open or search a file, except a skill's Markdown: `Read` may open a skill's `SKILL.md` and
-  references (this skill's included). `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+- Never open or search a work file. `Read` may open a skill's files (its `SKILL.md`, references and
+  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
@@ -37,7 +37,9 @@ Calling the skill again refreshes the marker and the dashboard.
 - `Skill` is open: each call a loaded skill makes is checked on its own.
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
-  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
+  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list. A
+  segment may also be `node <script>` for a script inside an installed plugin (write its path with `/`):
+  those scripts give you deterministic routing and decisions, such as `scripts/coordinator-tiers.mjs`.
   `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log` never `-p` or another
   patch flag, `git status` never `-v`, and `git branch` may only list. Revisions and paths are allowed
   as operands; full flag lists: [references/guard-coverage.md](references/guard-coverage.md).
@@ -260,8 +262,8 @@ Tier 1 `start_session` brief: `Run /task-orchestrator:run-wave <scope> --altitud
 "main". Send no note bodies, diffs or tokens. Never ask the user: put any need on the needs: line.
 Stop on a director close and report closed.` `<address>`: this session's name, the first `ListAgents`
 line (`This session is <name> [<ref>]`); if absent, ask the user.
-`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; an
-orchestrator or background agent runs it, not you. A run of one or two items needs no
+`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; run it with
+`node` from the plugin folder (this skill's base directory, two folders up). A run of one or two items needs no
 separate orchestrator: dispatch one background agent.
 
 ## Waking up

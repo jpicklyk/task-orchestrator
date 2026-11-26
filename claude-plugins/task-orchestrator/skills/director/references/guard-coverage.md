@@ -1,6 +1,6 @@
 # Director guard coverage
 
-This page is for the user, for maintainers and for a director session, which may `Read` a skill's Markdown under the marker.
+This page is for the user, for maintainers and for a director session, which may `Read` skill and plugin files under the marker.
 
 ## What the guard denies
 
@@ -14,8 +14,10 @@ unless every op of the call is `answer`, `ack`, `withdraw`, `pause`, `resume`, `
 `update`, `mark`, `assign`, `end_seat` and `raise` deny). `describe: true` passes on every one of them. `Skill`
 is never denied: loading a skill only adds instructions, and each tool the skill calls is checked on its own call.
 Only the hardened entry enforces the whole budget, through its tool list.
-The one file read it allows is `Read` of a skill's Markdown: a `.md` file in a folder that holds a `SKILL.md`,
-or in a shared `_` folder beside such skills (`isSkillFile`). Skill files are instructions, not work content.
+The file reads it allows are `Read` of a skill's files (any file in a folder that holds a `SKILL.md`,
+`isSkillFile`) and of any file inside an installed plugin (an ancestor folder holds `.claude-plugin/plugin.json`,
+`isPluginFile`); `Bash` also runs `node` on a plugin's script. Both checks resolve links first and refuse a `..`
+segment. Skill and plugin files are instructions and deterministic helpers, not work content.
 
 ## How it tells servers apart
 

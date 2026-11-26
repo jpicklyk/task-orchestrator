@@ -21,8 +21,8 @@ that orchestrator lives. `scripts/coordinator-tiers.mjs` holds the rule and the 
   Workflow not present) selects tier `2b`, a string id: tiers 1, 2, 3 and 4 stay numbers.
 - `launchProfile(tier, opts)` returns the launch profile below.
 - `node scripts/coordinator-tiers.mjs profile --tier N|2b [--budget-usd X] [--scope S] [--target T] [--model M] [--effort E] [--prompt-file F]`
-  prints it as JSON (`--tier 2b` needs `--scope`; `--target` defaults to the first 8 hex of the scope id). An orchestrator or background agent runs this, never the director session (the
-  guard denies `node` there).
+  prints it as JSON (`--tier 2b` needs `--scope`; `--target` defaults to the first 8 hex of the scope id). The director may run it (the guard allows `node` on a plugin's own script), as may an orchestrator or
+  background agent.
 
 The director probes its own tool list with the same rule, once per entry, without a call.
 In Code Mode the probe reads the tools a script can call (Workflow, Agent, SendMessage and the
@@ -63,8 +63,8 @@ rather than relying on a remembered shape.
 
 ## Tier 2: one Workflow call, everything else in an orchestrator
 
-A director session cannot run run-wave itself: the guard denies the `node` helper, and the
-snapshot reads note bodies. So the work splits into five steps:
+A director session does not run run-wave itself: driving a run is an orchestrator's job (its writes
+are denied to the director), and the snapshot reads note bodies. So the work splits into five steps:
 
 1. The director dispatches one named background orchestrator agent (`run_in_background: true`,
    `model` set, Agent `description` `coordinator:<target-short>`, see the post-run.md Label rule) for run-wave Steps 0-5a with `--altitude-safe --method A`. The orchestrator records
@@ -100,7 +100,7 @@ results reach the orchestrator, not the director. When both 2 and 2b are availab
 Method A run and 2b when Method B suits: the plan exits 3 on `--method A` because `maxActiveSeats` is
 below the schema-seat count, or the director wants no `Workflow` call in its context.
 
-The director cannot run `node`, so it composes the one
+The director composes the one
 `Agent` call from line 1 of the 2b brief alone (model and effort from the `coordinator` class,
 `subagent_type` `general-purpose`, description `coordinator:<target-short>`, prompt the line `Run
 /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.`): the orchestrator's run-wave
@@ -214,7 +214,7 @@ re-plan.
 - A tier-2 Workflow resume is not the director's call: the guard denies `Workflow` with a `scriptPath` or
   `resumeFromRunId`, so it falls to the orchestrator, a background agent that may lack `Workflow`
   (run-wave post-run re-probes it for that reason). A resume may then have no one able to make it.
-- The director cannot plan: it reads no files or notes. New work is planned in orchestration mode before
+- The director cannot plan: it reads no work files or note bodies, only skill and plugin files. New work is planned in orchestration mode before
   entering director mode.
 
 ## Tier 4: inline, with a warning

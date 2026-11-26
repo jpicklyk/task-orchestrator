@@ -52,10 +52,21 @@ test('S12 O2: the skill follows the Agent Skills size and structure guidance', (
   const fm = frontmatter(SKILL);
   const name = (fm.match(/^name:\s*(.+?)\s*$/m) || [])[1];
   assert.ok(name && name.length <= 64 && /^[a-z0-9-]+$/.test(name), 'name: ' + name);
-  const desc = ((fm.match(/^description:\s*(.+)$/m) || [])[1] || '').replace(/^"|"$/g, '');
-  assert.ok(desc.length > 0 && desc.length <= 1024, 'description is ' + desc.length + ' characters');
+  // A folded or literal scalar (`description: >` or `|`) continues on the indented lines below it.
+  const fmLines = fm.split(/\r?\n/);
+  const at = fmLines.findIndex((l) => l.startsWith('description:'));
+  let desc = at < 0 ? '' : fmLines[at].slice('description:'.length).trim();
+  if (/^[>|][-+]?$/.test(desc)) {
+    const cont = [];
+    for (let i = at + 1; i < fmLines.length && /^\s+\S/.test(fmLines[i]); i++) cont.push(fmLines[i].trim());
+    desc = cont.join(' ');
+  }
+  desc = desc.replace(/^"|"$/g, '');
+  assert.ok(desc.length > 1 && desc.length <= 1024, 'description is ' + desc.length + ' characters');
   const refDir = rdPath('../../skills/director/references');
-  for (const f of readdirSync(refDir).filter((x) => x.endsWith('.md'))) {
+  const refs = readdirSync(refDir).filter((x) => x.endsWith('.md'));
+  for (const f of refs) {
+    // One level deep: every reference is reachable straight from SKILL.md, so none is found only through another.
     assert.ok(SKILL.includes('references/' + f), 'SKILL.md links ' + f + ' directly (one level deep)');
     const ref = readFileSync(join(refDir, f), 'utf8').split(/\r?\n/);
     if (ref.length > 100) assert.ok(ref.slice(0, 20).some((l) => /^\s*- \[[^\]]+\]\(#/.test(l)), f + ' is over 100 lines and needs a table of contents at the top');

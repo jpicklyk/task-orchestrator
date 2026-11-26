@@ -175,8 +175,8 @@ is false, pass `--entry pre-entered` to `plan` in Step 3. Likewise, when F1 sele
 pass `--method B` to `plan` so `meta.method` is `"B"` — the Method B prompt addendum and the blind
 test-author default key on it.
 
-**Director tier 2.** (Needs director mode entered through the `/task-orchestrator:director` skill in a normal session: the hardened `claude --agent director` entry has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.) When a director session drives the run, it does not run these steps itself (its
-guard denies the `node` helper, and the snapshot reads note bodies). It dispatches one named
+**Director tier 2.** (Needs director mode entered through the `/task-orchestrator:director` skill in a normal session: the hardened `claude --agent director` entry has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.) When a director session drives the run, it does not run these steps itself (driving a
+run is an orchestrator's job, and the snapshot reads note bodies). It dispatches one named
 background orchestrator agent (`run_in_background: true`, `model` set) for Steps 0-5a with
 `--altitude-safe --method A`. The orchestrator records run phase `planned` (not `launched`), writes
 `tokens/coordinator.token`, and returns the `planned` report plus `{runId, serverRunId, args}`. The
