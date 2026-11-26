@@ -883,6 +883,12 @@ export function titleRow(board: Board, container: ItemFacts | null | undefined, 
   return { key: 'title', left, right: bar }
 }
 
+/** Plain label for a run's wire `pauseReason` (`attempts`, `manual`; `budget` only on a run stored by 4.0.0); an unknown reason reads as its words. */
+const PAUSE_LABELS: Record<string, string> = { attempts: 'attempt cap', manual: 'manual', budget: 'run budget' }
+function pauseLabel(reason: string): string {
+  return PAUSE_LABELS[reason] ?? reason.replace(/-/g, ' ')
+}
+
 /**
  * Row 2, the status. With runs: on the left what needs a look, first (`1 agent stuck`, `Orchestrator not responding`,
  * `1 decision for you`, `Run paused: run budget`, `All agents finished · advance the items`), then what the agents do
@@ -914,7 +920,7 @@ export function statusRow(board: Board, container: ItemFacts | null | undefined,
   if (runs.some(run => orchestratorStalled(run))) alerts.push({ text: 'Orchestrator not responding', tone: 'errorBold' })
   if (decisions > 0) alerts.push({ text: `${plural(decisions, 'decision', 'decisions')} for you`, tone: 'needsYouBold' })
   const paused = runs.find(run => run.status === 'paused')
-  if (paused !== undefined) alerts.push({ text: paused.pauseReason ? `Run paused: ${paused.pauseReason.replace(/-/g, ' ')}` : 'Run paused', tone: 'needsYouBold' })
+  if (paused !== undefined) alerts.push({ text: paused.pauseReason ? `Run paused: ${pauseLabel(paused.pauseReason)}` : 'Run paused', tone: 'needsYouBold' })
   if (first !== undefined && runs.every(run => run.status !== 'open' || seatsDone(run)) && runs.some(seatsDone)) {
     alerts.push({ text: 'All agents finished · advance the items', tone: 'needsYouBold' })
   }

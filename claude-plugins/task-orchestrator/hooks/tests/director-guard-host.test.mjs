@@ -70,7 +70,7 @@ const ALLOWED_HOST_NAMES = [
   'start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style',
 ];
 const HOST_SERVERS = ['terminal', 'ccd_session', 'ccd_session_mgmt', 'ccd_settings', 'ccd_turn', 'computer-use', 'to', 'e773fde7-78fe-4237-be9f-d0d3a7e2057b'];
-const CONTENT_TOOL_NAMES = ['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool'];
+const CONTENT_TOOL_NAMES = ['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool', 'Artifact', 'ArtifactData', 'ArtifactComments', 'TaskOutput', 'LSP'];
 
 const tracked = [];
 function tmp(prefix) {
@@ -143,7 +143,7 @@ test('S2: DIRECTOR_HOST_MCP_ALLOW is frozen and is exactly the seven names', () 
 
 // ---- S3: web and resource tools ----------------------------------------------------------------
 
-test('S3: WebFetch, WebSearch, ReadMcpResourceTool and ReadMcpResourceDirTool are denied', () => {
+test('S3: the content tools are denied', () => {
   for (const t of CONTENT_TOOL_NAMES) {
     denies(call(t, {}), t);
     denies(call(t, { url: 'http://localhost:3001/api/v1/items/x/notes/y' }), t + ' with a url');
