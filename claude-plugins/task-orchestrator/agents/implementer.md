@@ -29,7 +29,7 @@ Fetch rule text by key rather than from memory: every key your dispatch prompt n
 Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:` line naming a token file), raise it as a blocking decision (`block: true`) and return `awaiting_decision` with `decisionId` set to the raised decision's id, keeping the `## Deviations requested` note as the record; `n` counts your raises on this item from 1.
 
 ```to-call
-{"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "<short-id>:implementer:dev-<n>", "question": "<the decision and why it fails>", "options": [{"key": "<key>", "label": "<label>", "consequence": "<consequence>"}], "recommended": "<key>", "itemId": "<item-UUID>"}}
+{"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "<short-id>:implementer:dev-<n>", "question": "<the decision and why it fails>", "options": [{"key": "<key>", "label": "<label>", "consequence": "<consequence>"}], "recommended": "<key>", "context": "<the evidence the answer needs: what you found, where, why the options differ; at most 1000 characters>", "links": [{"kind": "note", "ref": "item:<item-UUID>#<note-key>"}], "itemId": "<item-UUID>"}}
 ```
 
 Without a seat token, stop and return `awaiting_decision`; the orchestrator raises the decision. A stall is never a reason to raise. A director or human answers; the orchestrator then resumes the item and re-dispatches.

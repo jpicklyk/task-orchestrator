@@ -1,6 +1,6 @@
 # orchestration-discipline
 
-Three habits keep the orchestrator's context lean and every seat's record intact.
+Four habits keep the orchestrator's context lean, every seat's record intact and every decision answerable.
 
 1. **Do not delegate verification.** Never dispatch a subagent to verify or double-check your own
    work: a redundant verifier adds cost and catches nothing the author could not. Verification is
@@ -20,3 +20,8 @@ Three habits keep the orchestrator's context lean and every seat's record intact
    any note another seat owns (an ownership refusal is permanent; there is no takeover). The
    orchestrator's own confirmation of the fixes goes under its own orchestrator-owned key,
    `orchestrator-confirmation`, not into a seat's note.
+4. **A decision you raise carries its evidence.** When you raise for an agent that returned
+   `awaiting_decision` without a seat token, or on a skill's behalf, fill `context` with what the
+   answer needs, taken from the notes you read (within 1000 characters), and `links` with those notes
+   (`{kind: "note", ref: "item:<item-id>#<note-key>"}`). The user or the director answers from the
+   request alone.

@@ -1406,10 +1406,12 @@ A decision is a question with 1 to 8 options that a seat or the orchestrator rai
  "ops": [{"op": "raise", "class": "deviation", "dedupeKey": "api-shape-1", "block": true,
           "question": "The spec says X but the code does Y. Which wins?",
           "options": [{"key": "spec", "label": "Follow the spec"}, {"key": "code", "label": "Keep the code"}],
-          "recommended": "spec"}]}
+          "recommended": "spec",
+          "context": "The spec's acceptance criterion 2 asks for a 404; the handler returns 410 and two clients depend on it.",
+          "links": [{"kind": "note", "ref": "item:<item-id>#specification"}]}]}
 ```
 
-Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#runs_write).
+A raise carries its evidence: `context` (at most 1000 characters) says what the answer needs, and `links` (at most 10) points at the notes or commits it came from, so whoever answers decides from the request alone. Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#runs_write).
 
 The director (or the human) lists and reads decisions with `runs_read` `decisions` and `decision`, then `ack`s and `answer`s with `runs_write`. An answer is final. The raiser or the run's orchestrator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
 
