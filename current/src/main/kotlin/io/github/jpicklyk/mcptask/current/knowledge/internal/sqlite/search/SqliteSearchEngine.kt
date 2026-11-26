@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.knowledge.internal.sqlite.search
 
-import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.knowledge.Analyzer
 import io.github.jpicklyk.mcptask.current.knowledge.Candidate
 import io.github.jpicklyk.mcptask.current.knowledge.Corpus
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.knowledge.ScopeFilter
 import io.github.jpicklyk.mcptask.current.knowledge.SearchIndex
 import io.github.jpicklyk.mcptask.current.knowledge.TextQuery
 import io.github.jpicklyk.mcptask.current.knowledge.internal.domain.related.SimilarTerms
+import io.github.jpicklyk.mcptask.current.model.item.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager

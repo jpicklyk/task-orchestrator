@@ -7,10 +7,11 @@ import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
 import io.github.jpicklyk.mcptask.current.config.StatusGraphSource
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
+import io.github.jpicklyk.mcptask.current.item.ItemToolServices
+import io.github.jpicklyk.mcptask.current.item.OverviewQueries
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.wire.StatusGraphBuilder
@@ -49,7 +50,7 @@ class ToolServiceRegistry(
         mapOf(
             ItemToolServices::class to lazy { item() },
             EventToolServices::class to lazy { event() },
-            WorkflowToolServices::class to lazy { workflow() },
+            ItemWriteToolServices::class to lazy { itemWrite() },
             LifecycleToolServices::class to lazy { lifecycle() },
             DependencyToolServices::class to lazy { dependency() },
             ConfigToolServices::class to lazy { config() },
@@ -70,7 +71,7 @@ class ToolServiceRegistry(
         ItemToolServices(
             items = { tec.workItemRepository() },
             unitOfWork = tec.unitOfWork,
-            workViewQueries = tec.workViewQueries,
+            overviewQueries = OverviewQueries(tec.unitOfWork),
             schemaPin = lazy { tec.schemaPinService }
         )
 
@@ -80,8 +81,8 @@ class ToolServiceRegistry(
             events = { tec.repositoryProvider.eventStore() }
         )
 
-    private fun workflow() =
-        WorkflowToolServices(
+    private fun itemWrite() =
+        ItemWriteToolServices(
             stores = tec.repositoryProvider,
             unitOfWork = tec.unitOfWork,
             configResolver = tec.configResolver,

@@ -73,7 +73,7 @@ class DeletedClassGuardTest {
     @Test
     fun `the placement write baseline is unchanged and no ratchet baseline still names a deleted file`() {
         assertEquals(
-            mapOf("infrastructure/sqlite/repository/SqliteItemStore.kt" to 6),
+            mapOf("item/internal/sqlite/SqliteItemStore.kt" to 6),
             GuardSupport.readBaseline("placement-write-baseline.txt"),
             "AC6: placement-write-baseline.txt stays exactly the item store's six insert/update writes"
         )

@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
-import io.github.jpicklyk.mcptask.current.application.port.ItemSort
-import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
-import io.github.jpicklyk.mcptask.current.application.port.SortDirection
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
+import io.github.jpicklyk.mcptask.current.model.item.ItemFilter
+import io.github.jpicklyk.mcptask.current.model.item.ItemSort
+import io.github.jpicklyk.mcptask.current.model.item.ItemSortField
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.SortDirection
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.Case
 import org.jetbrains.exposed.v1.core.Expression

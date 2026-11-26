@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.config.ConfigTools
 import io.github.jpicklyk.mcptask.current.dependency.DependencyTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.reportTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsWriteTool
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteTools
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeTools
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
 import io.github.jpicklyk.mcptask.current.note.NoteTools
@@ -134,7 +134,7 @@ class ToolRegistry(
  */
 fun buildToolSpecs(): List<ToolSpec> =
     listOf(
-        itemsWriteTool(),
+        ItemWriteTools.tool(),
         NoteTools.read(),
         NoteTools.write(),
         DependencyTools.read(),

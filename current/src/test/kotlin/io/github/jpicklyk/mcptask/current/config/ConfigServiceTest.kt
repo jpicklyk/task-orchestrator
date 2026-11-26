@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.config
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.configYaml
 import io.github.jpicklyk.mcptask.current.test.get

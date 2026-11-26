@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
-import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventType
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.itemwrite.ParentChange
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -40,7 +40,7 @@ import kotlin.time.Duration.Companion.seconds
  * false` and was withheld from every root-scoped SSE subscriber. The fix makes 8 of 10
  * [io.github.jpicklyk.mcptask.current.dependency.DependencyStore] methods `suspend`
  * and switches the decorator to the suspend `resolveRoots`, which does a real DB lookup
- * ([io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChains])
+ * ([io.github.jpicklyk.mcptask.current.item.WorkItemRepository.findAncestorChains])
  * on a cache miss instead of giving up.
  *
  * Oracles (frozen in test-plan note `558ec4a3-bce6-4234-b450-1dea9e51d218`, before this file was

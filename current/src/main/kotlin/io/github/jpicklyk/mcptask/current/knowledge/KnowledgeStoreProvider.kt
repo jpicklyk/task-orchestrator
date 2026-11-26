@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.knowledge
 
-import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
-import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
+import io.github.jpicklyk.mcptask.current.item.HierarchyStore
+import io.github.jpicklyk.mcptask.current.item.ItemStore
 import java.util.UUID
 
 /**

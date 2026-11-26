@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.port.ItemScopeReads
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import java.util.UUID
@@ -51,11 +51,11 @@ sealed interface IdResolution {
  * dash-free hex prefix of 8..32 characters.
  *
  * A UUID resolves with no store read (whether the item exists stays the caller's question). A prefix is one store
- * read ([ItemStore.findByIdPrefix], at most [MAX_CANDIDATES] rows). A store fault becomes [IdResolution.Failed];
+ * read ([ItemScopeReads.findByIdPrefix], at most [MAX_CANDIDATES] rows). A store fault becomes [IdResolution.Failed];
  * cancellation is never wrapped.
  */
 class IdResolver(
-    private val store: ItemStore,
+    private val store: ItemScopeReads,
 ) {
     /** Resolves [raw] under the 4.0 format; a malformed value is [IdResolution.Invalid] with [IdRef.FORMAT_REASON]. */
     suspend fun resolve(raw: String): IdResolution {

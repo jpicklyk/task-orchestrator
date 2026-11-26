@@ -1,0 +1,32 @@
+package io.github.jpicklyk.mcptask.current.item.internal.sqlite
+
+import io.github.jpicklyk.mcptask.current.claim.ClaimStore
+import io.github.jpicklyk.mcptask.current.claim.ClaimStores
+import io.github.jpicklyk.mcptask.current.item.HierarchyStore
+import io.github.jpicklyk.mcptask.current.item.ItemStore
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
+
+/**
+ * SQLite [WorkItemRepository]: a facade over the three stores. It holds no SQL; each narrow port is
+ * delegated to its store ([SqliteItemStore], [SqliteHierarchyStore], `SqliteClaimStore`). Full-text search is the
+ * knowledge slice's `SqliteSearchEngine`.
+ * The stores share one [Clock]; callers that need a single store take it from
+ * [io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider].
+ */
+class SQLiteWorkItemRepository private constructor(
+    private val items: SqliteItemStore,
+    private val hierarchy: SqliteHierarchyStore,
+    private val claims: ClaimStore
+) : WorkItemRepository,
+    ItemStore by items,
+    HierarchyStore by hierarchy,
+    ClaimStore by claims {
+    constructor(databaseManager: DatabaseManager, clock: Clock = SystemClock) : this(
+        SqliteItemStore(databaseManager, clock),
+        SqliteHierarchyStore(databaseManager, clock),
+        ClaimStores.sqlite(databaseManager, clock)
+    )
+}

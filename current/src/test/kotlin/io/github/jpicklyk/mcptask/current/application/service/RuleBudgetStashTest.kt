@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
@@ -9,7 +8,8 @@ import io.github.jpicklyk.mcptask.current.config.RuleListResult
 import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findByFilters
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

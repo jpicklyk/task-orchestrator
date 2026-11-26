@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.PlanSlugs

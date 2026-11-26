@@ -1,11 +1,8 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.wire
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.acceptFields
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemNotFound
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pointer
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.resolveTarget
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -14,8 +11,11 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.acceptFields
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
+import io.github.jpicklyk.mcptask.current.platform.tool.itemNotFound
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.pointer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

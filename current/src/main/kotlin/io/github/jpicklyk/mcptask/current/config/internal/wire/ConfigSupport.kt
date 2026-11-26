@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
 import io.github.jpicklyk.mcptask.current.config.internal.app.ConfigDelta
 import io.github.jpicklyk.mcptask.current.config.internal.app.ConfigDiff
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException

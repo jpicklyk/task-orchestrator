@@ -2,11 +2,11 @@ package io.github.jpicklyk.mcptask.current.knowledge
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeItemInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeAnchorInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeItemInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeRootInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeRequest
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeService
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document

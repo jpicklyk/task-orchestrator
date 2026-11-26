@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.lifecycle
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.treeCompletionService
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.wire.treeCompletionService
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -59,7 +59,7 @@ class TreeCompletionServiceTest {
         composition.unitOfWork.write("TreeCompletionServiceTest") {
             val r =
                 treeCompletionService(
-                    ToolServiceRegistry(ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(ctx).get(ItemWriteToolServices::class)
                 ).run(targets, root, trigger, null, null)
             result = r
             when (r) {
@@ -103,7 +103,7 @@ class TreeCompletionServiceTest {
             val r =
                 try {
                     treeCompletionService(
-                        ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                        ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class)
                     ).run(items, null, "complete", null, null)
                 } finally {
                     tx.unregisterInterceptor(counter)
@@ -228,7 +228,7 @@ class TreeCompletionServiceTest {
             val root = rig.seed("R")
             val a = rig.seed("A", root)
             val aa = rig.seed("AA", a)
-            val service = treeCompletionService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = treeCompletionService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
 
             val (withRoot, rootItem) = service.descendantTargets(root.id, includeRoot = true)!!
             assertEquals(setOf(a.id, aa.id), withRoot.map { it.id }.toSet())

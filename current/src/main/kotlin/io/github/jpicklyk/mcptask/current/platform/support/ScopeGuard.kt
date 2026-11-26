@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.support
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.ItemScopeReads
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -28,7 +28,7 @@ object ScopeGuard {
     suspend fun check(
         scope: AccessScope,
         itemId: UUID,
-        repo: WorkItemRepository
+        repo: ItemScopeReads
     ): Outcome<Unit> {
         if (scope.isUnrestricted) return Outcome.Ok(Unit)
 
@@ -96,7 +96,7 @@ object ScopeGuard {
     suspend fun admitted(
         scope: AccessScope,
         ids: Set<UUID>,
-        repo: WorkItemRepository
+        repo: ItemScopeReads
     ): Set<UUID> {
         if (scope.isUnrestricted || ids.isEmpty()) return ids
         try {
@@ -121,7 +121,7 @@ object ScopeGuard {
      */
     suspend fun nonRoots(
         ids: Set<UUID>,
-        repo: WorkItemRepository
+        repo: ItemScopeReads
     ): Set<UUID> =
         if (ids.isEmpty()) {
             emptySet()

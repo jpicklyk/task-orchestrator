@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.event.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.identity.extractBearerToken
 import io.github.jpicklyk.mcptask.current.identity.isDirectorOnly
 import io.github.jpicklyk.mcptask.current.identity.keySetUnavailable
 import io.github.jpicklyk.mcptask.current.identity.unauthenticated
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability

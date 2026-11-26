@@ -1,13 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.support
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
-import io.github.jpicklyk.mcptask.current.application.port.ItemPage
-import io.github.jpicklyk.mcptask.current.application.port.ItemSort
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.irApp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.short
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.Analyzer
 import io.github.jpicklyk.mcptask.current.knowledge.Corpus
 import io.github.jpicklyk.mcptask.current.knowledge.ScopeFilter
@@ -20,6 +17,9 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.ItemFilter
+import io.github.jpicklyk.mcptask.current.model.item.ItemPage
+import io.github.jpicklyk.mcptask.current.model.item.ItemSort
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope

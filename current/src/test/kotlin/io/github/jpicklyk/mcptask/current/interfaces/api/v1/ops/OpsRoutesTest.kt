@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN_I
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findByFilters
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.parity.ParityFixtureTools
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder

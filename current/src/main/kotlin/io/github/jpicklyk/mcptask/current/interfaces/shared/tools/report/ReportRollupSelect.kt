@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report
 import io.github.jpicklyk.mcptask.current.application.report.ReportRollupRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.application.report.RollupReport
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director

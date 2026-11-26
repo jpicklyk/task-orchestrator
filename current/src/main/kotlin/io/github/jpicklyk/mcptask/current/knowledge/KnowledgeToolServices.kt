@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.knowledge
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.ItemLookup
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 

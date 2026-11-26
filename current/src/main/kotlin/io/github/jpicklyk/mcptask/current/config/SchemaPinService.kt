@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.port.PinViews
 import io.github.jpicklyk.mcptask.current.config.internal.app.TraitResolver
+import io.github.jpicklyk.mcptask.current.item.PinViews
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.event.PinReason
 import io.github.jpicklyk.mcptask.current.model.event.PinRef

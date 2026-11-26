@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesPage
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
-import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
 import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
 import io.github.jpicklyk.mcptask.current.application.port.NoteWritesPage
@@ -29,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WasteCounts
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.TagAllowlistSql
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.WorkViewSql

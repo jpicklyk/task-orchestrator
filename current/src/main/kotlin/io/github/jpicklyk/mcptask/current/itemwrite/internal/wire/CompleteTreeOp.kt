@@ -1,0 +1,206 @@
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
+
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
+import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceSupport
+import io.github.jpicklyk.mcptask.current.lifecycle.NoteSchemaJson
+import io.github.jpicklyk.mcptask.current.lifecycle.TransitionJson
+import io.github.jpicklyk.mcptask.current.lifecycle.TreeCompletionResult
+import io.github.jpicklyk.mcptask.current.lifecycle.TreeCompletionService
+import io.github.jpicklyk.mcptask.current.lifecycle.TreeItemOutcome
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.of
+import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.platform.tool.scopeDenied
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
+import java.util.UUID
+
+/** The wire name of the `complete_tree` op. */
+internal object CompleteTreeOp {
+    const val NAME = "complete_tree"
+}
+
+/**
+ * `items_write` `complete_tree` (orchestration profile): one trigger (`complete` or `cancel`) over the descendants of
+ * `rootId` (then the root itself, last) or over `itemIds`, in blocking order, through [TreeCompletionService]. Check
+ * order: exactly one target form, then scope on every named id, then scope on every collected target (a tree not wholly
+ * admitted is `forbidden`, nothing written), then the run. A per-item rejection is data in `items[]`, never an
+ * element error; all applied transitions of the element commit together.
+ */
+internal fun completeTreeOp(): OpSpec<ItemWriteToolServices, CompleteTreeRequest, ItemWriteResult, ItemWriteStoreProvider> =
+    OpSpec(
+        name = CompleteTreeOp.NAME,
+        doc = "Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.",
+        profiles = orchestration(),
+        capability = ApiCapability.ADVANCE,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
+        request = serializer<CompleteTreeRequest>(),
+        errors =
+            setOf(
+                ErrorCode.NOT_FOUND,
+                ErrorCode.AMBIGUOUS_ID,
+                ErrorCode.FORBIDDEN,
+                ErrorCode.UNAVAILABLE
+            ),
+        execute = { env, ctx, req -> itemWriteBody(ctx) { completeTree(env, ctx, req) } }
+    )
+
+private suspend fun WriteScope<ItemWriteStoreProvider>.completeTree(
+    env: ItemWriteToolServices,
+    ctx: CallContext,
+    req: CompleteTreeRequest
+): Outcome<ItemWriteResult> {
+    val listed = req.itemIds
+    when {
+        req.rootId != null && listed != null -> return Outcome.Err(invalidField("/rootId", "cannot be given with itemIds"))
+        req.rootId == null && listed == null -> return Outcome.Err(invalidField("/rootId", "one of rootId and itemIds is required"))
+        listed != null && listed.isEmpty() -> return Outcome.Err(invalidField("/itemIds", "must not be empty"))
+    }
+
+    val service = treeCompletionService(env)
+    val items = env.workItemRepository()
+    val rootRef = req.rootId
+    val targets: List<WorkItem>
+    val root: WorkItem?
+    var treeRootId: UUID? = null
+    if (rootRef != null) {
+        val rootId =
+            when (val r = resolveItemId(env, ctx.scope, rootRef, "/rootId")) {
+                is Outcome.Err -> return r
+                is Outcome.Ok -> r.value
+            }
+        (checkItemScope(env, ctx, rootId) as? Outcome.Err)?.let { return it }
+        treeRootId = rootId
+        val collected = service.descendantTargets(rootId, req.includeRoot) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(rootId))
+        targets = collected.first
+        root = collected.second
+    } else {
+        val ids = ArrayList<UUID>()
+        for ((i, ref) in checkNotNull(listed).withIndex()) {
+            val id =
+                when (val r = resolveItemId(env, ctx.scope, ref, "/itemIds/$i")) {
+                    is Outcome.Err -> return r
+                    is Outcome.Ok -> r.value
+                }
+            (checkItemScope(env, ctx, id) as? Outcome.Err)?.let { return it }
+            ids += id
+        }
+        targets = ids.distinct().map { id -> items.getById(id) ?: return Outcome.Err(ItemCommandErrors.itemNotFound(id)) }
+        root = null
+    }
+
+    // Fail closed: under a restricted scope every item the call would advance must be admitted, or nothing runs.
+    if (!ctx.scope.isUnrestricted) {
+        val all = (targets.map { it.id } + listOfNotNull(root?.id)).toSet()
+        if (ScopeGuard.admitted(ctx.scope, all, items) != all) return Outcome.Err(scopeDenied(ctx.scope))
+    }
+
+    val completion =
+        when (
+            val run =
+                service.run(
+                    targets,
+                    root,
+                    req.trigger.wire,
+                    ctx.principal.claim,
+                    ctx.principal.verification,
+                    ctx.seat?.assignmentId,
+                    SeatCaller.of(ctx)
+                )
+        ) {
+            is Outcome.Err -> return run
+            is Outcome.Ok -> run.value
+        }
+    return Outcome.Ok(ItemWriteResult(id = treeRootId, payload = payload(req.trigger.wire, completion, ctx, items)))
+}
+
+/** The completion service over the call's composed services. */
+internal fun treeCompletionService(env: ItemWriteToolServices): TreeCompletionService =
+    TreeCompletionService(env.stores, env.advanceServiceFactory())
+
+/**
+ * `{trigger, items, summary}`: every item's outcome in processing order, and the counts (total = the sum of the rest).
+ * Under a restricted scope, cascade and unblocked entries the scope does not admit are `{itemId}` only (one
+ * [ScopeGuard.admitted] read over every item's entries); an unrestricted scope reads nothing.
+ */
+private suspend fun payload(
+    trigger: String,
+    completion: TreeCompletionResult,
+    ctx: CallContext,
+    repo: WorkItemRepository
+): JsonObject {
+    var applied = 0
+    var skipped = 0
+    var failed = 0
+    val results = completion.outcomes.filterIsInstance<TreeItemOutcome.Applied>().map { it.result }
+    val admitted = TransitionJson.admitted(ctx.scope, results.flatMap { it.cascadeEvents }, results.flatMap { it.unblockedItems }, repo)
+    val entries =
+        completion.outcomes.map { outcome ->
+            buildJsonObject {
+                put("itemId", outcome.itemId.toString())
+                when (outcome) {
+                    is TreeItemOutcome.Applied -> {
+                        applied++
+                        val result = outcome.result
+                        put("outcome", "applied")
+                        put("previousRole", TransitionJson.role(result.previousRole))
+                        put("newRole", TransitionJson.role(result.newRole))
+                        result.statusLabel?.let { put("statusLabel", it) }
+                        TransitionJson.cascades(result.cascadeEvents, admitted)?.let { put("cascades", it) }
+                        TransitionJson.unblocked(result.unblockedItems, admitted)?.let { put("unblocked", it) }
+                        NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
+                    }
+                    is TreeItemOutcome.AlreadyTerminal -> {
+                        skipped++
+                        put("outcome", "skipped")
+                        put("reason", "already_terminal")
+                    }
+                    is TreeItemOutcome.UpstreamFailed -> {
+                        skipped++
+                        put("outcome", "skipped")
+                        put("reason", "upstream_failed")
+                        put("blockedBy", JsonArray(outcome.blockedBy.map { JsonPrimitive(it.toString()) }))
+                    }
+                    is TreeItemOutcome.Failed -> {
+                        failed++
+                        put("outcome", "failed")
+                        put("error", EnvelopeEncoder.errorMember(AdvanceSupport.rooted(outcome.failure.error)))
+                    }
+                }
+            }
+        }
+    return buildJsonObject {
+        put("trigger", trigger)
+        put("items", JsonArray(entries))
+        put(
+            "summary",
+            buildJsonObject {
+                put("total", applied + skipped + failed)
+                put("applied", applied)
+                put("skipped", skipped)
+                put("failed", failed)
+            }
+        )
+    }
+}

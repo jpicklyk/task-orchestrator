@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.knowledge
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
-import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandService
+import io.github.jpicklyk.mcptask.current.itemwrite.ParentChange
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document

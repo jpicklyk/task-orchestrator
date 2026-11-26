@@ -13,10 +13,10 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import java.util.UUID
 
 /**
- * The read model: the four work views (`next`, `blocked`, `overview`, `context`), each served by ONE read unit
+ * The read model: the three work views (`next`, `blocked`, `context`), each served by ONE read unit
  * with a bounded number of statements (at most a fixed N per view; an empty id set skips its statement), whatever
  * the number of rows, children, dependency edges or claims behind it. Lists are paged ([PageRequest]) with a stable order ending in an `id` tiebreak; each page's `total` is
- * counted in the same unit as its items. Views return plain data ([OverviewView], [BlockedEntry], ...); the
+ * counted in the same unit as its items. Views return plain data ([NextView], [BlockedEntry], ...); the
  * tools and routes that serve them render it.
  *
  * Paging ([ListPage.of], envelope amendment U22): every page reports the full `total`; a page's `next` cursor
@@ -138,83 +138,6 @@ class WorkViewQueries(
         }
 
     /**
-     * The overview selected by [request]: global (parentless roots), scoped ([OverviewRequest.itemId]: the item,
-     * its direct child counts and a page of its children) or anchored ([OverviewRequest.anchorId]: a page of the
-     * anchor's children with full-subtree descendant counts). [OverviewView.NotFound] when the item or anchor does
-     * not exist.
-     */
-    suspend fun overview(request: OverviewRequest): OverviewView =
-        unitOfWork.read {
-            val items = stores.itemStore()
-            val page = request.page
-            val scope = request.scope
-            when {
-                request.itemId != null -> {
-                    val item = items.getById(request.itemId) ?: return@read OverviewView.NotFound(request.itemId)
-                    val slice = items.findChildrenPage(item.id, request.excludeTerminal, page.limit, page.offset, scope)
-                    // One grouped count serves the item's own (unfiltered) child counts and each listed child's counts.
-                    val ids = slice.items.map { it.id }.toSet() + item.id
-                    val counts = items.countByParentAndRole(ids, scope)
-                    val blocked = items.countBlockedByParentAndReason(ids, scope)
-                    val entries =
-                        slice.items.map {
-                            OverviewEntry(
-                                it,
-                                counts[it.id] ?: emptyMap(),
-                                blockedByReason =
-                                    blocked[it.id] ?: emptyMap()
-                            )
-                        }
-                    OverviewView.Scoped(
-                        item,
-                        counts[item.id] ?: emptyMap(),
-                        pageOf(entries, slice.total, page),
-                        blocked[item.id] ?: emptyMap()
-                    )
-                }
-
-                request.anchorId != null -> {
-                    val anchor = items.getById(request.anchorId) ?: return@read OverviewView.NotFound(request.anchorId)
-                    val slice = items.findChildrenPage(anchor.id, request.excludeTerminal, page.limit, page.offset, scope)
-                    val topIds = slice.items.map { it.id }.toSet()
-                    val rollup = items.rollupByTopChild(topIds, scope)
-                    val blockedRollup = items.rollupBlockedByTopChild(topIds, scope)
-                    val entries =
-                        slice.items.map {
-                            OverviewEntry(it, rollup[it.id] ?: emptyMap(), blockedByReason = blockedRollup[it.id] ?: emptyMap())
-                        }
-                    OverviewView.Anchored(anchor, pageOf(entries, slice.total, page))
-                }
-
-                else -> {
-                    val slice = items.findChildrenPage(null, request.excludeTerminal, page.limit, page.offset, scope)
-                    val rootIds = slice.items.map { it.id }.toSet()
-                    val claims = stores.claimStore().claimSummaryByParent(rootIds, scope)
-                    val children = if (request.includeChildren) globalChildren(rootIds, request.excludeTerminal, scope) else null
-                    val countIds = rootIds + (children?.childIds ?: emptySet())
-                    val counts = items.countByParentAndRole(countIds, scope)
-                    val blocked = items.countBlockedByParentAndReason(countIds, scope)
-                    val entries =
-                        slice.items.map { root ->
-                            OverviewEntry(
-                                item = root,
-                                childCounts = counts[root.id] ?: emptyMap(),
-                                claimSummary = claims[root.id],
-                                blockedByReason = blocked[root.id] ?: emptyMap(),
-                                children =
-                                    children?.let { c ->
-                                        (c.byParent[root.id] ?: emptyList()).map {
-                                            OverviewEntry(it, counts[it.id] ?: emptyMap(), blockedByReason = blocked[it.id] ?: emptyMap())
-                                        }
-                                    },
-                            )
-                        }
-                    OverviewView.Global(pageOf(entries, slice.total, page))
-                }
-            }
-        }
-
-    /**
      * The health / session-resume item data for [scope]: a page of the active (WORK, REVIEW) items, a page of the
      * role-BLOCKED items (both with exact totals), the claim summary over the scope, and the notes of every active
      * item on the page in one batched read. Stalled classification (which needs schemas) is left to the caller.
@@ -242,44 +165,6 @@ class WorkViewQueries(
                 notes = notes,
             )
         }
-
-    /** Global `includeChildren`: the roots' direct children, with the `excludeTerminal` rule applied in batch. */
-    private suspend fun ReadScope<LifecycleStoreProvider>.globalChildren(
-        rootIds: Set<UUID>,
-        excludeTerminal: Boolean,
-        scope: AccessScope,
-    ): Children {
-        val all = stores.itemStore().findByParents(rootIds, scope)
-        val visible =
-            if (!excludeTerminal) {
-                all
-            } else {
-                val terminal =
-                    all.values
-                        .flatten()
-                        .filter { it.role == Role.TERMINAL }
-                        .map { it.id }
-                        .toSet()
-                val below = stores.itemStore().rollupByTopChild(terminal, scope)
-                all.mapValues { (_, kids) ->
-                    kids.filter { kid ->
-                        kid.role != Role.TERMINAL || (below[kid.id] ?: emptyMap()).any { (role, n) -> role != Role.TERMINAL && n > 0 }
-                    }
-                }
-            }
-        return Children(
-            visible,
-            visible.values
-                .flatten()
-                .map { it.id }
-                .toSet()
-        )
-    }
-
-    private class Children(
-        val byParent: Map<UUID, List<WorkItem>>,
-        val childIds: Set<UUID>,
-    )
 
     /**
      * The ids of [items] visible under [scope] (one statement), or null when [scope] restricts nothing.

@@ -12,7 +12,6 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.config.ServerConfigSource
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthMode
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope

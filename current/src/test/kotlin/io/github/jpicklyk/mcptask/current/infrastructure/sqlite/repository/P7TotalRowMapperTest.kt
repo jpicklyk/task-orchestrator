@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.countByFilters
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findByFilters
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findInScope
 import io.github.jpicklyk.mcptask.current.model.error.ValidationException
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

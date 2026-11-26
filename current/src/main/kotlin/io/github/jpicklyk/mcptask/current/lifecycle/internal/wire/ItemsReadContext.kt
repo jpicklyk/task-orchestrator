@@ -1,17 +1,12 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.wire
 
 import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.acceptFields
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ancestorChains
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemNotFound
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pageRequest
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.pointer
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.putPage
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveOptionalId
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.withAncestors
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.ancestorChains
+import io.github.jpicklyk.mcptask.current.item.resolveOptionalId
+import io.github.jpicklyk.mcptask.current.item.resolveTarget
+import io.github.jpicklyk.mcptask.current.item.withAncestors
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.lifecycle.ContextScope
 import io.github.jpicklyk.mcptask.current.lifecycle.ContextView
@@ -46,8 +41,13 @@ import io.github.jpicklyk.mcptask.current.platform.port.unitNow
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.acceptFields
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
+import io.github.jpicklyk.mcptask.current.platform.tool.itemNotFound
 import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.platform.tool.pageRequest
+import io.github.jpicklyk.mcptask.current.platform.tool.pointer
+import io.github.jpicklyk.mcptask.current.platform.tool.putPage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
