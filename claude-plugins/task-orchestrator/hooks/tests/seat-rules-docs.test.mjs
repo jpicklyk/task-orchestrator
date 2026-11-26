@@ -69,9 +69,10 @@ test('S11 AC3: the review-cited-claims rule names the findings register and the 
   assert.equal(claudeSection(project), section);
 });
 
-test('S11 AC4: implementer.md names the test author by seat, not by skill or trait', () => {
+test('S11 AC4: another seat\'s note is named by seat, not by skill or trait (entry-seat rule; implementer.md no longer restates it)', () => {
   const text = agent('implementer');
-  assert.ok(text.includes('`seat` is `test-author`'));
+  // Boundary pass 1 (P67 / D6): the seat rule moved from implementer.md into protocol.entry-seat.
+  assert.ok(read(PLUGIN, 'bundled-rules', 'protocol.entry-seat.md').includes('`gateStatus.missingBySeat` lists under another seat'));
   assert.equal(text.includes('`skill` is `test-author`'), false);
   assert.equal(text.includes('needs-test-author'), false);
 });

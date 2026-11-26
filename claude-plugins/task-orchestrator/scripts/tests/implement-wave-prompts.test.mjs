@@ -59,7 +59,9 @@ function windows8(tokens) {
 
 function extractP08Sentence(implementerMdText) {
   const start = implementerMdText.indexOf('If your dispatch prompt names a seat')
-  if (start === -1) throw new Error('P0.8 sentence not found in implementer.md')
+  // Boundary pass 1 (P67) cut the seat-rule sentence from implementer.md (protocol.entry-seat owns it):
+  // with no sentence there is nothing to allow, so every 8-token window is compared.
+  if (start === -1) return ''
   const tail = implementerMdText.slice(start)
   const endMarker = 'their own seats'
   const endIdx = tail.indexOf(endMarker)

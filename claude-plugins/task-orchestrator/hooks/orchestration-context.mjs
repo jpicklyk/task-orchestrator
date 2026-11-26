@@ -31,8 +31,6 @@ An item's \`type\` selects its schema in \`.taskorchestrator/config.yaml\`: per-
 
 const CORE_CALLS = `## Core Calls
 
-When the Task Orchestrator tools are listed as deferred, load every tool a step needs in one ToolSearch call.
-
 \`\`\`to-call
 {"tool":"advance","op":"transition","args":{"itemId":"<item-uuid>","trigger":"start"}}
 \`\`\`
@@ -45,19 +43,13 @@ When the Task Orchestrator tools are listed as deferred, load every tool a step 
 {"tool":"items_write","op":"create_tree","args":{"root":{"title":"<title>","type":"<type>"}}}
 \`\`\``;
 
-const PRINCIPLE_AGENT_OWNED = `**Agent-owned phases** - a delegated agent enters its phase (one \`advance\` \`transition\` with \`trigger: "start"\`), fills that phase's required notes, and returns; the orchestrator owns every later transition (advance, inspect \`newRole\`, dispatch the next agent). For a seat-aware item run from a run plan (\`/task-orchestrator:run-wave\`), only the entry seat advances with \`start\`; in-phase and read-only seats never advance, and a seat's calls carry its \`seatToken\` as a top-level field, not inside \`args\`. **A queue->work \`advance\` can fail transiently** with \`resource_unavailable\` (a resource-bearing trait's lease is held elsewhere; \`retryAfterMs\`, when set, says when) - distinct from a gate block; do not fill more notes or retry immediately, work a different item and retry later. **A blocked item carries \`blockedReason\`**: \`awaiting_decision\` with a \`decisionId\` means a decision is open (raise one with \`runs_write\` \`raise\`). An answer never resumes the item: once \`items_read\` \`context\` shows the decision no longer pending, the orchestrator resumes it with one \`advance\` \`transition\` with \`trigger: "resume"\`; never while it is pending, and a seat never resumes it. **Never rewrite a seat-owned note:** the orchestrator never appends to or re-upserts a note another seat owns (for example a review or test note); a \`note_owned_by_other\` refusal is permanent (no takeover). After fixes the original reviewer re-checks the fix diff (a fresh reviewer seat only when it cannot be resumed), and the orchestrator's own confirmation goes under its own key \`orchestrator-confirmation\`; the rule \`orchestration-discipline\` holds both. An inline orchestrator review writes review notes only on an item outside a run.`;
+const PRINCIPLE_AGENT_OWNED = `**Agent-owned phases** - a delegated agent enters its phase (one \`advance\` \`transition\` with \`trigger: "start"\`), fills that phase's required notes, and returns; the orchestrator owns every later transition (advance, inspect \`newRole\`, dispatch the next agent). **A queue->work \`advance\` can fail transiently** with \`resource_unavailable\` (a resource-bearing trait's lease is held elsewhere; \`retryAfterMs\`, when set, says when) - distinct from a gate block; do not fill more notes or retry immediately, work a different item and retry later. **A blocked item carries \`blockedReason\`**: \`awaiting_decision\` with a \`decisionId\` means a decision is open (raise one with \`runs_write\` \`raise\`). An answer never resumes the item: once \`items_read\` \`context\` shows the decision no longer pending, the orchestrator resumes it with one \`advance\` \`transition\` with \`trigger: "resume"\`; never while it is pending, and a seat never resumes it. **Never rewrite a seat-owned note:** the orchestrator never appends to or re-upserts a note another seat owns (for example a review or test note); a \`note_owned_by_other\` refusal is permanent (no takeover). After fixes the original reviewer re-checks the fix diff (a fresh reviewer seat only when it cannot be resumed), and the orchestrator's own confirmation goes under its own key \`orchestrator-confirmation\`; the rule \`orchestration-discipline\` holds both. An inline orchestrator review writes review notes only on an item outside a run.`;
 
 const PRINCIPLE_FEATURE_CLOSURE = `**Close a multi-child feature through one feature-level review** - a parent with a review phase is reviewed once, in \`review\`, after every child is terminal; findings are disposed per the \`orchestrator-confirmation\` guidance, and after fixes the original reviewer re-checks the fix diff (a fresh reviewer seat only when it cannot be resumed), per the rule \`orchestration-discipline\`. A parent in \`review\` never cascades to terminal: complete it explicitly once the review passes.`;
 
 const MODEL_LINE = `Always pass \`model\` and \`effort\` explicitly on every Agent dispatch - the shipped agents use \`model: inherit\` and carry no \`effort\`, so omitting them silently runs the phase owner on your own model at the model's default effort (a guard denies the dispatch otherwise). Values: the item's dispatch profile, else the work's class in \`task-orchestrator:model-effort\`.`;
 
-const RETROSPECTIVE = `## Retrospective
-
-When the retrospective hook fires (PostToolUse context after a successful \`runs_write\` \`close\`, or a Stop-hook directive for a completed scope, or at boundary \`run\` for a closed run without the \`retro\` mark), follow it: nudge means surface the suggestion; dispatch means launch exactly the background agent it specifies, holding the directive until the run boundary (one per completed scope, per closed run at boundary \`run\`; merge directives that accumulate while holding). A held directive lives only in conversation context - if the session compacts before it is acted on, recover with \`/session-retrospective\`; a directive lost when the session ends is re-dispatched by a later session after 20 minutes, except at boundary \`run\`, where you recover by hand. Work driven outside a run gets no hook; suggest \`/session-retrospective\` by hand. Never dispatch a background retrospective from memory or prose - the hook is the single dispatch trigger.`;
-
 const ACTION_ITEMS = `## Action Items
-
-**Cross-session -> MCP items** via \`/task-orchestrator:create-item\` - handles container anchoring, type and trait selection, and note pre-population. Invoke proactively when the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking.
 
 **Session-only -> session tasks** (\`TaskCreate\`/\`TaskUpdate\`) for real-time progress visibility. Ephemeral - they do not persist across sessions.`;
 
@@ -97,8 +89,6 @@ ${CORE_CALLS}
 | A bug, idea, tech debt, or observation worth tracking across sessions | \`task-orchestrator:create-item\` |
 | An \`advance\` is blocked or you need the next trigger | \`task-orchestrator:status-progression\` |
 
-${RETROSPECTIVE}
-
 ${ACTION_ITEMS}
 
 ${VISUAL}`;
@@ -137,8 +127,6 @@ ${CORE_CALLS}
 | A plan materialized two or more unblocked leaf items (post-plan hand-off condition) | \`task-orchestrator:run-wave\` |
 | A bug, idea, tech debt, or observation worth tracking across sessions | \`task-orchestrator:create-item\` |
 | An \`advance\` is blocked or you need the next trigger | \`task-orchestrator:status-progression\` |
-
-${RETROSPECTIVE}
 
 ${ACTION_ITEMS}
 
