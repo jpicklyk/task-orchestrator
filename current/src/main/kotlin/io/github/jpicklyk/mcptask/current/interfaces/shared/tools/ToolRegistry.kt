@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.config.ConfigTools
 import io.github.jpicklyk.mcptask.current.dependency.DependencyTools
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesReadTool
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.reportTool
@@ -11,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsReadT
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsWriteTool
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeTools
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleTools
+import io.github.jpicklyk.mcptask.current.note.NoteTools
 import io.github.jpicklyk.mcptask.current.platform.tool.JsonSchemaGenerator
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
@@ -136,8 +135,8 @@ class ToolRegistry(
 fun buildToolSpecs(): List<ToolSpec> =
     listOf(
         itemsWriteTool(),
-        notesReadTool,
-        notesWriteTool,
+        NoteTools.read(),
+        NoteTools.write(),
         DependencyTools.read(),
         DependencyTools.write(),
         LifecycleTools.advance(),

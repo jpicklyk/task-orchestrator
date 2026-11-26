@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.note.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.test.FENCE_T
 import io.github.jpicklyk.mcptask.current.test.FenceRig
 import io.github.jpicklyk.mcptask.current.test.SettableClock

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyEdges
@@ -32,6 +31,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.note.NoteStore
 import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import java.time.Duration
 import java.util.UUID

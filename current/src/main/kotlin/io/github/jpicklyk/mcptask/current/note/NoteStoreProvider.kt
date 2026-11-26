@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.note
 
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeStoreProvider
 

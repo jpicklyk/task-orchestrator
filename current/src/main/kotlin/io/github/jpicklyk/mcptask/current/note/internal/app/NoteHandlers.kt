@@ -1,9 +1,5 @@
-package io.github.jpicklyk.mcptask.current.application.api.notes
+package io.github.jpicklyk.mcptask.current.note.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
-import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
-import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
-import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -15,6 +11,11 @@ import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
+import io.github.jpicklyk.mcptask.current.note.NoteCommandService
+import io.github.jpicklyk.mcptask.current.note.NoteStoreProvider
+import io.github.jpicklyk.mcptask.current.note.NoteSummary
+import io.github.jpicklyk.mcptask.current.note.NoteToolServices
+import io.github.jpicklyk.mcptask.current.note.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
 import io.github.jpicklyk.mcptask.current.platform.call.of

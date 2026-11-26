@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
-import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
@@ -25,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.knowledge.SearchService
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.lifecycle.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.note.NoteCommandService
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource

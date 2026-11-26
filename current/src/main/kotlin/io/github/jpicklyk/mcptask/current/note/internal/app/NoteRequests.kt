@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.api.notes
+package io.github.jpicklyk.mcptask.current.note.internal.app
 
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef

@@ -42,8 +42,8 @@ import io.github.jpicklyk.mcptask.current.model.schema.ParentFacts
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
+import io.github.jpicklyk.mcptask.current.note.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.itemChangedFields
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -827,7 +827,7 @@ class ItemCommandService(
         val roots = doomed.associate { it.id to eventRootOf(it, hierarchy) }
         // Chunked: a level of a large subtree can exceed the bound-variable limit of one IN list (the edge query
         // binds every id twice).
-        val notesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.application.port.NoteRef>>()
+        val notesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.note.NoteRef>>()
         val edgesByItem = HashMap<UUID, List<io.github.jpicklyk.mcptask.current.model.dependency.Dependency>>()
         for (chunk in doomed.map { it.id }.chunked(PRE_READ_CHUNK)) {
             val ids = chunk.toSet()

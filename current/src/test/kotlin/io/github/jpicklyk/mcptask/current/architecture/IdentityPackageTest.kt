@@ -316,7 +316,10 @@ class IdentityPackageTest {
             "lifecycle/internal/domain/CredentialRefValidation.kt",
             "lifecycle/internal/app/TransitionSnapshotLoader.kt",
             "lifecycle/internal/app/ItemSchemaView.kt",
-            "lifecycle/internal/app/SchemaEntryJsonBuilder.kt"
+            "lifecycle/internal/app/SchemaEntryJsonBuilder.kt",
+            "note/NoteCommandService.kt",
+            "note/internal/domain/NoteOwnership.kt",
+            "note/internal/domain/NoteSeatRule.kt"
         )
 
     private fun isServiceNode(path: String): Boolean = serviceNodePaths.any { GuardSupport.normalizedPath(path).startsWith(it) }

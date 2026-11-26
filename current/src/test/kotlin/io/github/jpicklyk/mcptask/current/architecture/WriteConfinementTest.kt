@@ -85,7 +85,8 @@ internal class WriteConfinementTest {
                 "knowledge/DocumentStore.kt",
                 "knowledge/LinkStore.kt",
                 "knowledge/PlanDocumentStore.kt",
-                "config/ConfigStore.kt"
+                "config/ConfigStore.kt",
+                "note/NoteStore.kt"
             )
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
@@ -96,7 +97,8 @@ internal class WriteConfinementTest {
                 "knowledge/DocumentService.kt",
                 "knowledge/LinkService.kt",
                 "config/ConfigService.kt",
-                "lifecycle/AdvanceService.kt"
+                "lifecycle/AdvanceService.kt",
+                "note/NoteCommandService.kt"
             )
 
         private val STORE_OWNER_DIRS = listOf("application/service/")
@@ -774,7 +776,10 @@ internal class WriteConfinementTest {
         assertTrue(declaresAnnotation(STORE_WRITE), "control: the StoreWrite annotation class is declared in $MARKER_FILE")
         assertTrue(declaresAnnotation(CLAIM_WRITE), "control: the ClaimWrite annotation class is declared in $MARKER_FILE")
 
-        val storeUsers = cleaned.filter { (p, c) -> p.startsWith("application/service/") && mentions(c, STORE_WRITE) > 0 }
+        val storeUsers =
+            cleaned.filter { (p, c) ->
+                (p.startsWith("application/service/") || p in STORE_OWNER_FILES) && mentions(c, STORE_WRITE) > 0
+            }
         assertTrue(storeUsers.size >= 2, "control: service files opt in to StoreWrite; saw ${storeUsers.keys}")
         val claimService = cleaned[CLAIM_SERVICE] ?: error("$CLAIM_SERVICE must exist")
         assertTrue(mentions(claimService, CLAIM_WRITE) > 0, "control: ClaimService.kt names ClaimWrite")

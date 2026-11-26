@@ -1,13 +1,13 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
+package io.github.jpicklyk.mcptask.current.note.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteOwner
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteView
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.note.NoteLengthWarning
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteGetResult
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteListEntry
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteOwner
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteView
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteWriteOutcome
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.call.proofStatus
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec

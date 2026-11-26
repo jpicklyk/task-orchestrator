@@ -5,3 +5,12 @@ package io.github.jpicklyk.mcptask.current.platform.rest.etag
  * item's version, so the same [version] always names the same representation.
  */
 fun etagForVersion(version: Long): String = "\"v$version\""
+
+/** True when the `If-None-Match` [header] lists [etag] (weak validators compare equal) or is `*`. */
+internal fun matchesIfNoneMatch(
+    header: String?,
+    etag: String
+): Boolean {
+    if (header == null) return false
+    return header.split(',').map { it.trim().removePrefix("W/") }.any { it == "*" || it == etag }
+}

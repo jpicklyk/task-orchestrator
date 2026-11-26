@@ -1,7 +1,6 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
+package io.github.jpicklyk.mcptask.current.note.internal.wire
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteHandlers
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig

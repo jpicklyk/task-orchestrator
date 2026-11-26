@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
+package io.github.jpicklyk.mcptask.current.note.internal.wire
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.config.ConfigLayer

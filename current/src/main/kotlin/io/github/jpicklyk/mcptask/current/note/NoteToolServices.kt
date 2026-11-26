@@ -1,9 +1,7 @@
-package io.github.jpicklyk.mcptask.current.application.api.notes
+package io.github.jpicklyk.mcptask.current.note
 
 import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 

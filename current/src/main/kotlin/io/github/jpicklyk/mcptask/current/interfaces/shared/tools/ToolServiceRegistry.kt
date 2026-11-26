@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionService
 import io.github.jpicklyk.mcptask.current.application.run.RunLimits
 import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolSe
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.wire.StatusGraphBuilder
+import io.github.jpicklyk.mcptask.current.note.NoteToolServices
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import kotlin.reflect.KClass
 

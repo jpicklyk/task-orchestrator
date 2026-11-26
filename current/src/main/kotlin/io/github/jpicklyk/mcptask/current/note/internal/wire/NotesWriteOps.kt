@@ -1,15 +1,14 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
+package io.github.jpicklyk.mcptask.current.note.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteDeleteRequest
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteUpsertRequest
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.note.NoteStoreProvider
+import io.github.jpicklyk.mcptask.current.note.NoteToolServices
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteDeleteRequest
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteHandlers
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteUpsertRequest
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteWriteOutcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
-import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import kotlinx.serialization.serializer
 
@@ -67,14 +66,4 @@ internal val noteDeleteOp =
                 ErrorCode.UNAUTHENTICATED
             ),
         execute = { env, ctx, req -> NoteHandlers.delete(this, env, ctx, req) }
-    )
-
-/** The write side of the notes tools. */
-internal val notesWriteTool =
-    OpsToolSpec<NoteWriteOutcome>(
-        name = "notes_write",
-        description = "Create, replace or delete notes on work items, in batches. Every element commits on its own unless atomic is true.",
-        ops = listOf(noteUpsertOp, noteDeleteOp),
-        codec = NoteWriteCodec,
-        element = { NoteJson.element(it) }
     )

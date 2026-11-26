@@ -29,6 +29,9 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
+import io.github.jpicklyk.mcptask.current.note.NoteCommandService
+import io.github.jpicklyk.mcptask.current.note.NoteLengthWarning
+import io.github.jpicklyk.mcptask.current.note.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import java.util.UUID
 

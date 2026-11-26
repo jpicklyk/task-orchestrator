@@ -134,7 +134,7 @@ class KnowledgeBoundaryTest {
         ).forEach { assertTrue(inScope(it), "must be scanned: $it") }
         listOf(
             "lifecycle/AdvanceService.kt",
-            "application/service/NoteCommandService.kt",
+            "note/NoteCommandService.kt",
             "application/port/LinkStore.kt",
             "application/knowledgebase/Other.kt",
             "application/knowledge/link/LinkService.kt",

@@ -1,15 +1,14 @@
-package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
+package io.github.jpicklyk.mcptask.current.note.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
-import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
-import io.github.jpicklyk.mcptask.current.application.api.notes.NotesGetRequest
-import io.github.jpicklyk.mcptask.current.application.api.notes.NotesListRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.note.NoteToolServices
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteGetResult
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteHandlers
+import io.github.jpicklyk.mcptask.current.note.internal.app.NoteListEntry
+import io.github.jpicklyk.mcptask.current.note.internal.app.NotesGetRequest
+import io.github.jpicklyk.mcptask.current.note.internal.app.NotesListRequest
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
-import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import kotlinx.serialization.serializer
 
@@ -43,12 +42,4 @@ internal val notesListSelect =
         capability = ApiCapability.READ,
         handler = { env, ctx, req -> NoteHandlers.list(env, ctx, req) },
         item = { NoteJson.entry(it) }
-    )
-
-/** The read side of the notes tools. */
-internal val notesReadTool =
-    SelectToolSpec(
-        name = "notes_read",
-        description = "Read the notes on work items: get one note with its body, or list an item's notes without bodies.",
-        selects = listOf(notesGetSelect, notesListSelect)
     )

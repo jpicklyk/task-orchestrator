@@ -336,7 +336,6 @@ class SliceGraphReportTest {
                 "application/api/ToolExecutionContext.kt" to "server",
                 "application/api/AnswerProvenance.kt" to "run",
                 "application/api/RunRefs.kt" to "run",
-                "application/api/notes/" to "note",
                 "application/api/runs/" to "run",
                 // other application packages
                 "application/decision/" to "run",
@@ -357,20 +356,16 @@ class SliceGraphReportTest {
                 "application/port/ItemStoreProvider.kt" to "item",
                 "application/port/PinViews.kt" to "item",
                 "application/port/WorkItemRepository.kt" to "item",
-                "application/port/NoteStore.kt" to "note",
-                "application/port/NoteStoreProvider.kt" to "note",
                 "application/port/ReportQueries.kt" to "report",
                 "application/port/ReportStoreProvider.kt" to "report",
                 "application/port/Run" to "run",
                 // application/service
                 "application/service/ItemCommandService.kt" to "workflow",
                 "application/service/WorkTreeService.kt" to "workflow",
-                "application/service/Note" to "note",
                 // infrastructure
                 "platform/" to PLATFORM,
                 "infrastructure/sqlite/report/" to "report",
                 "infrastructure/sqlite/upgrade/" to "upgrade",
-                "infrastructure/sqlite/repository/SQLiteNoteRepository.kt" to "note",
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt" to "item",
                 "infrastructure/sqlite/repository/SqliteDataStepStore.kt" to "upgrade",
                 "infrastructure/sqlite/repository/SqliteDecisionRequestStore.kt" to "run",
@@ -381,8 +376,6 @@ class SliceGraphReportTest {
                 // interfaces
                 "interfaces/" to "server",
                 "interfaces/api/v1/routes/ItemRoutes.kt" to "item",
-                "interfaces/api/v1/routes/NoteResourceRoutes.kt" to "note",
-                "interfaces/mcp/tools/notes/" to "note",
                 "interfaces/shared/tools/items/" to "item",
                 "interfaces/shared/tools/items/CompleteTreeOp.kt" to "workflow",
                 "interfaces/shared/tools/items/CreateItemOp.kt" to "workflow",

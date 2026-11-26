@@ -1,8 +1,7 @@
 @file:OptIn(StoreWrite::class)
 
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.note
 
-import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
@@ -24,9 +23,9 @@ import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteOwnershipTransferredEvent
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteUpsertedEvent
+import io.github.jpicklyk.mcptask.current.note.internal.domain.NoteOwnership
+import io.github.jpicklyk.mcptask.current.note.internal.domain.NoteSeatRule
+import io.github.jpicklyk.mcptask.current.note.internal.domain.SeatRule
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.UnitResult
