@@ -18,8 +18,6 @@ import io.github.jpicklyk.mcptask.current.config.internal.app.CanonicalConfigJso
 import io.github.jpicklyk.mcptask.current.config.internal.app.DocumentSchemaCatalog
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.GoldenV17
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -40,6 +38,8 @@ import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.GoldenV17
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.UpgradeHarness
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put

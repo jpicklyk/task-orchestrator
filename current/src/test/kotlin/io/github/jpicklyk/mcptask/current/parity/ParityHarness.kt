@@ -176,7 +176,7 @@ class ParitySeeder(
     }
 
     /**
-     * Seeds a run through the undecorated [io.github.jpicklyk.mcptask.current.application.port.RunStore] inside a write unit (no
+     * Seeds a run through the undecorated [io.github.jpicklyk.mcptask.current.run.RunStore] inside a write unit (no
      * event rows, the same on both legs), with [items] as its members. A run with an [openedBy] also gets its coordinator seat with
      * the known token [parityCoordinatorToken] (active, or ended `run_closed` for a closed run). The state fields are derived from [status] by
      * construction: a paused run carries a [pauseReason], a closed run a [terminalReason], a `closedAt` and a `closedBy`, so a

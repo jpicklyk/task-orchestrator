@@ -109,7 +109,7 @@ data class RunsConfig(
 /**
  * One entry of the top-level `decision_classes:` block. A null field means "this entry does not set it": the field
  * keeps the built-in class's value (or the default of a class that is not built in), see
- * `io.github.jpicklyk.mcptask.current.application.decision.DecisionClasses`. [expiresAfterSeconds] is the
+ * `io.github.jpicklyk.mcptask.current.run.internal.app.DecisionClasses`. [expiresAfterSeconds] is the
  * `expires_after` value in seconds; [onExpiry] is always `escalate` when set.
  */
 data class DecisionClassConfig(

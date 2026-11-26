@@ -1,8 +1,5 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
-import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
@@ -19,6 +16,9 @@ import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.withEventActor
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepKind
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepPhase
+import io.github.jpicklyk.mcptask.current.upgrade.internal.app.steps.ConfigCanonicalizeStep
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonPrimitive

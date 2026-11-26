@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.config.internal.sqlite
 
 import io.github.jpicklyk.mcptask.current.config.ConfigAppend
 import io.github.jpicklyk.mcptask.current.config.ConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.model.config.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.BaselineDataset
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension

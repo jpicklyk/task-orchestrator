@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.at
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.captureLogs
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.exec
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.Sche
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.tableExists
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.userTableCount
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.withConn
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.UpgradeHarness
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.AfterEach

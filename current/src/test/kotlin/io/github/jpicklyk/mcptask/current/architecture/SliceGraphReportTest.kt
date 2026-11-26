@@ -334,42 +334,14 @@ class SliceGraphReportTest {
                 // application/api
                 "application/api/BatchRunner.kt" to "server",
                 "application/api/ToolExecutionContext.kt" to "server",
-                "application/api/AnswerProvenance.kt" to "run",
-                "application/api/RunRefs.kt" to "run",
-                "application/api/runs/" to "run",
-                // other application packages
-                "application/decision/" to "run",
-                "application/read/RunFrontierQueries.kt" to "run",
-                "application/report/" to "report",
-                "application/run/" to "run",
-                "application/upgrade/" to "upgrade",
                 // application/port
                 "application/port/RepositoryProvider.kt" to "server",
-                "application/port/DataStepStore.kt" to "upgrade",
-                "application/port/Decision" to "run",
-                "application/port/ServerDecisionRaiser.kt" to "run",
-                "application/port/ReportQueries.kt" to "report",
-                "application/port/ReportStoreProvider.kt" to "report",
-                "application/port/Run" to "run",
                 // infrastructure
                 "platform/" to PLATFORM,
-                "infrastructure/sqlite/report/" to "report",
-                "infrastructure/sqlite/upgrade/" to "upgrade",
-                "infrastructure/sqlite/repository/SqliteDataStepStore.kt" to "upgrade",
-                "infrastructure/sqlite/repository/SqliteDecisionRequestStore.kt" to "run",
                 "infrastructure/sqlite/repository/DefaultRepositoryProvider.kt" to "server",
-                "infrastructure/sqlite/repository/SqliteRun" to "run",
                 // interfaces
                 "interfaces/" to "server",
                 "interfaces/shared/tools/items/ItemsReadTool.kt" to "server",
-                "interfaces/shared/tools/report/" to "report",
-                "interfaces/shared/tools/runs/" to "run",
-                "interfaces/shared/tools/runs/Decision" to "run",
-                "interfaces/shared/tools/runs/RunsAckOp.kt" to "run",
-                "interfaces/shared/tools/runs/RunsAnswerOp.kt" to "run",
-                "interfaces/shared/tools/runs/RunsRaiseOp.kt" to "run",
-                "interfaces/shared/tools/runs/RunsWithdrawOp.kt" to "run",
-                "interfaces/shared/tools/runs/RunsDecision" to "run"
             )
     }
 }
