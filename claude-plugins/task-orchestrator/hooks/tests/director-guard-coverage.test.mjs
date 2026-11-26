@@ -12,14 +12,14 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep, relative, isAbsolute } from 'node:path';
 
 import { directorMarkerPath } from '../execution-mode.mjs';
 import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
 import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
-import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision, isSkillFile, isPluginFile } from '../director-guard.mjs';
+import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision, isSkillFile, isPluginFile, workTreeRoots } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
@@ -524,6 +524,58 @@ test('K5: a link inside a skill folder cannot reach a file outside it', (t) => {
   }
   assert.equal(isSkillFile(join(link, 'guide.md')), false);
   denies(call('Read', { file_path: join(link, 'guide.md') }));
+});
+
+// P6: a working tree whose own source carries a plugin manifest (a plugin's development repo) is work content, not an
+// installed plugin. The session's working tree is the hook input's `cwd`; an installed copy outside it stays open.
+function workTreeWithPlugin() {
+  const root = tmp('dg-worktree-');
+  const repo = join(root, 'repo');
+  const src = join(repo, 'plugins', 'wip');
+  mkdirSync(join(repo, '.git'), { recursive: true });
+  mkdirSync(join(src, '.claude-plugin'), { recursive: true });
+  mkdirSync(join(src, 'scripts'), { recursive: true });
+  writeFileSync(join(src, '.claude-plugin', 'plugin.json'), '{"name":"wip"}');
+  writeFileSync(join(src, 'scripts', 'route.mjs'), 'console.log(1);');
+  const installed = join(root, 'home', 'plugins', 'cache', 'wip');
+  mkdirSync(join(installed, '.claude-plugin'), { recursive: true });
+  mkdirSync(join(installed, 'scripts'), { recursive: true });
+  writeFileSync(join(installed, '.claude-plugin', 'plugin.json'), '{"name":"wip"}');
+  writeFileSync(join(installed, 'scripts', 'route.mjs'), 'console.log(1);');
+  return { repo, src, installed, fwd: (p) => p.split(sep).join('/') };
+}
+
+test('P6: a plugin manifest inside the session working tree opens neither Read nor node; an installed copy outside it does', () => {
+  const { repo, src, installed, fwd } = workTreeWithPlugin();
+  const wip = join(src, 'scripts', 'route.mjs');
+  const inst = join(installed, 'scripts', 'route.mjs');
+  for (const cwd of [repo, join(repo, 'plugins')]) {
+    denies(call('Read', { file_path: wip }, { cwd }), `Read of working-tree plugin source from cwd ${cwd}`);
+    denies(call('Bash', { command: `node ${fwd(wip)}` }, { cwd }), `node on working-tree plugin script from cwd ${cwd}`);
+    allows(call('Read', { file_path: inst }, { cwd }), 'Read of the installed copy');
+    allows(call('Bash', { command: `node ${fwd(inst)}` }, { cwd }), 'node on the installed copy');
+  }
+});
+
+test('P7: from a linked worktree, plugin source in the main checkout is closed too; CLAUDE_PROJECT_DIR adds its tree', () => {
+  const { repo, src } = workTreeWithPlugin();
+  const linked = join(repo, '.claude', 'worktrees', 'w1');
+  mkdirSync(join(repo, '.git', 'worktrees', 'w1'), { recursive: true });
+  mkdirSync(linked, { recursive: true });
+  writeFileSync(join(linked, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'w1')}\n`);
+  const wip = join(src, 'scripts', 'route.mjs');
+  const roots = workTreeRoots([linked]).map((r) => r.toLowerCase());
+  assert.ok(roots.includes(realpathSync(repo).toLowerCase()), `main checkout among ${roots}`);
+  denies(call('Read', { file_path: wip }, { cwd: linked }), 'main checkout plugin source from a linked worktree');
+  const outside = tmp('dg-outside-');
+  assert.equal(guardDecision(call('Read', { file_path: wip }, { cwd: outside }), { env: { CLAUDE_PROJECT_DIR: repo }, director: true }) === null, false, 'CLAUDE_PROJECT_DIR tree is closed');
+});
+
+test('P8: the plugin the guard was loaded from stays open even inside the work tree (a --plugin-dir checkout)', () => {
+  const script = fileURLToPath(new URL('../../scripts/coordinator-tiers.mjs', import.meta.url));
+  const tree = workTreeRoots([dirname(script)]);
+  assert.equal(isPluginFile(script, { workTrees: tree }), true, 'own root');
+  assert.equal(isPluginFile(script, { workTrees: tree, ownRoot: '' }), tree.length === 0, 'without the own-root exception the work tree closes it');
 });
 
 // O13: a `..` that resolves back INTO a skill or plugin is still refused, so only the `..` check denies these.

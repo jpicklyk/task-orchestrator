@@ -4,7 +4,7 @@
 
 ## Decision
 
-Under the director marker, `Read` may open any file inside a skill (a folder that holds a `SKILL.md`: its references, scripts and other files) and any file inside an installed plugin (an ancestor folder holds `.claude-plugin/plugin.json`). `Bash` may also run `node` on a script inside an installed plugin. Both checks resolve links first and refuse a `..` segment, and a script runs only by its absolute path. Every other file stays closed to the director, and [0002](0002-director-on-orchestrator-tools.md)'s read, write and skill lines are unchanged for the director's own tool calls.
+Under the director marker, `Read` may open any file inside a skill (a folder that holds a `SKILL.md`: its references, scripts and other files) and any file inside an installed plugin. `Bash` may also run `node` on a script inside an installed plugin. A plugin is installed when the nearest folder above the file that holds `.claude-plugin/plugin.json` lies outside the session's work tree: the git work tree of the hook input's `cwd` and of `CLAUDE_PROJECT_DIR`, and, from a linked worktree, its main checkout. A plugin's source in the repository the session works in is work content and stays closed; the one exception is the plugin the guard was loaded from, which the host runs, so a `--plugin-dir` checkout of it keeps its own scripts. Both checks resolve links first and refuse a `..` segment, and a script runs only by its absolute path. Every other file stays closed to the director, and [0002](0002-director-on-orchestrator-tools.md)'s read, write and skill lines are unchanged for the director's own tool calls.
 
 The guard does not check what a plugin script does. Some write files or drive work: `resolve-changelog --out` writes any path, the `gen-*` generators rewrite plugin files, and `ralph-loop` starts headless sessions that drive items. For scripts, the director's never-drives rule therefore rests on its conduct, not on the guard: it runs a plugin script only to route or decide.
 
@@ -16,6 +16,9 @@ The skill size test now follows Anthropic's Agent Skills best practices: a `SKIL
 
 ## Alternatives rejected
 
+- **Any folder with `.claude-plugin/plugin.json` above it is a plugin** (the first form of this record). It opened a plugin's work-in-progress source, and the scripts in it, to a director working in that plugin's repository.
+- **Match the host's install locations** (the marketplace cache, the desktop copy, synced copies). Those paths are host internals that move between releases; the work tree is a fact the hook input carries.
+
 - **Only the director skill's own references.** Other skills a director loads would still be unfollowable.
 - **Markdown only.** The owner ruled scripts in as routing and decision helpers.
 - **A deny list of the scripts and subcommands that write, drive or print note bodies** (the generators, `resolve-changelog`, `ralph-loop`, `run-planner snapshot`). Held back until a real case shows narrowing is needed; the owner chose the wider rule first.
@@ -24,7 +27,8 @@ The skill size test now follows Anthropic's Agent Skills best practices: a `SKIL
 ## Consequences
 
 - A plugin script that prints note bodies can put them in the director's context, and one that writes or drives can break the never-drives rule. If either happens in practice, narrow the rule with a deny list.
-- Any folder with a `.claude-plugin/plugin.json` above it counts as a plugin, so a repository that is itself a plugin, or a work folder that carries one, opens its files to `Read` and its scripts to `node`.
+- A repository that is itself a plugin, or that carries plugin source (this one does, under `claude-plugins/`), keeps that source closed to a director working in it: a manifest counts only outside the session's work tree. The work tree is found from the hook input's `cwd` and `CLAUDE_PROJECT_DIR` by the nearest `.git`, with no git command; a plugin folder outside every git tree the session names (an unversioned work folder elsewhere) is still treated as installed.
+- A `--plugin-dir` checkout of the guard's own plugin stays open even inside the work tree, so a director dogfooding the plugin from its source can read that source. Another plugin loaded with `--plugin-dir` from the work tree is closed.
 - A script path with a space does not run (the guard reads the path up to the first space, so it fails closed).
 - Follow-up `ef650431` (allow read-only helper scripts) is superseded by this record's wider rule.
 
