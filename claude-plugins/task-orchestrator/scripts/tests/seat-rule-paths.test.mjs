@@ -47,6 +47,13 @@ const TABLE = loadSeatRules()
 test('D1: the table holds the rows of the frozen design: protocol key, plugin-chosen keys and defaults per role', () => {
   const row = (protocol, pluginChosen, defaults) => ({ protocol, pluginChosen, defaults })
   assert.deepEqual(TABLE, {
+    capabilities: {
+      entry: 'protocol.entry-seat',
+      inPhase: 'protocol.in-phase-seat',
+      readOnly: 'protocol.read-only-agent',
+      writerChosen: ['commit-discipline'],
+      seatRows: ['planner', 'implementer', 'test-author', 'reviewer', 'declarations-extractor'],
+    },
     roles: {
       planner: row('protocol.in-phase-seat', [], ['planning-sweeps', 'review-cited-claims']),
       implementer: row('protocol.entry-seat', ['commit-discipline'], ['closure-notes']),

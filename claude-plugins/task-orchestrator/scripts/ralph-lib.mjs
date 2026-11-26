@@ -430,6 +430,19 @@ export const NEXT_EMPTY_WAIT_MS = 30_000;
 /** The seat ralph assigns per iteration. */
 export const RALPH_SEAT = "implementer";
 
+/**
+ * ralphSeatOf(schemaData) -> the seat ralph assigns for an item: the first served seat whose phase is work and
+ * that enters, else the first work-phase seat, else RALPH_SEAT (no seats, or an unreadable schema answer).
+ * schemaData is the data of an items_read schema answer.
+ */
+export function ralphSeatOf(schemaData) {
+    const seats = schemaData && typeof schemaData === "object" && Array.isArray(schemaData.seats) ? schemaData.seats : [];
+    const work = seats.filter((s) => s && typeof s === "object" && s.phase === "work" && typeof s.name === "string" && s.name !== "");
+    const entering = work.find((s) => s.enters === true);
+    if (entering) return entering.name;
+    return work.length > 0 ? work[0].name : RALPH_SEAT;
+}
+
 /** Placeholder written over every known token value in streamed child output and records. */
 export const REDACTED_TOKEN = "[redacted-token]";
 

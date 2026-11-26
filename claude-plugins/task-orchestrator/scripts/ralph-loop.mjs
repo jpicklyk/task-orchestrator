@@ -37,6 +37,7 @@ import {
     DEFAULT_ITERATION_TIMEOUT_SECONDS,
     KILL_GRACE_MS,
     RALPH_SEAT,
+    ralphSeatOf,
     parseFilter,
     buildNextQuery,
     buildRunOpenOp,
@@ -707,10 +708,15 @@ async function completeReady({ itemId, token }) {
     return { status: "error", code, reason };
 }
 
-/** Assign the implementer seat; null when the item was skipped or the loop must stop. */
+/**
+ * Assign the item's entering work seat (ralphSeatOf over its schema; fail-open to the implementer seat when the
+ * schema read fails); null when the item was skipped or the loop must stop.
+ */
 async function assignSeat(itemId) {
+    const schemaRead = await op("items_read", { select: "schema", itemId }, READ_TIMEOUT_MS);
+    const seatName = schemaRead.ok ? ralphSeatOf(schemaRead.value) : RALPH_SEAT;
     for (let attempt = 0; ; attempt++) {
-        const a = await coordinatorCall("runs_write", [{ op: "assign", runId: run.runId, itemId, seat: RALPH_SEAT }]);
+        const a = await coordinatorCall("runs_write", [{ op: "assign", runId: run.runId, itemId, seat: seatName }]);
         if (a.ok) {
             const token = a.value?.seatToken;
             if (typeof token !== "string" || !token) {

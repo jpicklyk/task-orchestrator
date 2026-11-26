@@ -26,7 +26,7 @@ test plan writes it, never a range.
 
 Fetch rule text by key rather than guessing at it: read every key your dispatch prompt names, and
 follow what comes back instead of restating it from memory or copying it into your own note.
-Your keys come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): your role's protocol rule first, then the rules the plugin adds for the role, then your seat's own rules (its served `rules` in `items_read` `schema` `seats[]`, else the role's defaults). A run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them.
+Your keys come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): your seat's protocol rule first (chosen from whether the server says the seat enters its phase and whether it writes; a server without `seatWrites` takes it from the seat's role), then the rules the plugin adds for a writing seat, then your seat's own rules (its served `rules` in `items_read` `schema` `seats[]`, else the defaults of its seat name, for a name the table lists). A run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them.
 
 ```to-call
 {"tool": "docs_read", "select": "get", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "<rule-key>"}}

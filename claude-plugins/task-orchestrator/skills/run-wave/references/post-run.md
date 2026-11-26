@@ -193,7 +193,9 @@ to another seat's key is refused `note_owned_by_other` with `ownerSeat`, a forbi
 An **optional** note (a stage's `optionalNotes`; the expected table marks it `optional: true`) that
 was never written is **not** `missing` and does not fail the item. In a seat-less plan
 `delegation-metadata` is not a seat's note: the planner lists it under the item's
-`orchestratorNotes`, no seat prompt may write it, and the orchestrator records it in Step 3.
+`orchestratorNotes`, no seat prompt may write it, and the orchestrator records it in Step 3. On a server that
+advertises `orchestratorNotes`, that list is the item's notes whose served `owningSeat` is `orchestrator`, and an
+unannotated `delegation-metadata` is then the implicit implementer's note.
 
 ---
 

@@ -34,7 +34,9 @@ import { emit, emitEmpty, contextOutput } from './lib/emit.mjs';
 import { parseToolResult } from './lib/envelope.mjs';
 import { sessionMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { resolveSeatSkills, seatNameFor, SEAT_SKILLS_FEATURE } from './lib/seat-skills.mjs';
-import { loadSeatRules, seatRoleOf, seatRulesFor, promptKeysFor, SEAT_RULES_PREFIX } from './lib/seat-rules.mjs';
+import {
+  loadSeatRules, seatRoleOf, seatRulesFor, promptKeysFor, seatProtocolFor, seatDefaultsRoleFor, SEAT_RULES_PREFIX,
+} from './lib/seat-rules.mjs';
 import { loadServedRuleKeys, RULES_TIMEOUT_MS } from './lib/served-rules.mjs';
 import { locateConfig } from './config-locator.mjs';
 import {
@@ -86,7 +88,7 @@ function triggersOf(input) {
   return { kind: 'advance', list };
 }
 
-/** {seats, notes, supported} from one items_read schema read, or null when it fails or the time budget is spent. */
+/** {seats, notes, supported, features} from one items_read schema read, or null when it fails or the time budget is spent. */
 async function schemaFacts(itemId) {
   const t = Math.min(SCHEMA_TIMEOUT_MS, deadline - Date.now() - 250);
   if (t < 100) return null;
@@ -95,7 +97,8 @@ async function schemaFacts(itemId) {
   const seats = Array.isArray(res.data.seats) ? res.data.seats.filter(isPlain) : [];
   const notes = Array.isArray(res.data.notes) ? res.data.notes.filter(isPlain) : [];
   const supported = Array.isArray(res.data.features) && res.data.features.includes(SEAT_SKILLS_FEATURE);
-  return { seats, notes, supported };
+  const features = Array.isArray(res.data.features) ? res.data.features.filter((f) => typeof f === 'string') : [];
+  return { seats, notes, supported, features };
 }
 
 /** {rootId, served} for the rule hint: the located project.rootId and its served keys (a Set), or nulls. Read once per call. */
@@ -143,23 +146,38 @@ async function rulesText(input, facts, seat, phase, itemId) {
   const unlisted = entry ? null : unlistedSeatPhase(seat, phase);
   const seatPhase = entry ? nonEmpty(entry.phase) || phase : unlisted.phase;
   const enters = entry ? entry.enters === true : unlisted.enters;
-  const owned = facts.notes.filter((n) => n.role === seatPhase && (facts.seats.length === 0 || n.seat === seat));
-  const stage = { seat, phase: seatPhase, enters, writes: seatPhase === 'work', notes: owned.map((n) => n.key) };
-  const role = seatRoleOf(stage);
-  if (!role || !table.roles[role]) return null;
+  // served path (seatWrites advertised): the protocol comes from enters and writes, the defaults row from the
+  // seat's name; old path (remove one release after seatWrites): the role of seatRoleOf.
+  const feats = Array.isArray(facts.features) ? facts.features : [];
+  const seatsServed = feats.includes('seatWrites') && !!table.capabilities;
+  const ownerOf = (n) => (feats.includes('orchestratorNotes') ? n.owningSeat : n.seat);
+  const owned = facts.notes.filter((n) => n.role === seatPhase && (facts.seats.length === 0 || ownerOf(n) === seat));
+  const writes = seatsServed ? (entry ? entry.writes === true : seatPhase === 'work') : seatPhase === 'work';
+  const stage = { seat, phase: seatPhase, enters, writes, notes: owned.map((n) => n.key) };
+  let role;
+  let protocol;
+  if (seatsServed) {
+    if (seat === 'orchestrator') return null;
+    protocol = seatProtocolFor(table, { enters, writes });
+    role = seatDefaultsRoleFor(table, seat);
+    stage.protocol = protocol;
+  } else {
+    role = seatRoleOf(stage);
+    if (!role || !table.roles[role]) return null;
+  }
   const { rootId, served } = await ruleContextFor(input.session_id);
   const noteRules = [];
   if (served) {
     for (const n of owned) for (const k of noteSkillNames(n)) if (served.has(k) && !noteRules.includes(k)) noteRules.push(k);
   }
-  const { rules } = seatRulesFor(table, { role, seat, enters, declared: entry ? entry.rules : undefined, noteRules, served });
+  const { rules } = seatRulesFor(table, { role, seat, enters, declared: entry ? entry.rules : undefined, noteRules, served, protocol });
   const keys = promptKeysFor(table, { ...stage, rules });
   if (keys.length === 0) return null;
-  const protocol = keys[0];
+  const protocolKey = keys[0];
   const where = rootId ? `(rootId ${rootId})` : '(rootId: your project root)';
   let text =
     `${SEAT_RULES_PREFIX} you are the ${seat} seat on item ${itemId}. Fetch each of these rule keys with config op "rules" ` +
-    `${where} and follow it, in this order: ${keys.join(', ')}. A not_found answer for ${protocol} is fatal: stop and report it.`;
+    `${where} and follow it, in this order: ${keys.join(', ')}. A not_found answer for ${protocolKey} is fatal: stop and report it.`;
   if (!served) text += ' A not_found answer for any other key: skip that key.';
   return text;
 }

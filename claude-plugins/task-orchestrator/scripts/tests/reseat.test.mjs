@@ -937,6 +937,7 @@ test('d0c4f620: a base owning neither note (planner, implementer with no notes) 
     const out = callReseat(realCore(), doc, makeResult(doc), SHORT, seat, { pre: C2 })
     assert.equal(out.ok, true, JSON.stringify(out))
     assert.equal(out.prompt.includes('Rewrite '), false, seat)
-    assert.ok(fixCycleLine(out.prompt).endsWith('never the whole tree.'), seat)
+    // a non-writing base (planner) gets the ruling clause alone; a writing base keeps the commit sentence
+    assert.ok(fixCycleLine(out.prompt).endsWith(seat === 'planner-a1' ? 'cites.' : 'never the whole tree.'), seat)
   }
 })

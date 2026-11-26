@@ -1,4 +1,11 @@
 {
+  "capabilities": {
+    "entry": "protocol.entry-seat",
+    "inPhase": "protocol.in-phase-seat",
+    "readOnly": "protocol.read-only-agent",
+    "writerChosen": ["commit-discipline"],
+    "seatRows": ["planner", "implementer", "test-author", "reviewer", "declarations-extractor"]
+  },
   "roles": {
     "planner": {
       "protocol": "protocol.in-phase-seat",

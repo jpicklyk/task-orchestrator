@@ -38,8 +38,9 @@ Seat skills take three hooks plus `skill-enforcement`. `seat-skill-hint` (PostTo
 `phase-guard-record`) reads a seat's first ok own-item read (an item-mode `context` read, or an ok `advance` element with
 `newRole`), takes the seat from `callerSeat` (else a known seat `agent_type`), reads the item's `items_read` `schema` once
 (`seats`, `notes`, `features`) and adds `SEAT SKILLS:` context naming the skills and their binding source, then a `SEAT RULES:` line naming
-the seat's rule keys in order from the seat rule table (`lib/seat-rules.json`, resolver `lib/seat-rules.mjs`): the role's protocol key, the
-keys the plugin adds for the role, then the seat's own rules (filtered by one served-rules read for the located `project.rootId`; unfiltered,
+the seat's rule keys in order from the seat rule table (`lib/seat-rules.json`, resolver `lib/seat-rules.mjs`): the seat's protocol key (from
+its served `enters` and `writes` when the server advertises `seatWrites`, else from its role), the keys the plugin adds for a writing seat, then
+the seat's own rules (filtered by one served-rules read for the located `project.rootId`; unfiltered,
 with a skip clause, when that read does not answer). The rules line is a hint only: nothing is recorded or refused for a rule. In a subagent it writes the agent's required
 record, in the main session it hints once per item and role on an ok `advance` without a `seatToken`. `skill-record`
 (PostToolUse `Skill`) records each skill a subagent loads. `seat-skill-gate` (PreToolUse `Edit|Write|NotebookEdit` and
