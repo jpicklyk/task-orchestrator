@@ -589,7 +589,9 @@ class WorkViewQueriesTest {
             val tree = seedOverview()
 
             val global =
-                assertIs<OverviewView.Global>(overviewQueries.overview(OverviewRequest(page = PageRequest(limit = 100), includeChildren = true)))
+                assertIs<OverviewView.Global>(
+                    overviewQueries.overview(OverviewRequest(page = PageRequest(limit = 100), includeChildren = true))
+                )
 
             val e1 = global.roots.items.single { it.item.id == tree.r1.id }
             assertEquals(
@@ -640,7 +642,9 @@ class WorkViewQueriesTest {
             val tree = seedOverview()
 
             val scoped =
-                assertIs<OverviewView.Scoped>(overviewQueries.overview(OverviewRequest(itemId = tree.r1.id, page = PageRequest(limit = 100))))
+                assertIs<OverviewView.Scoped>(
+                    overviewQueries.overview(OverviewRequest(itemId = tree.r1.id, page = PageRequest(limit = 100)))
+                )
 
             assertEquals(tree.r1.id, scoped.item.id)
             scoped.childCounts.assertCounts(queue = 1, work = 1, review = 1, blocked = 1, terminal = 3, label = "R1 scoped")
@@ -664,7 +668,9 @@ class WorkViewQueriesTest {
             val tree = seedOverview()
 
             val anchored =
-                assertIs<OverviewView.Anchored>(overviewQueries.overview(OverviewRequest(anchorId = tree.r1.id, page = PageRequest(limit = 100))))
+                assertIs<OverviewView.Anchored>(
+                    overviewQueries.overview(OverviewRequest(anchorId = tree.r1.id, page = PageRequest(limit = 100)))
+                )
 
             assertEquals(tree.r1.id, anchored.anchor.id)
             assertEquals(
@@ -691,7 +697,9 @@ class WorkViewQueriesTest {
 
             val global = assertIs<OverviewView.Global>(overviewQueries.overview(OverviewRequest(page = page, excludeTerminal = true)))
             val scoped =
-                assertIs<OverviewView.Scoped>(overviewQueries.overview(OverviewRequest(itemId = tree.r1.id, page = page, excludeTerminal = true)))
+                assertIs<OverviewView.Scoped>(
+                    overviewQueries.overview(OverviewRequest(itemId = tree.r1.id, page = page, excludeTerminal = true))
+                )
             val anchored =
                 assertIs<OverviewView.Anchored>(
                     overviewQueries.overview(OverviewRequest(anchorId = tree.r1.id, page = page, excludeTerminal = true))
@@ -737,9 +745,13 @@ class WorkViewQueriesTest {
             val page = PageRequest(limit = 100)
 
             val withOpenChild =
-                assertIs<OverviewView.Scoped>(overviewQueries.overview(OverviewRequest(itemId = tree.r2.id, page = page, excludeTerminal = true)))
+                assertIs<OverviewView.Scoped>(
+                    overviewQueries.overview(OverviewRequest(itemId = tree.r2.id, page = page, excludeTerminal = true))
+                )
             val childless =
-                assertIs<OverviewView.Scoped>(overviewQueries.overview(OverviewRequest(itemId = tree.r3.id, page = page, excludeTerminal = true)))
+                assertIs<OverviewView.Scoped>(
+                    overviewQueries.overview(OverviewRequest(itemId = tree.r3.id, page = page, excludeTerminal = true))
+                )
 
             assertEquals(tree.r2.id, withOpenChild.item.id)
             assertEquals(listOf(tree.c2.id), withOpenChild.children.items.map { it.item.id })
