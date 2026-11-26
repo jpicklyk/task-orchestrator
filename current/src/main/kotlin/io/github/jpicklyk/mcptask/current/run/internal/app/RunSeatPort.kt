@@ -21,18 +21,18 @@ data class AssigneeHolder(
  * What the run service needs to know about a run's seat assignments. [NONE] answers for every run: nothing is active,
  * nobody is an assignee and nothing is ended (a run service built without seats, in tests).
  *
- * The run-scoped `coordinator` pseudo-seat is not a member seat: [activeCount] does not count it and [endActive] never
- * reports it, though it ends it with the others.
+ * The run-token row (stored seat value `coordinator`) is a token, not a member seat: [activeCount] does not count it and
+ * [endActive] never reports it, though it ends it with the others.
  */
 interface RunSeatPort {
-    /** The number of member-seat assignments of [runId] that are still active (the `coordinator` pseudo-seat is not counted). */
+    /** The number of member-seat assignments of [runId] that are still active (the run-token row is not counted). */
     suspend fun activeCount(runId: UUID): Int
 
-    /** The holder pairs of the run's active seat assignees (the `coordinator` pseudo-seat included): the claims a close may clear. */
+    /** The holder pairs of the run's active seat assignees (the run-token row included): the claims a close may clear. */
     suspend fun assigneeHolders(runId: UUID): Set<AssigneeHolder>
 
     /**
-     * Ends every active assignment of [runId] (the `coordinator` pseudo-seat included) with [outcome], a `run_seats` outcome wire
+     * Ends every active assignment of [runId] (the run-token row included) with [outcome], a `run_seats` outcome wire
      * value, and returns the member seats it ended. Joins the caller's unit.
      */
     suspend fun endActive(

@@ -95,10 +95,10 @@ class RunFrontierQueries(
         unitOfWork.read {
             val run = stores.runStore().getById(runId) ?: return@read null
             val memberIds = stores.runStore().members(runId)
-            val seats = stores.runSeatStore().list(runId).filter { it.isActive }
-            val memberSeats = seats.filter { !it.isOrchestrator && it.itemId != null }
+            val memberSeats = stores.runSeatStore().memberSeats(runId)
+            val seatedIds = memberSeats.mapNotNull { it.itemId }
             val itemIds = LinkedHashSet<UUID>(memberIds)
-            memberSeats.forEach { itemIds += it.itemId!! }
+            itemIds.addAll(seatedIds)
             val rows = stores.itemStore().findByIdSet(itemIds).associateBy { it.id }
             val edges = stores.dependencyRepository().blockingEdgesFor(memberIds.toSet())
             val blockerIds = edges.mapTo(LinkedHashSet()) { it.blocker }
@@ -121,8 +121,8 @@ class RunFrontierQueries(
 
             val roles: Map<UUID, Role?> = blockerRows.mapValues { it.value.role }
             val unsatisfied = BlockerEvaluator.unsatisfied(members.map { it.id }, edges, roles)
-            val seated = memberSeats.mapTo(HashSet()) { it.itemId!! }
-            val holders = seats.mapTo(HashSet()) { AssigneeHolder(it.principalId, it.id) }
+            val seated = seatedIds.toHashSet()
+            val holders = (memberSeats + stores.runSeatStore().runTokens(runId)).mapTo(HashSet()) { AssigneeHolder(it.principalId, it.id) }
 
             val ready =
                 if (run.status == RunStatus.CLOSED) {

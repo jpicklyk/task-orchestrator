@@ -137,7 +137,7 @@ class SeatService(
         unitOfWork.write(OP_REISSUE_ORCHESTRATOR) {
             val run = stores.runStore().getById(runId) ?: return@write err(runNotFound(runId))
             if (run.status == RunStatus.CLOSED) return@write err(RunService.runClosed(run))
-            val rows = store.list(run.id, null, true).filter { it.isOrchestrator }
+            val rows = store.runTokens(run.id, includeEnded = true)
             val previous = rows.firstOrNull { it.isActive }
             val attempt = (rows.maxOfOrNull { it.attempt } ?: 0) + 1
             if (previous != null) {

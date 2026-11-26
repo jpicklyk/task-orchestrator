@@ -76,4 +76,22 @@ interface RunSeatStore : RunSeatPort {
         itemId: UUID? = null,
         includeEnded: Boolean = false
     ): List<RunSeat>
+
+    /**
+     * The member seats of [runId], oldest first (`assigned_at`, then id): every row whose stored seat value is not
+     * [RunSeat.ORCHESTRATOR], and only active ones unless [includeEnded].
+     */
+    suspend fun memberSeats(
+        runId: UUID,
+        includeEnded: Boolean = false
+    ): List<RunSeat>
+
+    /**
+     * The run-token rows of [runId] (stored seat value [RunSeat.ORCHESTRATOR], `coordinator`), oldest first
+     * (`assigned_at`, then id), and only active ones unless [includeEnded].
+     */
+    suspend fun runTokens(
+        runId: UUID,
+        includeEnded: Boolean = false
+    ): List<RunSeat>
 }

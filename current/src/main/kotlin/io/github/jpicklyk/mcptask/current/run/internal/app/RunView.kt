@@ -20,8 +20,7 @@ import java.time.Instant
  */
 internal object RunView {
     /**
-     * [members] is the member count and [seats] the run's active seat assignments at read time (the `coordinator` pseudo-seat may be
-     * among them; it is never counted). `activeSeats` is the number of active member seats and `stalledSeats` the number
+     * [members] is the member count and [seats] the run's active member seats at read time. `activeSeats` is the number of active member seats and `stalledSeats` the number
      * of those that are stalled ([RunLiveness.isSeatStalled], the run's pinned threshold); a closed run has neither.
      */
     fun of(
@@ -30,7 +29,7 @@ internal object RunView {
         seats: List<RunSeat>,
         now: Instant
     ): JsonObject {
-        val memberSeats = seats.filter { it.isActive && !it.isOrchestrator }
+        val memberSeats = seats.filter { it.isActive }
         val stalledSeats =
             if (run.status == RunStatus.CLOSED) 0 else memberSeats.count { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
         return of(run, members, memberSeats.size, stalledSeats, now)

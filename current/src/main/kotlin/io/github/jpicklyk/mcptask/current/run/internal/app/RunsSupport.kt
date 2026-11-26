@@ -57,10 +57,11 @@ internal object RunsSupport {
         now: Instant
     ): JsonObject {
         val members = stores.runStore().members(run.id)
-        val seats = stores.runSeatStore().list(run.id)
+        val seats = stores.runSeatStore().memberSeats(run.id)
         if (scope.isUnrestricted) return RunView.of(run, members.size, seats, now)
         val visible = stores.itemStore().filterVisible(members.toHashSet() + seats.mapNotNull { it.itemId }, scope)
-        return RunView.of(run, members.count { it in visible }, seats.filter { it.itemId == null || it.itemId in visible }, now)
+        val visibleSeats = seats.filter { s -> s.itemId?.let { it in visible } == true }
+        return RunView.of(run, members.count { it in visible }, visibleSeats, now)
     }
 
     /** The request budget as a domain budget. */
