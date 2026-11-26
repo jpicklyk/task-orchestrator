@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.at
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.Sche
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.insertItem
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.uuidBytes
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.withConn
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.UpgradeHarness
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File

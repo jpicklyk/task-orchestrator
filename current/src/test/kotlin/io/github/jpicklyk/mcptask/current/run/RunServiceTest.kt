@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
@@ -40,6 +39,7 @@ import io.github.jpicklyk.mcptask.current.run.internal.app.RunSeatPort
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.BaselineDataset
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray

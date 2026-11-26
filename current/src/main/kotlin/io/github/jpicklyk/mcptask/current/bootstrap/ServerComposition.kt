@@ -3,10 +3,6 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
-import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
-import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
 import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.ServerConfigSource
@@ -24,10 +20,6 @@ import io.github.jpicklyk.mcptask.current.identity.internal.wire.ApiAuthConfigLo
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.toKeySource
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PinBackfillStep
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TraitsFromPropertiesStep
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.lifecycle.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.lifecycle.WorkViewQueries
@@ -43,6 +35,9 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 import io.github.jpicklyk.mcptask.current.report.ReportRunRollupSnapshot
+import io.github.jpicklyk.mcptask.current.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepRunner
+import io.github.jpicklyk.mcptask.current.upgrade.UpgradeSteps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,7 +45,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -216,10 +210,10 @@ class ServerComposition(
             unitOfWork = unitOfWork,
             configService = configService,
             dataStepRunner =
-                DataStepRunner(
-                    steps = productionDataSteps(configService, globalConfigFile, globalConfigPath) + extraDataSteps,
+                UpgradeSteps.runner(
+                    steps = UpgradeSteps.production(configService, globalConfigFile, globalConfigPath) + extraDataSteps,
                     unitOfWork = unitOfWork,
-                    store = SqliteDataStepStore(databaseManager),
+                    db = databaseManager,
                     clock = clock,
                     binaryVersion = BuildInfo.version,
                 ),
@@ -332,25 +326,5 @@ class ServerComposition(
         val message = "API token file: token '$tokenId' scope.root_ids anchor $anchor is not a depth-0 root"
         logger.error("REST API configuration error: {}", message)
         throw IllegalArgumentException(message)
-    }
-
-    private companion object {
-        /**
-         * The data steps the server ships; later work items register theirs here. Phase order runs config-canonicalize
-         * (CONFIG_CANONICALIZE), then server-config-import (CONFIG_IMPORT, every boot), then type-backfill and
-         * traits-from-properties (ITEM_BACKFILL), then pin-backfill (PIN).
-         */
-        fun productionDataSteps(
-            configService: ConfigService,
-            globalConfigFile: GlobalConfigFile,
-            globalConfigPath: Path,
-        ): List<DataStep> =
-            listOf(
-                ConfigCanonicalizeStep(configService),
-                ServerConfigImportStep(configService, globalConfigFile),
-                TypeBackfillStep(globalConfigPath),
-                TraitsFromPropertiesStep(),
-                PinBackfillStep(globalConfigPath),
-            )
     }
 }
