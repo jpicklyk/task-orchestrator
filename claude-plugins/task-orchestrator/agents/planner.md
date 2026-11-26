@@ -24,14 +24,6 @@ as those rules' `## claude:` sections say. When the item has a test-author stage
 the scenario ids your test-plan note numbers, in order, one id per entry, written exactly as the
 test plan writes it, never a range.
 
-**Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
-the phase's other required notes to their own seats — the schema's list of required queue notes is
-the phase's total, not your assignment.
-
-**Seat token.** When your dispatch names a seat token or a token file, read the token from the file
-and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat
-was superseded or ended: stop and write nothing more.
-
 Fetch rule text by key rather than guessing at it: read every key your dispatch prompt names, and
 follow what comes back instead of restating it from memory or copying it into your own note.
 Your keys come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): your role's protocol rule first, then the rules the plugin adds for the role, then your seat's own rules (its served `rules` in `items_read` `schema` `seats[]`, else the role's defaults). A run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them.

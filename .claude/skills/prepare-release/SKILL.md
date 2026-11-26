@@ -251,16 +251,13 @@ For each plugin being bumped, update **both** files with the new version:
 1. `claude-plugins/<plugin>/.claude-plugin/plugin.json` - update the `version` field
 2. `.claude-plugin/marketplace.json` - update `plugins[name="<plugin>"].version`
 
-Also update the version table in `claude-plugins/CLAUDE.md`: find the row for each bumped plugin and
-replace the version number. Neither plugin has a `package.json`; the two files above plus the table row
-are its only version fields.
+Neither plugin has a `package.json`; the two files above are its only version fields.
 
 Stage every file you changed (in addition to version.properties), for example when both plugins move:
 ```bash
 git add claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
         claude-plugins/task-orchestrator-mod/.claude-plugin/plugin.json \
-        .claude-plugin/marketplace.json \
-        claude-plugins/CLAUDE.md
+        .claude-plugin/marketplace.json
 ```
 
 ### 8c. Insert new section into `CHANGELOG.md`
@@ -731,7 +728,7 @@ session start. This is a step to run after publishing, not part of the release P
 - Do not tag before CI is green on main — tagging a broken commit ships a broken Docker image
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
-- Do not stage files other than `version.properties`, `server.json`, `CHANGELOG.md`, `claude-plugins/CLAUDE.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
+- Do not stage files other than `version.properties`, `server.json`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
 - Do not forget `server.json` — the registry publish step fails when it lags `version.properties`
 - Do not create the PR if there are no commits ahead of the last tag
 - Do not bump plugin versions outside of the release workflow

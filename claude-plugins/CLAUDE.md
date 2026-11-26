@@ -1,37 +1,17 @@
 # claude-plugins/ — Plugin Versioning
 
-Plugin versions are bumped by the `/prepare-release` skill — either alongside a project release
-or as a standalone plugin-only PR. They are **not** bumped per individual change during development.
+Plugin versions live only in the version files below and are bumped only by the release procedure
+(the `/prepare-release` skill), either alongside a project release or as a standalone plugin-only
+PR. They are **not** bumped per individual change during development. Do not bump manually.
 
 During development, plugin changes (skills, hooks, scripts) are picked up only after a
 forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No version bump is needed for local iteration.
 
-## Current Plugin Versions
-
-| Plugin | Directory | Current Version |
-|--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `4.0.1` |
-| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.2.0` (not listed in the marketplace; dev-only via `--plugin-dir`) |
-| `orchestration-mode` | `claude-plugins/orchestration-mode/` | `0.1.1` |
-
-> Updated automatically by `/prepare-release`. Do not bump manually.
-
-## Compatibility with the server
-
-The plugin and the server are versioned together by major version. The 4.x plugin speaks the 4.0 tool surface (`items_read`, `advance`, `runs_write` and the rest of the registry) and needs a server whose major version is 4 and whose `GET /.well-known/mcp-task-orchestrator.json` lists the `seats` feature (`hooks/lib/server-compat.mjs`, `assessServer`).
-
-| Plugin | Server | Result |
-|--------|--------|--------|
-| 4.x | 4.x with `seats` | Supported. |
-| 4.x | 3.x, or 4.x without `seats` | `session-start` shows one warning line (when a REST API URL resolves and the server answers); `run-wave` `plan` refuses (exit 3, `server incompatible: ...`); a tool result that still has the 3.x shape shows one warning per session from `phase-guard-record` and `dispatch-hint`, which record and hint nothing. The other hooks fail open. |
-| 3.x | 3.x | Supported (the `release/3.x` line). |
-| 3.x | 4.x | Not supported: every 3.x call shape is gone, so the hooks fail open and the skills call tools that do not exist. |
-
-To keep a 3.x server on the 3.x plugin, install the plugin from the `release/3.x` line: clone the repository and check out `release/3.x`; remove the 4.x marketplace first (`/plugin marketplace remove task-orchestrator-marketplace`, since both lines use that name); then run `/plugin marketplace add <checkout>` with the repository root, which holds `.claude-plugin/marketplace.json` and against which its `source` paths resolve. The marketplace serves the checkout's working tree, so keep that checkout on `release/3.x`.
+Plugin and server compatibility, and installing the 3.x plugin for a 3.x server: "Compatibility with the server" in [plugin-skills-hooks.md](../current/docs/integration-guides/plugin-skills-hooks.md#compatibility-with-the-server).
 
 ## Version Files
 
-Two files must stay in sync for each plugin:
+Two files must stay in sync for each plugin, and the release procedure bumps both:
 
 | File | Field |
 |------|-------|
@@ -40,7 +20,7 @@ Two files must stay in sync for each plugin:
 
 ## Domain boundary for plugin text
 
-Skills, agents, workflows and hook prompt strings under `claude-plugins/task-orchestrator/` carry only Task Orchestrator mechanics and host integration, plus pointers to rules and schema fields; the exception is the engineering skills under `skills/`, which carry generic engineering practice a project can replace through a seat's `skills:` or a note's `skill:`. They never name a Claude Code or Anthropic skill and never state a project's paths, commands or conventions. Mechanics text never decides a project's workflow by fixing a process step the project could choose differently: the workflow's structure belongs in the schema, and a short must-do for a seat's conduct in a rule. An engineering skill may order the work inside its own craft. `hooks/tests/contract-domain-boundary.test.mjs` scans the whole plugin tree (tests and gitignored files excluded) and fails on a Claude Code or Anthropic skill, a project skill or a project command named in slash form (`/name`), on a hyphenated name or `simplify` named in skill form (`name skill`, `skill: name`), or on the phrase "this repo". It does not check bare-word mentions, paths, conventions or process steps: review does. A plugin skill directory removes its own name from the scanned names, so a test fails when a new one shares a name with a host skill, a project skill or a project command. Exceptions live in `claude-plugins/task-orchestrator/scripts/lib/domain-boundary-allowlist.json` (host integration and labelled examples, per file and name) and `claude-plugins/task-orchestrator/scripts/lib/domain-boundary-baseline.json` (each row names its owning item and gap; the test checks the row's shape, not whether that item is still open). The layer table, and the concept table that says what kind of statement each concept may make, are in [CLAUDE.md](../CLAUDE.md) under "Domains and responsibilities"; the paragraph after its concept table states the three classes of rule a seat is given.
+Skills, agents, workflows and hook prompt strings under `claude-plugins/task-orchestrator/` carry only Task Orchestrator mechanics and host integration, plus pointers to rules and schema fields; the exception is the engineering skills under `skills/`, which carry generic engineering practice a project can replace through a seat's `skills:` or a note's `skill:`. They never name a Claude Code or Anthropic skill and never state a project's paths, commands or conventions. Mechanics text never decides a project's workflow by fixing a process step the project could choose differently: the workflow's structure belongs in the schema, and a short must-do for a seat's conduct in a rule. An engineering skill may order the work inside its own craft. `hooks/tests/contract-domain-boundary.test.mjs` (library `scanDomainBoundary` in `scripts/lib/contract-checks.mjs`) scans the whole plugin tree (tests and gitignored files excluded) and fails on a Claude Code or Anthropic skill, a project skill or a project command named in slash form (`/name`), on a hyphenated name or `simplify` named in skill form (`name skill`, `skill: name`), or on the phrase "this repo"; it also scans project skills for undeclared host skills. It does not check bare-word mentions, paths, conventions or process steps: review does. A plugin skill directory removes its own name from the scanned names, so a test fails when a new one shares a name with a host skill, a project skill or a project command. Exceptions live in `claude-plugins/task-orchestrator/scripts/lib/domain-boundary-allowlist.json` (host integration and labelled examples, per file and name) and `claude-plugins/task-orchestrator/scripts/lib/domain-boundary-baseline.json` (each row names its owning item and gap; the baseline is empty; the test checks the row's shape, not whether that item is still open). A row whose hit is gone fails. Fix the text; never add a baseline row. The layer table, and the concept table that says what kind of statement each concept may make, are in [CLAUDE.md](../CLAUDE.md) under "Domains and responsibilities"; the paragraph after its concept table states the three classes of rule a seat is given.
 
 ## Maintainer-only bug reports
 
@@ -49,11 +29,9 @@ Automatic GitHub bug reports from the session retrospective are internal, for th
 ## Delegation Warning
 
 When multiple subagents edit plugin files in parallel, subagents must NOT modify version files.
-Version bumps are handled by the orchestrator or by `/prepare-release` at release time.
+Version bumps happen only in the release procedure (`/prepare-release`).
 
 ## Plugin Discovery and Cache Refresh
-
-Two skill systems — do not confuse them: **project-level skills** in `.claude/skills/` are auto-discovered with no config; plugin skills are activated as below.
 
 **Plugin skills** (`claude-plugins/task-orchestrator/skills/`) — require activation via `.claude/settings.json`:
 ```json

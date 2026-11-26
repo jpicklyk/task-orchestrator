@@ -180,10 +180,15 @@ test('S2: proseExceptions holds nothing for agents/ or bundled-rules/ files', ()
 
 // ---- S3: seatToken and unauthenticated in every seat agent -----------------------------------------
 
+// Boundary pass 1 (P69 / D4): the seat-token rule lives in the role's protocol rule (its `## claude:`
+// section), which the seat fetches first; the agent definitions no longer restate it.
 for (const name of SEAT_AGENTS) {
-  test(`S3: agents/${name}.md states the seat-token rule (seatToken, unauthenticated)`, () => {
-    const text = readText(agentPath(name));
-    assert.deepEqual(missingPlain(text, ['seatToken', 'unauthenticated']), []);
+  test(`S3: the protocol rule of agents/${name}.md states the seat-token rule (seatToken, unauthenticated); the agent does not restate it`, () => {
+    const protocol = JSON.parse(readFileSync(join(PLUGIN, 'hooks', 'lib', 'seat-rules.json'), 'utf8')).roles[name].protocol;
+    const section = sectionOf(readText(rulePath(protocol)), 'claude:');
+    assert.notEqual(section, null, `${protocol} has a "## claude:" section`);
+    assert.deepEqual(missingPlain(section, ['seatToken', 'unauthenticated']), []);
+    assert.ok(!readText(agentPath(name)).includes('**Seat token.**'), `agents/${name}.md`);
   });
 }
 
@@ -318,10 +323,12 @@ test('S10: planner.md carries the carry-in disposition contract', () => {
 test('S11: reviewer.md treats a bad carry-in disposition record as blocking and keeps note ownership', () => {
   const text = readText(agentPath('reviewer'));
   assert.deepEqual(
-    missingPlain(text, ['carry-in-dispositions', 'orchestrator-carry-in-dispositions', 'review-checklist', 'test-manifest']),
+    missingPlain(text, ['carry-in-dispositions', 'orchestrator-carry-in-dispositions', 'review-checklist']),
     [],
   );
   assert.ok(/blocking/i.test(text), 'a missing, duplicated or count-mismatched row is blocking');
+  // Note ownership moved to the read-only protocol rule (boundary pass 1, P76).
+  assert.ok(readText(rulePath('protocol.read-only-agent')).includes("another seat's notes"), 'read-only rule keeps note ownership');
 });
 
 // ---- S12: manifest history is append-only ---------------------------------------------------------------

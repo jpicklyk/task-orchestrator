@@ -270,16 +270,16 @@ test('S5: no bare 3.x tool name in either variant (the 4.0 op complete_tree is a
   }
 });
 
-test('S5: 4.0 vocabulary - advance transition start by the entry seat only, seatToken top-level, items_read context, create_tree', () => {
+// Boundary pass 1 (P5): the seat-facing sentences (in-phase and read-only seats never advance, seatToken
+// top-level) left the orchestrator core; the protocol rules own them (pinned in subagent-start.test.mjs).
+test('S5: 4.0 vocabulary - advance transition start, items_read context, create_tree; no seat-facing protocol', () => {
   for (const [name, cfg] of VARIANTS) {
     const c = textOf(cfg);
     assert.match(c, /`advance`/, name);
     assert.match(c, /`transition`/, name);
-    assert.match(c, /`start`/, name);
-    assert.match(c, /entry seat/i, name);
-    assert.match(c, /in-phase/i, name);
-    assert.match(c, /read-only/i, name);
-    assert.match(c, /seatToken[^.\n]*top-level|top-level[^.\n]*seatToken/i, name);
+    assert.match(c, /trigger: "start"/, name);
+    assert.ok(!/seatToken/.test(c), `${name}: seatToken belongs to the protocol rules`);
+    assert.ok(!/in-phase and read-only seats never advance/.test(c), name);
     assert.match(c, /`items_read`/, name);
     assert.match(c, /`context`/, name);
     assert.match(c, /`items_write`/, name);
@@ -368,15 +368,18 @@ test('S5: each variant stays under 9000 characters (ctxOf asserts it); the two v
   assert.ok(w.length < 9000 && s.length < 9000);
   assert.notEqual(w, s);
 });
-// a8b9ebfb S1 (AC1). Oracle: parent interface-contract item 3 (the sentence, verbatim) and task-scope AC1
-// (exactly once in each variant, each under 9000 characters).
-const LOAD_TOGETHER = 'When the Task Orchestrator tools are listed as deferred, load every tool a step needs in one ToolSearch call.';
+// a8b9ebfb S1 (AC1), revised by boundary pass 1 (P8): the server instructions own the load-together
+// sentence ("load the tools a task needs together, in one step"), so the core no longer repeats it.
+const LOAD_TOGETHER = 'load every tool a step needs in one ToolSearch call';
 
-test('a8b9ebfb S1: both variants carry the load-together sentence exactly once and stay under 9000 characters', () => {
+test('a8b9ebfb S1: neither variant repeats the load-together sentence (server instructions own it); both stay under 9000 characters', () => {
   for (const [name, cfg] of VARIANTS) {
     const c = textOf(cfg);
     assert.ok(c.length < 9000, `${name}: ${c.length}`);
-    assert.equal(c.split(LOAD_TOGETHER).length - 1, 1, `${name}: sentence must appear exactly once`);
+    assert.ok(!c.includes(LOAD_TOGETHER), `${name}: the server instructions own this sentence`);
+    assert.ok(!c.includes('## Retrospective'), `${name}: the retrospective hooks carry their own directive (P10)`);
+    assert.ok(!c.includes('Cross-session'), `${name}: create-item routing lives in Skill Routing (P11)`);
+    assert.ok(c.includes('session tasks'), `${name}: the session-tasks line stays`);
   }
 });
 

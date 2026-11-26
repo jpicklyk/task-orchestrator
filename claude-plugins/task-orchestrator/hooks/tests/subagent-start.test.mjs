@@ -88,19 +88,37 @@ test('S7 oracle sanity: the catalog partition has all three groups (guards the c
   assert.ok(PERMANENT_OTHER.includes('not_claim_holder') && PERMANENT_OTHER.includes('seat_forbidden'));
 });
 
-test('S7: protocol text names advance / transition / start, notes_write upsert, items_read context and the seatToken rule', () => {
+// The protocol prose (call shapes, the seatToken rule, read-the-role-first) moved to the protocol rules
+// (boundary pass 1, P17): the hook is a pointer to the rule the dispatch names plus the generated code
+// lists. These tests pin the pointer here and the moved text in the rules.
+const RULES_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
+const PROTOCOL_KEYS = ['protocol.entry-seat', 'protocol.in-phase-seat', 'protocol.read-only-agent'];
+const ruleText = (key) => readFileSync(join(RULES_DIR, `${key}.md`), 'utf-8').split('\r').join('');
+const claudeSection = (key) => {
+  const text = ruleText(key);
+  const idx = text.indexOf('## claude:');
+  assert.ok(idx >= 0, `${key} has a ## claude: section`);
+  return text.slice(idx);
+};
+
+test('P17: the protocol text points at the three protocol rules and says how to fetch one', () => {
   const text = protocolText();
-  assert.ok(text.includes('`advance`'), 'advance');
-  assert.match(text, /op:\s*"transition"/);
-  assert.match(text, /trigger:\s*"start"/);
-  assert.ok(text.includes('`notes_write`'), 'notes_write');
-  assert.match(text, /op:\s*"upsert"/);
-  assert.ok(text.includes('`items_read`'), 'items_read');
-  assert.match(text, /select:\s*"context"/);
-  assert.ok(text.includes('seatToken'), 'seatToken');
-  assert.match(text, /top-level field of every call/);
-  for (const field of ['error.code', 'error.kind', 'retryAfterMs']) {
-    assert.ok(text.includes(field), field);
+  for (const key of PROTOCOL_KEYS) assert.ok(text.includes(`\`${key}\``), key);
+  assert.ok(text.includes('`docs_read` `get`'), 'docs_read get');
+  assert.ok(text.includes('`kind` `rule`'), 'kind rule');
+  assert.ok(text.includes('`SEAT RULES:`'), 'the outside-a-run hint');
+  assert.ok(text.includes('## claude:'), 'the rule claude section is named');
+  for (const field of ['error.code', 'error.message', 'retryAfterMs']) assert.ok(text.includes(field), field);
+});
+
+test('P17: the moved call shapes and seatToken rule live in the protocol rules', () => {
+  const entry = claudeSection('protocol.entry-seat');
+  assert.ok(entry.includes('"trigger": "start"'), 'entry-seat carries the start call');
+  for (const key of PROTOCOL_KEYS) {
+    const section = claudeSection(key);
+    assert.ok(section.includes('`notes_write` `upsert`'), `${key}: notes_write upsert`);
+    assert.ok(section.includes('`items_read`') && section.includes('`context`'), `${key}: items_read context`);
+    assert.ok(section.includes('top-level `seatToken`'), `${key}: seatToken top-level`);
   }
 });
 
@@ -164,15 +182,33 @@ test('S4: phase-owner agent_type (plugin-qualified implementer) gets the protoco
   assert.ok(text.includes('Agent-Owned-Phase Protocol'));
 });
 
-// ── c71ff3cb / #356: Subagent Discipline item 4, leave nothing running ──────────────────────
+// -- c71ff3cb / #356: leave nothing running, now in every protocol rule (boundary pass 1, P19 / D9) --
 
-test('#356: implementer protocol carries the leave-nothing-running discipline rule', () => {
-  const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' });
-  const idx = text.indexOf('4. **Leave nothing running.**');
-  assert.ok(idx > text.indexOf('## Subagent Discipline'), 'expected item 4 inside the Subagent Discipline list');
-  const item = text.slice(idx);
-  assert.ok(item.includes('can outlive your return'), 'expected the no-outliving-background-command rule');
-  assert.ok(item.includes('never search from `/` or a drive root'), 'expected the bounded-search rule');
+for (const key of PROTOCOL_KEYS) {
+  test(`#356 / P19: ${key} ## claude: carries leave-nothing-running, the bounded search and bodyFromFile`, () => {
+    const section = claudeSection(key);
+    const idx = section.indexOf('**Leave nothing running.**');
+    assert.ok(idx >= 0, 'expected the leave-nothing-running bullet');
+    const item = section.slice(idx);
+    assert.ok(item.includes('can outlive your return'), 'expected the no-outliving-background-command rule');
+    assert.ok(item.includes('never search from `/` or a drive root'), 'expected the bounded-search rule');
+    assert.ok(section.includes('`bodyFromFile`'), 'expected verbatim artifacts routed through bodyFromFile');
+  });
+}
+
+test('P19: protocol.entry-seat ## claude: carries notes-are-the-report and the short return', () => {
+  const section = claudeSection('protocol.entry-seat');
+  assert.ok(section.includes('**Notes are the report.**'));
+  assert.ok(section.includes('never restate note content'));
+});
+
+test('P18 / C7: the hook no longer tells any seat to commit; the discipline list is gone', () => {
+  for (const agentType of ['task-orchestrator:implementer', 'reviewer']) {
+    const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: agentType });
+    assert.ok(!/commit/i.test(text), `${agentType}: no commit instruction (the reviewer is read-only)`);
+    assert.ok(!text.includes('## Subagent Discipline'), agentType);
+    assert.ok(!text.includes('Leave nothing running'), agentType);
+  }
 });
 
 test('S4: phase-owner agent_type (bare reviewer) gets the protocol', () => {
@@ -231,20 +267,14 @@ test('empty stdin fails open the same way: exit 0, no output', () => {
   assert.equal(res.stdout, '');
 });
 
-test('protocol text conditions advance on being the entry seat, not a blanket instruction', () => {
+test('protocol text conditions advance on the seat rule, not a blanket instruction', () => {
   const text = protocolText();
-  assert.ok(
-    text.includes("Follow your dispatch prompt's seat assignment"),
-    'expected the seat-deferral framing to open the protocol'
-  );
-  assert.ok(
-    /entry seat/i.test(text),
-    'expected the text to name the entry-seat concept as the one that advances the item'
-  );
-  assert.ok(
-    /read-only/i.test(text) && /never calls `advance`/.test(text),
-    'expected the text to say a read-only agent never calls advance'
-  );
+  assert.ok(!/trigger:\s*"start"/.test(text), 'the hook itself never tells the agent to send start');
+  assert.ok(/entry-seat/.test(text) && /read-only-agent/.test(text), 'the hook names the rules that decide it');
+  assert.ok(/entry seat/i.test(ruleText('protocol.entry-seat')), 'the entry-seat rule names the entry seat');
+  for (const key of ['protocol.in-phase-seat', 'protocol.read-only-agent']) {
+    assert.match(claudeSection(key), /Never call `advance`|never call\s+`advance`/i, `${key}: never calls advance`);
+  }
 });
 
 // ── project-init locator gate (66d8f971) ─────────────────────────────────────────────────────
@@ -302,44 +332,47 @@ test('locator gate (f): hook source keeps the literal workflow-subagent string (
 // moves queue, work and review forward, so a retried start can advance a seat's own item past its phase).
 // The hook cannot see the phase, so the text is one phase-generic text for every phase-owner agent type.
 
-const READ_FIRST = '**Read the role before you send `start`.**';
-const readFirstParagraphs = (text) => paragraphs(text).filter((p) => p.includes(READ_FIRST));
-/** The one paragraph that opens with the read-the-role-first literal (S1 asserts there is exactly one). */
-const readFirstParagraph = (text) => {
-  const found = readFirstParagraphs(text);
-  assert.equal(found.length, 1, `expected exactly one paragraph containing ${READ_FIRST}, found ${found.length}`);
-  return found[0];
+// Boundary pass 1 (P17): the read-the-role-first text moved from the hook to protocol.entry-seat's
+// `## claude:` section, so S1-S5 and P1 now read that bullet; the hook keeps only the pointer.
+const READ_FIRST = '**Read the role before you start.**';
+/** The entry-seat rule's read-the-role-first bullet, up to the next bullet. */
+const readFirstParagraph = () => {
+  const section = claudeSection('protocol.entry-seat');
+  const idx = section.indexOf(READ_FIRST);
+  assert.ok(idx >= 0, `expected ${READ_FIRST} in protocol.entry-seat ## claude:`);
+  const rest = section.slice(idx);
+  const next = rest.indexOf('\n- ');
+  return next < 0 ? rest : rest.slice(0, next);
 };
 
-test('66a5bc0c S1: exactly one paragraph opens with the read-the-role-first literal and names items_read with select: "context"', () => {
-  const para = readFirstParagraph(protocolText());
-  assert.ok(para.trimStart().startsWith(READ_FIRST), `paragraph must open with the literal: ${para}`);
+test('66a5bc0c S1: the entry-seat rule has the read-the-role-first bullet naming items_read context; the hook no longer restates it', () => {
+  const para = readFirstParagraph();
   assert.ok(para.includes('items_read'), 'items_read');
-  assert.match(para, /select:\s*"context"/);
+  assert.ok(para.includes('`context`'), 'context');
+  assert.ok(!protocolText().includes('Read the role before'), 'the hook carries only the pointer');
 });
 
-test('66a5bc0c S2: that paragraph names queue (before a work phase) and says a review-phase seat never sends start', () => {
-  const para = readFirstParagraph(protocolText());
-  assert.ok(para.includes('`queue`'), 'the role before a work-phase seat: `queue`');
-  assert.ok(para.includes('A review-phase seat never sends `start`'), 'a review-phase seat never sends start');
-  assert.ok(!para.includes('`work` for a review-phase seat'), 'the old review-phase clause is gone');
+test('66a5bc0c S2: that bullet names queue (before a work phase) and the read-only rule says a review seat never advances', () => {
+  const para = readFirstParagraph();
+  assert.ok(para.includes('queue'), 'the role before a work-phase seat: queue');
+  assert.match(claudeSection('protocol.read-only-agent'), /Never call\s+`advance`, not even once/);
 });
 
-test('66a5bc0c S3: that paragraph says why: a second `start` moves the item past your phase', () => {
-  const para = readFirstParagraph(protocolText());
+test('66a5bc0c S3: that bullet says why: a second `start` moves the item past your phase', () => {
+  const para = readFirstParagraph();
   assert.ok(para.includes('a second `start`'), para);
   assert.ok(para.includes('past your phase'), para);
 });
 
-test('66a5bc0c S4: when the context already shows your phase, do not send `start`', () => {
-  const para = readFirstParagraph(protocolText());
-  assert.ok(para.includes('already shows your phase'), para);
-  assert.ok(para.includes('do not send `start`'), para);
+test('66a5bc0c S4: already in your phase is read from the role, never probed by sending `start` again', () => {
+  const para = readFirstParagraph();
+  assert.ok(para.includes('Already in your phase is therefore read'), para);
+  assert.ok(para.includes('never probed by sending `start` again'), para);
 });
 
 test('66a5bc0c S5: any other role means stop and report', () => {
-  const para = readFirstParagraph(protocolText());
-  assert.ok(para.includes('any other role'), para);
+  const para = readFirstParagraph();
+  assert.ok(para.includes('any other'), para);
   assert.match(para, /stop/i);
   assert.match(para, /report/i);
 });
@@ -367,14 +400,15 @@ test('66a5bc0c S7: the text is identical for every phase-owner agent type (one p
   }
 });
 
-test('66a5bc0c S8: the rest of the protocol holds: codes named, gate_blocked out of the permanent paragraph, never-advance-again and discipline kept', () => {
+test('66a5bc0c S8: the rest of the protocol holds: codes named, gate_blocked out of the permanent paragraph, never-advance-again in the entry-seat rule', () => {
   const text = protocolText();
   for (const code of TRANSITION_CODES) assert.ok(text.includes(code), `expected "${code}" in the protocol text`);
   const permanent = paragraphWith(text, 'not_claim_holder');
   assert.ok(permanent, 'expected the permanent-codes paragraph');
   assert.ok(!permanent.includes('gate_blocked'), 'gate_blocked has its own sentence, not the permanent list');
-  assert.ok(text.includes('Never call `advance` again after entering your phase'), 'never-advance-again rule');
-  assert.ok(text.includes('## Subagent Discipline'), 'Subagent Discipline section');
+  const entry = ruleText('protocol.entry-seat');
+  assert.ok(entry.includes('Never repeat the transition request'), 'never-advance-again rule');
+  assert.ok(entry.includes('never request the "complete"'), 'never complete');
 });
 
 // S9 (gating unchanged: non-phase-owner types, headless iteration, workflow-subagent, no config, bad
@@ -382,18 +416,19 @@ test('66a5bc0c S8: the rest of the protocol holds: codes named, gate_blocked out
 
 // ── 66a5bc0c probes ──────────────────────────────────────────────────────────────────────────────────
 
-test('66a5bc0c P1: the read-the-role-first paragraph is one paragraph holding every S2-S5 phrase (a blank line inside would split it)', () => {
-  const para = readFirstParagraph(protocolText());
-  for (const phrase of ['items_read', '`queue`', 'never sends `start`', 'a second `start`', 'past your phase', 'already shows your phase', 'do not send `start`', 'any other role']) {
-    assert.ok(para.includes(phrase), `missing from the one paragraph: ${phrase}`);
+test('66a5bc0c P1: the entry-seat read-the-role-first bullet holds every S1-S5 phrase in one bullet', () => {
+  const para = readFirstParagraph();
+  for (const phrase of ['items_read', 'queue', 'a second `start`', 'past your phase', 'never probed by sending `start` again', 'any other']) {
+    assert.ok(para.includes(phrase), `missing from the one bullet: ${phrase}`);
   }
 });
 
-test('66a5bc0c P2: the new paragraph does not hijack the substring lookups of the transient and permanent paragraph tests', () => {
+test('66a5bc0c P2: the pointer paragraph does not hijack the substring lookups of the transient and permanent paragraph tests', () => {
   const text = protocolText();
-  const para = readFirstParagraph(text);
-  assert.ok(!para.includes('internal'), 'internal (also as part of a word) belongs to the transient paragraph only');
-  assert.ok(!para.includes('not_claim_holder'), 'not_claim_holder belongs to the permanent paragraph only');
+  const pointer = paragraphWith(text, 'protocol.entry-seat');
+  assert.ok(pointer, 'expected the pointer paragraph');
+  assert.ok(!pointer.includes('internal'), 'internal (also as part of a word) belongs to the transient paragraph only');
+  assert.ok(!pointer.includes('not_claim_holder'), 'not_claim_holder belongs to the permanent paragraph only');
   const transient = paragraphWith(text, 'internal');
   assert.ok(transient && transient.includes('resource_unavailable') && transient.includes('unavailable'), `first paragraph with "internal" must be the transient one: ${transient}`);
   const permanent = paragraphWith(text, 'not_claim_holder');
