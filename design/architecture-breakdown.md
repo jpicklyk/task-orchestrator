@@ -34,7 +34,7 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
   - Phase 2: `refined` computed by the server (every required queue-phase note filled), a `refined` filter on `next` and `list`.
   - Plugin: ralph, the run-wave frontier and post-plan route 3 drop their own filtering.
 - **Depends on:** nothing for phase 1. Phase 2 needs the refined storage (a filled flag on notes plus the pinned required keys).
-- **Size:** M. **Risk:** low; it is the fix every caller already works around. Further `next` changes (ordering, traversal) stay held.
+- **Size:** M. **Risk:** low; it is the fix every caller already works around. Traversal across parents stays held; the sibling rank that orders `next` lands in P8 ([0013](decisions/0013-sibling-rank.md)).
 
 ### P2 Decisions surface
 
@@ -122,10 +122,13 @@ Completed 2026-11-26 over container `f2b1432b` (15 items): the plugin and docs s
 
 ### P8 Shape support on the server
 
-- **Records:** entry-skills server change table.
-- **Layer:** server.
-- **Contents:** `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token; declared types readable on the knowledge profile: `items_read` `schema` with neither `type` nor `itemId` returns the root's declared type names and their `lifecycle`, no config body, on every profile that serves `schema` (S63, reopened by pass 10 decision G3; a `@Doc` edit, so both goldens and the api reference regenerate). A sibling `rank` stays out ([0013](decisions/0013-no-sibling-rank-yet.md)).
-- **Depends on:** nothing.
+- **Records:** entry-skills server change table; [0013](decisions/0013-sibling-rank.md) (sibling rank).
+- **Layer:** server, then plugin callers.
+- **Contents:**
+  - `create_tree` dependency edges that name existing items (with scope, lifecycle and cycle checks before any write); `derived_from` provenance links on create; `runs_write reissue` for a lost run token; declared types readable on the knowledge profile: `items_read` `schema` with neither `type` nor `itemId` returns the root's declared type names and their `lifecycle`, no config body, on every profile that serves `schema` (S63, reopened by pass 10 decision G3; a `@Doc` edit, so both goldens and the api reference regenerate).
+  - Sibling rank (S70, [0013](decisions/0013-sibling-rank.md)): a migration adding a nullable integer `work_items.rank` (`ADD COLUMN`, no table rebuild), with the Exposed table object and the schema snapshot; `WorkItem.rank`, returned in the item JSON when set; a `rank` field with its `@Doc` on create, update and `create_tree` items, beside `complexity`; `next`'s default sort becomes priority, then rank ascending with unranked last, then complexity, `createdAt` and `id`, which `claim` by selector inherits; the `orderBy` `@Doc` and the `NextItemOrder` doc say so. Both goldens and the api reference regenerate. The sort sits in `SqliteClaimStore`, which P1 phase 1 also edits through `EligibilityQuery`: land it after P1 phase 1, or in the same worktree.
+  - Plugin: post-plan writes `rank` from the approved plan when it states an order among items that do not depend on each other (`skills/post-plan-workflow/SKILL.md:23`); dependency-manager keeps `linear` for a chain of real dependencies, sends a stated order without a dependency to `rank` instead of a `blocks` chain (`skills/dependency-manager/SKILL.md:80`), and stops calling `unblockAt: queue` "ordering only", since that edge never holds back and orders nothing (`SKILL.md:185`); run-wave's frontier comparator and snapshot projection carry `rank` and `createdAt`, so a wave's order matches `next` (`scripts/run-planner-lib.mjs:1052-1059`, `skills/run-wave/references/snapshot.md`).
+- **Depends on:** nothing (the rank sort lands after P1 phase 1, see above).
 - **Size:** M.
 
 ### P9 Seat model
@@ -193,7 +196,8 @@ Each hold names the sign that reopens it (pass 10 decision G11).
 
 - Knowledge retrieval contract: notes without a phase (R36), relation words a walk follows (R38), a document-kind search filter (R49). Wait until a knowledge user needs them. The read of declared types on the knowledge profile left this list for P8 (pass 10 decision G3).
 - Root-wide orphan and wanted-page read. Reopen when a knowledge user asks for orphans or wanted pages, recorded as unmet in an observation or a learn or board request.
-- `next` ordering and traversal (graph, rank). Reopen on the trigger in [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md): an observation or proposal recording that the user had to name the next item, or shape creating `blocks` edges that carry only order.
+- `next` traversal across parents (graph order, breadth- or depth-first). Reopen on the trigger in [0004](decisions/0004-next-means-startable.md): an observation or proposal recording that the user had to name the next item across parents, because priority, rank and edges could not say "finish this parent first". The sibling rank left this list for P8 ([0013](decisions/0013-sibling-rank.md)).
+- A project-declared default `next` order. Reopen when a project's callers pass the same non-default `orderBy` on every call ([0013](decisions/0013-sibling-rank.md)).
 - Config delivery on the knowledge profile off Claude Code. Reopen when a knowledge-profile connection whose MCP `initialize` client name is not Claude Code shows in server logs or a user report; meanwhile a REST push, documented by configure-server, is the workaround.
 - A persisted standing-work policy. Unattended drain is carried by ralph's arguments and host scheduling (pass 10 decision G9); reopen when a scheduled host task runs ralph with the same arguments again and again, or a headless misfire is seen that a bypassed hook would have stopped.
 - A server archive for items. Reopen when a knowledge user reports a miss the maturity rule (S69) cannot carry (pass 10 decision G7).
@@ -235,10 +239,10 @@ flowchart LR
 ## Decisions settled for this breakdown (2026-11-24)
 
 1. **The acceptance gate's form** (P4): a note satisfied by an answered decision, [0012](decisions/0012-acceptance-gate-note-form.md). The costing is below.
-2. **Rank** (P8): kept out, [0013](decisions/0013-no-sibling-rank-yet.md).
+2. **Rank** (P8): kept out on 2026-11-24; reversed 2026-11-26 by the boundary analysis pass 11, so P8 builds it, [0013](decisions/0013-sibling-rank.md).
 3. **Where the template record lives** (P6): an `extensions.claude-code` key in the project config that the plugin reads. It is enough for setup and learn and needs no server change; a server field can follow if another harness needs to read it.
 
-The boundary analysis of 2026-11-26 settled the decisions behind P9-P13 and the additions to P2, P4, P6 and P7: records [0015](decisions/0015-note-purpose.md) to [0018](decisions/0018-content-placement.md), and amendments to [0002](decisions/0002-director-on-orchestrator-tools.md), [0008](decisions/0008-acceptance-is-a-server-gate.md) and [0012](decisions/0012-acceptance-gate-note-form.md). Its pass 10 (decisions G1-G12, cited in the packages above) added [0019](decisions/0019-learn-reads-upstream-sources.md) and amended [0004](decisions/0004-next-means-startable.md), [0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md) and [0013](decisions/0013-no-sibling-rank-yet.md).
+The boundary analysis of 2026-11-26 settled the decisions behind P9-P13 and the additions to P2, P4, P6 and P7: records [0015](decisions/0015-note-purpose.md) to [0018](decisions/0018-content-placement.md), and amendments to [0002](decisions/0002-director-on-orchestrator-tools.md), [0008](decisions/0008-acceptance-is-a-server-gate.md) and [0012](decisions/0012-acceptance-gate-note-form.md). Its pass 10 (decisions G1-G12, cited in the packages above) added [0019](decisions/0019-learn-reads-upstream-sources.md) and amended [0004](decisions/0004-next-means-startable.md), [0008](decisions/0008-acceptance-is-a-server-gate.md), [0012](decisions/0012-acceptance-gate-note-form.md) and [0013](decisions/0013-sibling-rank.md). Its pass 11 (ordering for `next`) amended 0013 to build a sibling rank in P8 and narrowed 0004's hold to traversal.
 
 ## Gate form
 

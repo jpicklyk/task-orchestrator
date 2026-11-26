@@ -66,7 +66,7 @@ One row per system concept. **Owning zone** is the target. **Seam** names the pl
 
 | # | Concept | Owning zone | Seam | Read by | Enforced at | Today |
 |---|---|---|---|---|---|---|
-| M1 | Work items, hierarchy, links, dependencies | Z1 | S01 type, `builds` | Every layer, through the tools | Server | clean |
+| M1 | Work items, hierarchy, links, dependencies, and the order `next` hands items out | Z1 | S01 type, `builds`; S70 `orderBy` per call and, in the target, `rank` per item | Every layer, through the tools | Server | clean; a stated order among items of equal priority has no field today and falls to a random id; target: `rank` orders `next` and never holds an item back (S70, [0013](decisions/0013-sibling-rank.md)) |
 | M2 | Type selects the schema; schema resolution | Z1 | S01, S15, S17 | Server; plugin through `items_read` `schema` | Server | clean |
 | M3 | Lifecycle, phases, triggers, cascade | Z1 | S01 `lifecycle` | Server, status-progression | Server | clean |
 | M4 | Phase gates (notes, dependencies, hold, lease, review-pending, independence) | Z1 | S02 `required`, S04 `independent_of`, S19 | Server | Server | clean |

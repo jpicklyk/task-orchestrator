@@ -4,7 +4,7 @@ The user journeys walked step by step against the target architecture, as the ev
 
 The architecture graded here is [target-architecture.md](target-architecture.md), with its seams in [seams.md](seams.md), the seat model in [seat-model.md](seat-model.md), config in [config-layering.md](config-layering.md), runs in [run-execution.md](run-execution.md) and checks in [enforcement-map.md](enforcement-map.md). The journeys are the four sequence diagrams in [journey-sequences.md](journey-sequences.md) (step numbers are the diagrams' own) and the eight journeys of the [Strategic Journey Map](user-journey-map.html) at stage level. Terms follow [GLOSSARY.md](../GLOSSARY.md).
 
-Owner decisions are cited by their number in the boundary analysis owner answers of 2026-11-26 (`plans/boundaries/README.md`, not tracked), as revised after the simplicity review; where a decision has a record, the record is linked instead. The owner's decisions on pass 10 of that analysis (journey gap closure, 2026-11-26) are cited as G1 to G12. Path prefixes: `KT/` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`; `PLUG/` is `claude-plugins/task-orchestrator/`.
+Owner decisions are cited by their number in the boundary analysis owner answers of 2026-11-26 (`plans/boundaries/README.md`, not tracked), as revised after the simplicity review; where a decision has a record, the record is linked instead. The owner's decisions on pass 10 of that analysis (journey gap closure, 2026-11-26) are cited as G1 to G12; the owner's decision on its pass 11 (ordering for `next`, `plans/boundaries/11-next-ordering.md`, not tracked) is recorded in [0013](decisions/0013-sibling-rank.md). Path prefixes: `KT/` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`; `PLUG/` is `claude-plugins/task-orchestrator/`.
 
 ## How to read it
 
@@ -20,25 +20,26 @@ Owner decisions are cited by their number in the boundary analysis owner answers
 3. An overlay proposal (a seam the walk itself found missing) counts as a gap until the owner accepts it. Once accepted, the step fits in the target and moves to the burn-down list until its package lands.
 4. Re-run after each package lands: re-walk the steps that package names in the burn-down list, move the ones that now fit today, and re-walk every step whose "Rests on" names a seam the package changed. Re-run the knowledge journey (journey 3 and stages 8.x) when anything held in "Held until evidence asks" is released.
 
-The first walk graded the target before the owner answered its decisions. This revision re-grades it under the owner's answers and under the simplicity review that followed: the orchestrator is never a seat ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)), a seat declares only `writes` (no `kind`), the acceptance claims travel as evidence on the acceptance decision ([0012](decisions/0012-acceptance-gate-note-form.md), amended), the orchestrator binding sits at root and trait level only ([0017](decisions/0017-orchestrator-binding.md)), and there are two rule classes ([0018](decisions/0018-content-placement.md)). A third grading applies the pass 10 decisions G1-G12, all taken as recommended: they close every undecided gap and two holds, correct the basis of three steps, and keep three holds with reopen triggers anyone can observe.
+The first walk graded the target before the owner answered its decisions. This revision re-grades it under the owner's answers and under the simplicity review that followed: the orchestrator is never a seat ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)), a seat declares only `writes` (no `kind`), the acceptance claims travel as evidence on the acceptance decision ([0012](decisions/0012-acceptance-gate-note-form.md), amended), the orchestrator binding sits at root and trait level only ([0017](decisions/0017-orchestrator-binding.md)), and there are two rule classes ([0018](decisions/0018-content-placement.md)). A third grading applies the pass 10 decisions G1-G12, all taken as recommended: they close every undecided gap and two holds, correct the basis of three steps, and keep three holds with reopen triggers anyone can observe. A fourth grading applies the owner's pass 11 decision on ordering for `next` ([0013](decisions/0013-sibling-rank.md)): an item's `rank` closes stage 7.4, and the hold on `next` narrows to traversal across parents ([0004](decisions/0004-next-means-startable.md)), which no journey step needs.
 
 ## Results
 
-| Source | Steps | Fits | Gaps | Leaks | Before pass 10 (fits, gaps, leaks) | First walk (fits, gaps, leaks) |
-|---|---|---|---|---|---|---|
-| Journey 1: plan acceptance without plan mode | 25 | 25 | 0 | 0 | 24, 1, 0 | 21, 3, 1 |
-| Journey 2: light touch | 27 | 27 | 0 | 0 | 26, 1, 0 | 24, 2, 1 |
-| Journey 3: keep a knowledge base | 29 | 27 | 2 | 0 | 23, 6, 0 | 23, 6, 0 |
-| Journey 4: build to learn | 22 | 22 | 0 | 0 | 20, 2, 0 | 18, 4, 0 |
-| Map stages | 62 | 60 | 2 | 0 | 52, 10, 0 | 43, 15, 4 |
-| **Total** | **165** | **161** | **4** | **0** | 145, 20, 0 | 129, 30, 6 |
+| Source | Steps | Fits | Gaps | Leaks | Before pass 11 (fits, gaps, leaks) | Before pass 10 (fits, gaps, leaks) | First walk (fits, gaps, leaks) |
+|---|---|---|---|---|---|---|---|
+| Journey 1: plan acceptance without plan mode | 25 | 25 | 0 | 0 | 25, 0, 0 | 24, 1, 0 | 21, 3, 1 |
+| Journey 2: light touch | 27 | 27 | 0 | 0 | 27, 0, 0 | 26, 1, 0 | 24, 2, 1 |
+| Journey 3: keep a knowledge base | 29 | 27 | 2 | 0 | 27, 2, 0 | 23, 6, 0 | 23, 6, 0 |
+| Journey 4: build to learn | 22 | 22 | 0 | 0 | 22, 0, 0 | 20, 2, 0 | 18, 4, 0 |
+| Map stages | 62 | 61 | 1 | 0 | 60, 2, 0 | 52, 10, 0 | 43, 15, 4 |
+| **Total** | **165** | **162** | **3** | **0** | 161, 4, 0 | 145, 20, 0 | 129, 30, 6 |
 
 What the results show:
 
 1. **No leak is left in the target.** The six leaks of the first walk had two causes, and the owner took the decision for each: what plan approval sets in motion becomes project config (owner decision 16; journey 2 step 14 and stages 2.4, 3.2, 6.5, 7.3), and the acceptance grant's claims become evidence the gate checks for on the answered decision ([0012](decisions/0012-acceptance-gate-note-form.md); journey 1 step 17).
 2. **The simplicity review changed no verdict.** Every fit that rested on the orchestrator seat, `kind` or a token-borrowing server rule still fits on the simpler representation. The steps whose basis changed are listed in the next section.
-3. **Every remaining gap is an accepted hold.** The four gaps left rest on three holds that pass 10 decision G11 keeps: graph, rank or traversal `next` (stage 7.4), config delivery on the knowledge profile off Claude Code (journey 3 step 5), and a root-wide orphan and wanted-page read (journey 3 step 23, stage 8.6). Each now names a reopen trigger anyone can observe. No step waits on an owner decision.
+3. **Every remaining gap is an accepted hold.** The three gaps left rest on two holds that pass 10 decision G11 keeps, both in the knowledge-base journey: config delivery on the knowledge profile off Claude Code (journey 3 step 5), and a root-wide orphan and wanted-page read (journey 3 step 23, stage 8.6). Each names a reopen trigger anyone can observe. No step waits on an owner decision.
 4. **Pass 10 closed sixteen gaps with no new enforcement and one new server read.** The read is S63 (declared types on the knowledge profile, P8). Everything else rests on seams that exist or are already planned: an answered decision, note purposes, a note's `skill:`, `related`, a rule document, ralph's arguments and host scheduling. The verdicts it flipped and the bases it corrected are listed below.
+6. **Pass 11 closed the last software-journey gap with one item field.** Stage 7.4 needs `next` to follow an order the user or the plan stated among items that do not depend on each other. An item's `rank` orders `next` among items of equal priority and never holds anything back, so `blocked`, the gates and the edges are unchanged (S70, [0013](decisions/0013-sibling-rank.md); P8). No config seam and no enforcement is added.
 5. **The seat and run machinery is sound.** No seat, run, review-lane, fix-cycle or orchestrator-note step leaks or gaps. Every crossing is a served fact (`enters`, `transitions`, `writes`, each note's computed owner) or a declared list (seat `rules:` and `skills:`, the orchestrator binding).
 
 ### Fits whose basis changed with the simplicity review
@@ -84,6 +85,12 @@ What the results show:
 | Journey 4 step 12; stage 6.4 | gap | fits | G4: the building seat records kept and thrown commits in its `finding`, the orchestrator writes the `ruling`, and a project rule removes thrown code |
 | Journey 4 step 21; stage 6.7 | gap | fits | G5: shape re-walks the ruling's subtree and the `linked_from` hits of `items_read` `related` (S62 reader) |
 | Stage 3.7 | gap | fits | G9: carried by ralph's arguments and host scheduling, with the `headless-iteration` bypass documented in ralph's text; only a persisted policy stays held |
+
+### Verdicts that flipped with pass 11
+
+| Steps | Before | Now | Closed by |
+|---|---|---|---|
+| Stage 7.4 | gap | fits | [0013](decisions/0013-sibling-rank.md): `next` orders by priority, then rank (unranked last), then complexity, `createdAt` and `id`; post-plan and the orchestrator write rank from the stated order, and a real dependency stays a `blocks` edge (S70; P8). Traversal across parents stays held ([0004](decisions/0004-next-means-startable.md)) |
 
 ## J-F1 and the resume gate
 
@@ -133,7 +140,7 @@ Two server facts the journeys depend on, checked against the code.
 | 17 | fits | Decisions surface, acceptance gate (P2, P4) |
 | 18 | fits | `writes`, defaults by seat name, dispatch guard ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md); P9) |
 | 19-20 | fits | Seat-less type, no run; phase gates |
-| 21-23 | fits | `next` returns startable work ([0004](decisions/0004-next-means-startable.md); P1) |
+| 21-23 | fits | `next` returns startable work ([0004](decisions/0004-next-means-startable.md); P1), in the order the plan or the user stated through rank ([0013](decisions/0013-sibling-rank.md); P8) |
 | 24 | fits | - |
 | 25 | fits (was gap) | learn fetches Task Orchestrator's docs, glossary and design at the installed version, plus the user's served schema and config (G2; [0019](decisions/0019-learn-reads-upstream-sources.md); S68; P7) |
 | 26-27 | fits | Template record compared on upgrade (P6) |
@@ -188,14 +195,14 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 |---|---|---|---|
 | 1.1 Set up | S | fits | Setup (P6) |
 | 1.2 Vision to first pieces | I | fits (was gap) | Goal note by purpose (P10) |
-| 1.3 What first | I | fits | Dependency edges; no rank ([0013](decisions/0013-no-sibling-rank-yet.md)) |
+| 1.3 What first | I | fits | Dependency edges for real sequence, rank for a stated order ([0013](decisions/0013-sibling-rank.md); P8) |
 | 1.4 Define done | I | fits | Planning bar through the root orchestrator binding (P11) |
-| 1.5 Build | G | fits | Run-wave over the seat model (P9) |
+| 1.5 Build | G | fits | Run-wave over the seat model (P9); the frontier comparator carries rank, so a wave's order matches `next` (P8) |
 | 1.6 Progress | L | fits | Board with the decision inbox (P2, P3) |
 | 1.7 Ship v1 | A | fits | Acceptance gate, ship step (P4) |
 | 1.8 Learn | M | fits | Retrospective by purpose `closure-record` (P10) |
 | 2.1 Re-entry briefing | L | fits | Session start live state, board |
-| 2.2 Prioritise | I | fits | Judgement over priority and edges |
+| 2.2 Prioritise | I | fits | Judgement sets priority and, among equals, rank (P8); edges for real sequence |
 | 2.3 Idea to plan | I | fits | Plan mode |
 | 2.4 Build hands-off | G | fits (was leak) | Approval routing (owner decision 16; P6) |
 | 2.5 Accept | A | fits | Accept, acceptance gate, decisions (P2, P4, P7) |
@@ -216,7 +223,7 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 | 4.4 Decide investment | I | fits | Judgement, then items |
 | 4.5 Materialise | G | fits | create-item |
 | 4.6 Untangle | L | fits | dependency-manager |
-| 4.7 Dispatch | G | fits | Run-wave or director |
+| 4.7 Dispatch | G | fits | Run-wave or director; the frontier comparator carries rank (P8) |
 | 4.8 Close and learn | M | fits (was gap) | Cost by meter and model, against the run's sizing tier (owner decision 29) |
 | 5.1 Run closes | M | fits | Retrospective mark, board |
 | 5.2 Process health | M | fits | tune (P7) |
@@ -237,7 +244,7 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 | 7.1 Set up | S | fits | Light template (P6) |
 | 7.2 Say what you want | I | fits (was gap) | Sizing recorded as a `ruling` (P10) |
 | 7.3 Agree the plan | I | fits (was leak) | Approval routing (owner decision 16); merge arming for an ungated type stays with the project's merge step (owner decision 17) |
-| 7.4 Keep going | G | **gap** | Graph, rank or traversal `next`: held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) (G11), reopened on their amended trigger |
+| 7.4 Keep going | G | fits (was gap) | Rank orders `next` among items of equal priority, written from the stated order ([0013](decisions/0013-sibling-rank.md); S70; P8). A flat list needs no traversal, which stays held ([0004](decisions/0004-next-means-startable.md)) |
 | 7.5 Learn the words | E | fits (was gap) | As journey 2 step 25 (G2) |
 | 7.6 Stay current | S | fits | Template record (P6) |
 | 8.1 Set up | S | fits | Setup on the knowledge profile (P6) |
@@ -249,7 +256,7 @@ Moments: I Intend, D Decide, A Accept, M Improve, L Look, E Learn, S Setup, G be
 | 8.7 Prune and reshape | M | fits (was gap) | As journey 3 step 27 (G7, G10) |
 | 8.8 Learn | E | fits (was gap) | As journey 3 step 29 (G2, G3) |
 
-Per map journey (fits, gaps, leaks): J1 8, 0, 0; J2 8, 0, 0; J3 8, 0, 0; J4 8, 0, 0; J5 7, 0, 0; J6 9, 0, 0; J7 5, 1, 0; J8 7, 1, 0.
+Per map journey (fits, gaps, leaks): J1 8, 0, 0; J2 8, 0, 0; J3 8, 0, 0; J4 8, 0, 0; J5 7, 0, 0; J6 9, 0, 0; J7 6, 0, 0; J8 7, 1, 0.
 
 ## Burn-down
 
@@ -259,7 +266,6 @@ Each is an accepted hold: pass 10 decision G11 keeps it and names the sign that 
 
 | Item | Steps | What reopens it |
 |---|---|---|
-| Graph, rank or traversal `next` | Stage 7.4 | Held by [0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) (amended): an `agent-observation` or proposal recording that the user had to name the next item because priority, complexity and edges could not express the order, or shape creating `blocks` edges that carry only order |
 | Config delivery on the knowledge profile off Claude Code | Journey 3 step 5 | A knowledge-profile connection whose MCP `initialize` client name is not Claude Code, seen in server logs or a user report. The REST push documented by configure-server stays the workaround |
 | Root-wide orphan and wanted-page read | Journey 3 step 23, stage 8.6 | A knowledge user asking for orphans or wanted pages, recorded as unmet in an observation or a learn or board request |
 
@@ -275,7 +281,7 @@ These fit in the target and not today. A row leaves this list when its package l
 | P5 Profile-aware hooks | Journey 3 steps 20 (write-up through the synthesis note, G6) and 27 (delete-needs-a-yes as mechanics text and the maturity rule, G10, G7); stages 8.5, 8.7 |
 | P6 Setup and templates, with approval routing | Journey 2 steps 1-5, 14, 26-27; journey 3 steps 1-4, 20 (the synthesis note, G6) and 27 (the maturity rule, G7); journey 4 step 12 (`finding` guidance, G4); stages 1.1, 2.4, 3.2, 6.4, 6.5, 7.1, 7.3, 7.6, 8.1, 8.5, 8.7 |
 | P7 Entry skills | Journey 1 steps 2 and 8 (plan store, single-change planning), 7 (the grant offered in the plan proposal, G1), 18-21, 23 (accept card, accept with the run token, claims raised as evidence); journey 2 steps 16 (G1) and 25 (learn's upstream sources, G2); journey 3 step 29 (G2); journey 4 steps 12 (the ruling from the `finding`, G4) and 21 (a ruling's dependents, G5); stages 5.2, 6.4, 6.7, 7.5, 8.8 |
-| P8 Shape support on the server | Journey 3 steps 9 and 29 (declared types on the knowledge profile, G3); journey 4 step 21 (`derived_from` links); stages 6.7, 8.2, 8.8 |
+| P8 Shape support on the server | Journey 2 steps 21-23 (`next` in the stated order through rank, [0013](decisions/0013-sibling-rank.md)); journey 3 steps 9 and 29 (declared types on the knowledge profile, G3); journey 4 step 21 (`derived_from` links); stages 6.7, 7.4 (rank in `next`), 8.2, 8.8 |
 | P9 Seat model | Journey 1 steps 12-14, 21, 23 (orchestrator notes in every schema, served owner, `fixArgs` hint); journey 2 step 18; stage 1.5 |
 | P10 Note purpose | Journey 1 steps 3, 15-16; journey 2 step 8; journey 4 steps 5, 12 (the `implementation-standards` section, G4), 18; stages 1.2, 1.8, 6.1, 6.4, 7.2 |
 | P11 Orchestrator binding | Journey 1 steps 4-6; journey 2 step 6; journey 4 step 1; stages 1.4, 6.2 |

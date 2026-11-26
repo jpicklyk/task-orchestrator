@@ -30,7 +30,7 @@ File `NNNN-short-title.md`, numbered in order. Fields: **Status** (Accepted, Sup
 | [0010](0010-two-domains.md) | Two domains: software development and keeping a knowledge base | Accepted | 2026-11-24 |
 | [0011](0011-no-sync-with-outside-tools.md) | No synchronisation with outside tools | Accepted | 2026-11-24 |
 | [0012](0012-acceptance-gate-note-form.md) | The acceptance gate is a note satisfied by an answered decision | Accepted, amended 2026-11-26 | 2026-11-24 |
-| [0013](0013-no-sibling-rank-yet.md) | No sibling rank until a need appears | Accepted, amended 2026-11-26 | 2026-11-24 |
+| [0013](0013-sibling-rank.md) | Sibling rank orders `next` among items of equal priority | Accepted, amended 2026-11-26 | 2026-11-24 |
 | [0014](0014-director-reads-skills-runs-plugin-scripts.md) | The director reads skill and plugin files and runs a plugin's scripts (amends 0002) | Accepted, amended 2026-11-26 | 2026-11-26 |
 | [0015](0015-note-purpose.md) | The note purpose field and its values; acceptance evidence lives on the decision | Accepted | 2026-11-26 |
 | [0016](0016-seat-capability-and-orchestrator-notes.md) | Seats declare `writes`; the protocol rule is chosen from `enters` and `writes`; `kind` held; the orchestrator is never a seat (orchestrator notes) | Accepted | 2026-11-26 |
