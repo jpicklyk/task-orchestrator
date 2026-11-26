@@ -51,7 +51,7 @@ sealed class LeaseReleaseResult {
  * `acquireAll` / `releaseAllForItem` are wired into the work-phase-entry gate by
  * [io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService] (acquire, release) and
  * into item deletion by
- * [io.github.jpicklyk.mcptask.current.application.service.ItemCommandService].
+ * [io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandService].
  *
  * ## "Active" is a lazy, read-time notion
  *

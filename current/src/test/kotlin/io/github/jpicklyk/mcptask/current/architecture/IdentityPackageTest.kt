@@ -293,14 +293,15 @@ class IdentityPackageTest {
     private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.(?:application\.api|platform\.call|platform\.request)\b""")
 
     /**
-     * The legacy `application/service` node: its own folder, the `platform/` folders that took its files, and the services
+     * The legacy `application/service` node (its folder is empty): the `platform/` folders that took its files, and the services
      * that left it with their slice (a file path: the guard follows each service to its slice path, it never shrinks).
      */
     private val serviceNodePaths =
         listOf(
-            "application/service/",
             "platform/eventrecording/",
             "platform/idempotency/",
+            "itemwrite/ItemCommandService.kt",
+            "itemwrite/internal/app/WorkTreeService.kt",
             "claim/ClaimService.kt",
             "claim/FenceGuard.kt",
             "dependency/DependencyCommandService.kt",
@@ -340,7 +341,7 @@ class IdentityPackageTest {
         val offenders = serviceImportingApi(sources)
         assertTrue(
             offenders.isEmpty(),
-            "application/service files, platform/eventrecording, platform/idempotency, platform.call and platform.request reaching application.api (AR-58 edge 1): $offenders"
+            "platform/eventrecording, platform/idempotency, platform.call and platform.request reaching application.api (AR-58 edge 1): $offenders"
         )
     }
 
@@ -351,16 +352,16 @@ class IdentityPackageTest {
         val request = "io.github.jpicklyk.mcptask.current.platform.request"
         val seeded =
             listOf(
-                synthetic("application/service/A.kt", "import $api.ActorAware"),
-                synthetic("application/service/B.kt", "import $api.*"),
-                synthetic("application/service/C.kt", "val p = $api.ActorParseResult"),
-                synthetic("application/service/D.kt", " * [$api.ActorAware]"),
-                synthetic("application/service/E.kt", "import ${api}x.Other"),
+                synthetic("platform/eventrecording/A.kt", "import $api.ActorAware"),
+                synthetic("platform/eventrecording/B.kt", "import $api.*"),
+                synthetic("platform/eventrecording/C.kt", "val p = $api.ActorParseResult"),
+                synthetic("platform/eventrecording/D.kt", " * [$api.ActorAware]"),
+                synthetic("platform/eventrecording/E.kt", "import ${api}x.Other"),
                 synthetic("application/other/F.kt", "import $api.ActorAware"),
                 synthetic("platform/eventrecording/G.kt", "import $call.CallContext"),
                 synthetic("platform/idempotency/H.kt", "val p = $call.Principal"),
                 synthetic("platform/port/I.kt", "import $call.Principal"),
-                synthetic("application/service/J.kt", "import $request.Doc"),
+                synthetic("platform/eventrecording/J.kt", "import $request.Doc"),
                 synthetic("claim/ClaimService.kt", "import $api.ActorAware"),
                 synthetic("claim/FenceGuard.kt", "val p = $call.Principal"),
                 synthetic("claim/ClaimStore.kt", "import $api.ActorAware"),
@@ -369,12 +370,12 @@ class IdentityPackageTest {
             )
         assertEquals(
             setOf(
-                "application/service/A.kt",
-                "application/service/B.kt",
-                "application/service/C.kt",
+                "platform/eventrecording/A.kt",
+                "platform/eventrecording/B.kt",
+                "platform/eventrecording/C.kt",
                 "platform/eventrecording/G.kt",
                 "platform/idempotency/H.kt",
-                "application/service/J.kt",
+                "platform/eventrecording/J.kt",
                 "claim/ClaimService.kt",
                 "claim/FenceGuard.kt",
                 "dependency/DependencyCommandService.kt"

@@ -1,11 +1,6 @@
-package io.github.jpicklyk.mcptask.current.platform.eventrecording
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.app
 
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
-
-/*
- * The typed rows the write services record (plan section 3.7). Each service records its own rows through
- * `WriteScope.events`, inside its own unit; these builders keep the payload shapes in one place.
- */
 
 /**
  * The item fields whose change an `item.updated` row reports (bookkeeping fields excluded: version, timestamps).

@@ -1,9 +1,11 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.item.ItemView
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -30,14 +32,14 @@ internal object RepinItemOp {
     const val NAME = "repin"
 }
 
-internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun repinItemOp(): OpSpec<ItemWriteToolServices, RepinItemRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = RepinItemOp.NAME,
         doc = "Move the item's config pin to the current config heads.",
         profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<RepinItemRequest>(),
         errors =
             setOf(
@@ -51,8 +53,8 @@ internal fun repinItemOp(): OpSpec<WorkflowToolServices, RepinItemRequest, ItemW
         execute = { env, ctx, req -> itemWriteBody(ctx) { repinItem(env, ctx, req) } }
     )
 
-private suspend fun WriteScope<WorkflowStoreProvider>.repinItem(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.repinItem(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: RepinItemRequest
 ): Outcome<ItemWriteResult> {

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
 import io.github.jpicklyk.mcptask.current.dependency.DepType
 import io.github.jpicklyk.mcptask.current.dependency.UnblockAt

@@ -1,7 +1,5 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
@@ -17,9 +15,9 @@ import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
  * `complete_tree`) take as `env`. A lazy member stays unbuilt until a handler reads it, and building the holder touches
  * no store.
  */
-class WorkflowToolServices(
-    val stores: WorkflowStoreProvider,
-    val unitOfWork: UnitOfWork<WorkflowStoreProvider>,
+class ItemWriteToolServices(
+    val stores: ItemWriteStoreProvider,
+    val unitOfWork: UnitOfWork<ItemWriteStoreProvider>,
     val configResolver: EffectiveConfigResolver,
     private val itemCommand: Lazy<ItemCommandService>,
     private val dependencyCommand: Lazy<DependencyCommandService>,

@@ -1,7 +1,8 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromRef
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
@@ -68,7 +69,7 @@ internal fun parseItemLinks(
  * restricted caller gets `forbidden`, never an existence answer. Documents pass through unresolved.
  */
 internal suspend fun linkTargetsInScope(
-    env: WorkflowToolServices,
+    env: ItemWriteToolServices,
     ctx: CallContext,
     refs: List<ItemDerivedFromRef>,
     pointer: String

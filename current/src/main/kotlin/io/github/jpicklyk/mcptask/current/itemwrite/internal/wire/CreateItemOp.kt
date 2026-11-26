@@ -1,11 +1,13 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
-import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.item.PriorityWire
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.ResolvedItemDerivedFrom
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -48,14 +50,14 @@ internal object CreateItemOp {
     const val NAME = "create"
 }
 
-internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun createItemOp(): OpSpec<ItemWriteToolServices, CreateItemRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = CreateItemOp.NAME,
         doc = "Create an item. It starts in queue, or lifecycle-free (no role) when its type's schema has lifecycle: none.",
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<CreateItemRequest>(),
         errors =
             setOf(
@@ -69,8 +71,8 @@ internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, Ite
         execute = { env, ctx, req -> itemWriteBody(ctx) { createItem(env, ctx, req) } }
     )
 
-private suspend fun WriteScope<WorkflowStoreProvider>.createItem(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.createItem(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: CreateItemRequest
 ): Outcome<ItemWriteResult> {

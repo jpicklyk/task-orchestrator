@@ -1,11 +1,13 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -38,15 +40,15 @@ internal object DeleteItemOp {
     const val NAME = "delete"
 }
 
-internal fun deleteItemOp(): OpSpec<WorkflowToolServices, DeleteItemRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun deleteItemOp(): OpSpec<ItemWriteToolServices, DeleteItemRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = DeleteItemOp.NAME,
         doc = "Delete an item; a parent needs recursive.",
         destructive = true,
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<DeleteItemRequest>(),
         errors =
             setOf(
@@ -62,8 +64,8 @@ internal fun deleteItemOp(): OpSpec<WorkflowToolServices, DeleteItemRequest, Ite
         execute = { env, ctx, req -> itemWriteBody(ctx) { deleteItem(env, ctx, req) } }
     )
 
-private suspend fun WriteScope<WorkflowStoreProvider>.deleteItem(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.deleteItem(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: DeleteItemRequest
 ): Outcome<ItemWriteResult> {

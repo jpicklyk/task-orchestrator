@@ -91,7 +91,7 @@ internal class WriteConfinementTest {
                 "note/NoteStore.kt"
             )
 
-        /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
+        /** Single files that own StoreWrite: the command services, each in its slice. */
         private val STORE_OWNER_FILES =
             setOf(
                 CLAIM_SERVICE,
@@ -100,10 +100,10 @@ internal class WriteConfinementTest {
                 "knowledge/LinkService.kt",
                 "config/ConfigService.kt",
                 "lifecycle/AdvanceService.kt",
-                "note/NoteCommandService.kt"
+                "note/NoteCommandService.kt",
+                "itemwrite/ItemCommandService.kt"
             )
 
-        private val STORE_OWNER_DIRS = listOf("application/service/")
         private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/")
         private val CLAIM_IMPL_FILES =
             setOf(
@@ -148,11 +148,10 @@ internal class WriteConfinementTest {
 
         fun isImplDir(path: String): Boolean = norm(path).let { p -> IMPL_DIRS.any { p.startsWith(it) } || isSliceSqlite(p) }
 
-        /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and owner dirs. Opt-ins are narrower. */
+        /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and impl dirs and owner files. Opt-ins are narrower. */
         fun storeWriteAllowed(path: String): Boolean {
             val p = norm(path)
-            return STORE_OWNER_DIRS.any { p.startsWith(it) } ||
-                p in STORE_OWNER_FILES ||
+            return p in STORE_OWNER_FILES ||
                 isPort(p) ||
                 p == MARKER_FILE ||
                 isImplDir(p)
@@ -489,11 +488,10 @@ internal class WriteConfinementTest {
 
         private val OPT_IN = Regex("""@(?:file:)?(?:[\w.]*\.)?OptIn\s*\(([^)]*)\)""")
 
-        /** An OPT-IN of StoreWrite is allowed only in the service dir and the owner files (marker USE: see [storeWriteAllowed]). */
+        /** An OPT-IN of StoreWrite is allowed only in the owner files (marker USE: see [storeWriteAllowed]). */
         fun storeWriteOptInAllowed(path: String): Boolean =
             norm(path).let { p ->
-                STORE_OWNER_DIRS.any { p.startsWith(it) } ||
-                    p in STORE_OWNER_FILES
+                p in STORE_OWNER_FILES
             }
 
         /** An OPT-IN of ClaimWrite is allowed only in ClaimService.kt (marker USE: see [claimWriteAllowed]). */
@@ -780,7 +778,7 @@ internal class WriteConfinementTest {
 
         val storeUsers =
             cleaned.filter { (p, c) ->
-                (p.startsWith("application/service/") || p in STORE_OWNER_FILES) && mentions(c, STORE_WRITE) > 0
+                p in STORE_OWNER_FILES && mentions(c, STORE_WRITE) > 0
             }
         assertTrue(storeUsers.size >= 2, "control: service files opt in to StoreWrite; saw ${storeUsers.keys}")
         val claimService = cleaned[CLAIM_SERVICE] ?: error("$CLAIM_SERVICE must exist")
@@ -852,8 +850,8 @@ internal class WriteConfinementTest {
     @Test
     fun `S11 the allow-list predicates match directory and file boundaries`() {
         listOf(
-            "application/service/X.kt",
-            "application/service/nested/X.kt",
+            "itemwrite/ItemCommandService.kt",
+            "note/NoteCommandService.kt",
             "knowledge/DocumentService.kt",
             "application/port/ItemStore.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
@@ -866,9 +864,10 @@ internal class WriteConfinementTest {
             "dependency/DependencyStore.kt",
             "dependency/DependencyCommandService.kt",
             "dependency/internal/sqlite/SQLiteDependencyRepository.kt",
-            "application\\service\\X.kt"
+            "itemwrite\\ItemCommandService.kt"
         ).forEach { assertTrue(storeWriteAllowed(it), "StoreWrite must be allowed in: $it") }
         listOf(
+            "application/service/X.kt",
             "application/tools/items/CreateItemHandler.kt",
             "interfaces/api/v1/routes/NoteWriteRoutes.kt",
             "config/internal/app/PerRootConfigService.kt",
@@ -922,7 +921,11 @@ internal class WriteConfinementTest {
         val claimOptIn = "@OptIn(ClaimWrite::class)\nclass A"
         assertEquals(1, markerViolations("lifecycle/AdvanceService.kt", claimOptIn), "ClaimWrite outside ClaimService")
         assertEquals(0, markerViolations(CLAIM_SERVICE, "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"), "ClaimService owns both")
-        assertEquals(0, markerViolations("application/service/X.kt", "@OptIn(StoreWrite::class)\nclass A"), "services own StoreWrite")
+        assertEquals(
+            0,
+            markerViolations("itemwrite/ItemCommandService.kt", "@OptIn(StoreWrite::class)\nclass A"),
+            "services own StoreWrite"
+        )
         val storeOptIn = "@OptIn(StoreWrite::class)\nclass A"
         assertEquals(
             0,
@@ -958,7 +961,7 @@ internal class WriteConfinementTest {
         val storeImpl = storeImplPath
         val fileOptIn = "@file:OptIn(StoreWrite::class)\npackage x"
         val portUse = "interface ItemStore {\n    @StoreWrite suspend fun update(x: Int): Int\n}"
-        assertEquals(0, optInViolations("application/service/ItemCommandService.kt", fileOptIn), "(e)")
+        assertEquals(0, optInViolations("itemwrite/ItemCommandService.kt", fileOptIn), "(e)")
         assertEquals(0, markerViolations(storePort, portUse), "(f) marker use in a port")
         assertEquals(0, optInViolations(storePort, portUse), "(f) marker use is not an opt-in")
         val implUse = "class A {\n    @StoreWrite override suspend fun update(x: Int): Int = x\n}"
@@ -985,13 +988,13 @@ internal class WriteConfinementTest {
         val claimOptIn = "@OptIn(ClaimWrite::class)\nclass A"
         val bothOptIn = "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"
         assertEquals(1, optInViolations("lifecycle/AdvanceService.kt", claimOptIn), "ClaimWrite in a service")
-        assertEquals(1, optInViolations("application/service/X.kt", bothOptIn), "only ClaimWrite is denied in a service")
+        assertEquals(1, optInViolations("itemwrite/ItemCommandService.kt", bothOptIn), "only ClaimWrite is denied in a service")
         assertEquals(2, optInViolations("application/tools/X.kt", bothOptIn), "both counted")
 
         // owner files stay green
         listOf(
             "lifecycle/AdvanceService.kt",
-            "application/service/nested/X.kt",
+            "config/ConfigService.kt",
             "knowledge/DocumentService.kt",
             "knowledge/LinkService.kt"
         ).forEach { assertEquals(0, optInViolations(it, "@file:OptIn(StoreWrite::class)\npackage x"), "StoreWrite owner: $it") }

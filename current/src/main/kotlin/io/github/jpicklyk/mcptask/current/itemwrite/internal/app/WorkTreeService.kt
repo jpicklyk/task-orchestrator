@@ -1,9 +1,12 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.dependency.TopoOrder
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandService
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.MarkdownSectionSplitter
@@ -231,8 +234,8 @@ internal data class TreeAdoption(
  * notes (and among anchors) the last one wins. A [PerRootConfigUnavailableException] propagates.
  */
 class WorkTreeService(
-    private val repositoryProvider: WorkflowStoreProvider,
-    private val unitOfWork: UnitOfWork<WorkflowStoreProvider>,
+    private val repositoryProvider: ItemWriteStoreProvider,
+    private val unitOfWork: UnitOfWork<ItemWriteStoreProvider>,
     private val configResolver: EffectiveConfigResolver,
     private val itemCommandService: ItemCommandService,
     private val dependencyCommandService: DependencyCommandService,

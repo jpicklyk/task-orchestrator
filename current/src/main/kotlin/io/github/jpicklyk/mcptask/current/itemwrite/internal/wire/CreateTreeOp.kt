@@ -1,20 +1,22 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
-import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeDepEnd
-import io.github.jpicklyk.mcptask.current.application.service.TreeDepInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeItemInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeNoteInput
-import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.dependency.DepType
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeAnchorInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeDepEnd
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeDepInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeItemInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeNoteInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeRootInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeRequest
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeResult
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeService
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -53,15 +55,15 @@ internal object CreateTreeOp {
  * (`not_claim_holder`, judged in the write unit); a failed write rolls the whole tree back. Under a restricted scope a
  * `cycle_detected` path omits the stored items the scope does not admit.
  */
-internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun createTreeOp(): OpSpec<ItemWriteToolServices, CreateTreeRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = CreateTreeOp.NAME,
         doc = "Create a root (or attach to root.id) with children, dependencies and notes, all or nothing.",
         // Amendment U23: orchestration-only, like complete_tree (the knowledge profile hides it).
         profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<CreateTreeRequest>(),
         errors =
             setOf(
@@ -81,8 +83,8 @@ internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, Ite
         execute = { env, ctx, req -> itemWriteBody(ctx) { createTree(env, ctx, req) } }
     )
 
-private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.createTree(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: CreateTreeRequest
 ): Outcome<ItemWriteResult> {
@@ -199,7 +201,7 @@ private suspend fun WriteScope<WorkflowStoreProvider>.createTree(
  * unrestricted caller, is returned unchanged.
  */
 private suspend fun redactCyclePath(
-    env: WorkflowToolServices,
+    env: ItemWriteToolServices,
     ctx: CallContext,
     error: DomainError,
     named: Set<UUID>
@@ -217,7 +219,7 @@ private suspend fun redactCyclePath(
 
 /** Resolves [ref] (under a restricted scope a miss is `forbidden`) and checks the scope admits it. */
 private suspend fun resolveInScope(
-    env: WorkflowToolServices,
+    env: ItemWriteToolServices,
     ctx: CallContext,
     ref: IdRef,
     field: String
@@ -232,7 +234,7 @@ private suspend fun resolveInScope(
 }
 
 /** The tree service over the call's composed services. */
-internal fun workTreeService(env: WorkflowToolServices): WorkTreeService =
+internal fun workTreeService(env: ItemWriteToolServices): WorkTreeService =
     WorkTreeService(
         env.stores,
         env.unitOfWork,

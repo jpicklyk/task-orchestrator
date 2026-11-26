@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.model.claim.*
 import io.github.jpicklyk.mcptask.current.model.dependency.*
 import io.github.jpicklyk.mcptask.current.model.item.*

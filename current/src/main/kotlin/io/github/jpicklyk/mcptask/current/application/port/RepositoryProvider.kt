@@ -12,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.item.HierarchyStore
 import io.github.jpicklyk.mcptask.current.item.ItemStore
 import io.github.jpicklyk.mcptask.current.item.ItemStoreProvider
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.OpenRunCount
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.knowledge.LinkStore
@@ -48,7 +50,7 @@ interface RepositoryProvider :
     RetentionStores,
     RunStoreProvider,
     TelemetryStoreProvider,
-    WorkflowStoreProvider {
+    ItemWriteStoreProvider {
     override fun workItemRepository(): WorkItemRepository
 
     /**
@@ -121,7 +123,7 @@ interface RepositoryProvider :
     /** The lifecycle's view of runs: [runStore], so a provider that serves no runs throws from the same accessor. */
     override fun runReads(): RunReads = runStore()
 
-    /** The workflow's open-run count: [runStore], so a provider that serves no runs throws from the same accessor. */
+    /** The item write slice's open-run count: [runStore], so a provider that serves no runs throws from the same accessor. */
     override fun openRunCount(): OpenRunCount = runStore()
 
     /**

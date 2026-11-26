@@ -1,12 +1,14 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
-import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
-import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.item.PriorityWire
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
+import io.github.jpicklyk.mcptask.current.itemwrite.ParentChange
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
@@ -56,14 +58,14 @@ internal object UpdateItemOp {
     const val NAME = "update"
 }
 
-internal fun updateItemOp(): OpSpec<WorkflowToolServices, UpdateItemRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun updateItemOp(): OpSpec<ItemWriteToolServices, UpdateItemRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = UpdateItemOp.NAME,
         doc = "Update an item; absent or null keeps a value, clear nulls optional fields.",
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<UpdateItemRequest>(),
         errors =
             setOf(
@@ -114,8 +116,8 @@ private fun wireName(field: ClearField): String =
         ClearField.PARENT_ID -> "parentId"
     }
 
-private suspend fun WriteScope<WorkflowStoreProvider>.updateItem(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.updateItem(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: UpdateItemRequest
 ): Outcome<ItemWriteResult> {

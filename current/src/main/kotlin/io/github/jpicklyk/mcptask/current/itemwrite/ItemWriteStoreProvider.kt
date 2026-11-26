@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.itemwrite
 
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleStoreProvider
 import java.util.UUID
@@ -7,7 +7,7 @@ import java.util.UUID
  * The stores the workflow slice reads: the lifecycle set (which carries the knowledge set the tree service writes
  * links through) and the count of open runs an item delete checks. [RepositoryProvider] implements it.
  */
-interface WorkflowStoreProvider : LifecycleStoreProvider {
+interface ItemWriteStoreProvider : LifecycleStoreProvider {
     fun openRunCount(): OpenRunCount
 }
 

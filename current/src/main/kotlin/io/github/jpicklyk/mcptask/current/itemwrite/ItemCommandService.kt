@@ -1,13 +1,13 @@
 @file:OptIn(StoreWrite::class)
 
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.itemwrite
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.dependencyRemovedEvent
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.itemChangedFields
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
@@ -43,7 +43,6 @@ import io.github.jpicklyk.mcptask.current.model.schema.SchemaFacts
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.note.noteDeletedEvent
-import io.github.jpicklyk.mcptask.current.platform.eventrecording.itemChangedFields
 import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -177,9 +176,9 @@ data class ItemDeleteResult(
  * and is rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
  */
 class ItemCommandService(
-    private val repositoryProvider: WorkflowStoreProvider,
+    private val repositoryProvider: ItemWriteStoreProvider,
     private val configResolver: EffectiveConfigResolver,
-    private val unitOfWork: UnitOfWork<WorkflowStoreProvider>,
+    private val unitOfWork: UnitOfWork<ItemWriteStoreProvider>,
     private val advanceServiceFactory: AdvanceServiceFactory,
     private val claimService: ClaimService,
     private val policy: TransitionPolicy = TransitionPolicy(),
@@ -244,7 +243,7 @@ class ItemCommandService(
     // create
     // -------------------------------------------------------------------------
 
-    private suspend fun WriteScope<WorkflowStoreProvider>.createBody(cmd: ItemCreateCommand): Outcome<WorkItem> {
+    private suspend fun WriteScope<ItemWriteStoreProvider>.createBody(cmd: ItemCreateCommand): Outcome<WorkItem> {
         val parentId = cmd.parentId
         val depth: Int
         val rootId: UUID
@@ -301,7 +300,7 @@ class ItemCommandService(
     }
 
     /** The root a create lands in, for the missing-type rejection's `availableTypes` (parent row read, no policy). */
-    private suspend fun WriteScope<WorkflowStoreProvider>.rootOfCreate(cmd: ItemCreateCommand): UUID {
+    private suspend fun WriteScope<ItemWriteStoreProvider>.rootOfCreate(cmd: ItemCreateCommand): UUID {
         val parentId = cmd.parentId ?: return cmd.id
         return hierarchy.resolveChildPlacement(parentId)?.rootId ?: cmd.id
     }
@@ -347,7 +346,7 @@ class ItemCommandService(
     // patch
     // -------------------------------------------------------------------------
 
-    private suspend fun WriteScope<WorkflowStoreProvider>.patchBody(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.patchBody(
         cmd: ItemPatchCommand,
         caller: ClaimHolder?,
         seatCaller: SeatCaller
@@ -564,7 +563,7 @@ class ItemCommandService(
      * config versions (which that root's delete cascades away). The restamp already bumped each row's version. [pins]
      * were taken, and checked (none crosses its row's lifecycle class), before the patch's first write.
      */
-    private suspend fun WriteScope<WorkflowStoreProvider>.repinMovedDescendants(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.repinMovedDescendants(
         descendants: List<WorkItem>,
         newRoot: UUID,
         pins: Map<UUID, SchemaPin>
@@ -584,7 +583,7 @@ class ItemCommandService(
      * A re-point never changes a survivor's lifecycle class: a crossing pin returns the `invalid_transition` (trigger
      * `repin`) for that survivor before anything is written; null when the re-point went through.
      */
-    private suspend fun WriteScope<WorkflowStoreProvider>.repointSurvivingPins(doomed: Set<UUID>): DomainError? {
+    private suspend fun WriteScope<ItemWriteStoreProvider>.repointSurvivingPins(doomed: Set<UUID>): DomainError? {
         if (!schemaPinService.enabled) return null
         val survivors = items.findPinnedToConfigOf(doomed)
         if (survivors.isEmpty()) return null
@@ -613,7 +612,7 @@ class ItemCommandService(
      * Anything else is `invalid_transition` for [existing] with `fromRole` its role (or `none`) and trigger the
      * [reason]'s wire value. Reads only: nothing is written here.
      */
-    private suspend fun WriteScope<WorkflowStoreProvider>.applyPin(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.applyPin(
         existing: WorkItem,
         candidate: WorkItem,
         pin: SchemaPin,
@@ -654,7 +653,7 @@ class ItemCommandService(
     }
 
     /** Records the one `item.pinned` row of a patch pin point ([reason] null: the patch fired none). */
-    private suspend fun WriteScope<WorkflowStoreProvider>.recordPinned(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.recordPinned(
         stored: WorkItem,
         eventRoot: UUID,
         previous: SchemaPin?,
@@ -669,7 +668,7 @@ class ItemCommandService(
     // repin
     // -------------------------------------------------------------------------
 
-    private suspend fun WriteScope<WorkflowStoreProvider>.repinBody(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.repinBody(
         itemId: UUID,
         expectedVersion: Long?
     ): Outcome<ItemRepinResult> {
@@ -714,7 +713,7 @@ class ItemCommandService(
         return openRuns.countNotClosedByRoot(rootId)
     }
 
-    private suspend fun WriteScope<WorkflowStoreProvider>.deleteBody(
+    private suspend fun WriteScope<ItemWriteStoreProvider>.deleteBody(
         itemId: UUID,
         recursive: Boolean,
         caller: ClaimHolder?,
@@ -935,7 +934,7 @@ class ItemCommandService(
      */
     private suspend fun <T> guarded(
         op: String,
-        block: suspend WriteScope<WorkflowStoreProvider>.() -> Outcome<T>
+        block: suspend WriteScope<ItemWriteStoreProvider>.() -> Outcome<T>
     ): Outcome<T> {
         var configFault: PerRootConfigUnavailableException? = null
         val outcome =

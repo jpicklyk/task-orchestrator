@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandService
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentService
 import io.github.jpicklyk.mcptask.current.knowledge.LinkService
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService

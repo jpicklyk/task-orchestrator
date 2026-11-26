@@ -1,10 +1,12 @@
-package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+package io.github.jpicklyk.mcptask.current.itemwrite.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
 import io.github.jpicklyk.mcptask.current.item.resolveItemId
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteResult
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteStoreProvider
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.lifecycle.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.lifecycle.TransitionJson
@@ -45,14 +47,14 @@ internal object CompleteTreeOp {
  * admitted is `forbidden`, nothing written), then the run. A per-item rejection is data in `items[]`, never an
  * element error; all applied transitions of the element commit together.
  */
-internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest, ItemWriteResult, WorkflowStoreProvider> =
+internal fun completeTreeOp(): OpSpec<ItemWriteToolServices, CompleteTreeRequest, ItemWriteResult, ItemWriteStoreProvider> =
     OpSpec(
         name = CompleteTreeOp.NAME,
         doc = "Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
-        services = WorkflowToolServices::class,
-        stores = WorkflowStoreProvider::class,
+        services = ItemWriteToolServices::class,
+        stores = ItemWriteStoreProvider::class,
         request = serializer<CompleteTreeRequest>(),
         errors =
             setOf(
@@ -64,8 +66,8 @@ internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest,
         execute = { env, ctx, req -> itemWriteBody(ctx) { completeTree(env, ctx, req) } }
     )
 
-private suspend fun WriteScope<WorkflowStoreProvider>.completeTree(
-    env: WorkflowToolServices,
+private suspend fun WriteScope<ItemWriteStoreProvider>.completeTree(
+    env: ItemWriteToolServices,
     ctx: CallContext,
     req: CompleteTreeRequest
 ): Outcome<ItemWriteResult> {
@@ -134,7 +136,7 @@ private suspend fun WriteScope<WorkflowStoreProvider>.completeTree(
 }
 
 /** The completion service over the call's composed services. */
-internal fun treeCompletionService(env: WorkflowToolServices): TreeCompletionService =
+internal fun treeCompletionService(env: ItemWriteToolServices): TreeCompletionService =
     TreeCompletionService(env.stores, env.advanceServiceFactory())
 
 /**

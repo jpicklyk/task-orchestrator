@@ -3,8 +3,16 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.workTreeService
+import io.github.jpicklyk.mcptask.current.itemwrite.ItemWriteToolServices
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeAnchorInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeDepEnd
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeDepInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeItemInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeNoteInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.TreeRootInput
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeRequest
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.app.WorkTreeService
+import io.github.jpicklyk.mcptask.current.itemwrite.internal.wire.workTreeService
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -103,7 +111,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(request(children = listOf(item("gc", parentRef = "c1"), item("c1"))))
                     .ok()
 
@@ -123,7 +131,7 @@ class WorkTreeServiceTest {
             val before = count("work_items")
             val error =
                 workTreeService(
-                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class)
                 ).create(request(children = listOf(item("a", "b"), item("b", "a")))).err()
 
             assertEquals(ErrorCode.INVALID_REQUEST, error.code)
@@ -148,7 +156,7 @@ class WorkTreeServiceTest {
             val rig = rig(dir)
             val before = count("work_items")
             val error =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -172,7 +180,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -193,7 +201,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             rig.raw.planDocumentRepository().stash(project.id, "plan", "# Overview\nOverview text.\n# Impl\nImpl text.")
             val tree =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(
                         request(
                             rootType = "gated",
@@ -229,7 +237,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(request(rootType = "gated", notes = listOf(TreeNoteInput("root", "spec", "work", "x"))))
                     .err()
 
@@ -246,7 +254,7 @@ class WorkTreeServiceTest {
             val rig = rig(dir)
             val error =
                 workTreeService(
-                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class)
                 ).create(request(children = listOf(item("a"), item("b", type = "nope")))).err()
 
             assertEquals(ErrorCode.SCHEMA_VIOLATION, error.code)
@@ -263,7 +271,7 @@ class WorkTreeServiceTest {
             val closed = rig.seed("Closed", role = Role.TERMINAL)
             val error =
                 workTreeService(
-                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class)
                 ).create(request(parentId = closed.id, children = listOf(item("a")))).err()
 
             assertEquals(ErrorCode.INVALID_TRANSITION, error.code)
@@ -279,7 +287,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             val existing = rig.seed("Existing", project)
             val tree =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(WorkTreeRequest(root = TreeRootInput.Attach(existing.id), children = listOf(item("a")), caller = null))
                     .ok()
 
@@ -298,7 +306,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b"), item("c")),
@@ -327,7 +335,7 @@ class WorkTreeServiceTest {
             // A lifecycle-free row: a NULL role paired with lifecycle 'none' (the V26 CHECK); no write path creates one.
             val free = rig.seed("Free", project)
             rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
-            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
             val blocks =
                 request(children = listOf(item("c1")), parentId = project.id, deps = listOf(TreeDepInput(ref("c1"), existing(free.id))))
 
@@ -354,7 +362,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             val free = rig.seed("Free", project)
             rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
-            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
 
             val error =
                 service
@@ -382,7 +390,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             val free = rig.seed("Free", project)
             rawExec(db.jdbcUrl, "UPDATE work_items SET role = NULL, lifecycle = 'none' WHERE title = 'Free'")
-            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
             val root = ref(WorkTreeService.ROOT_REF)
 
             fun attach(dep: TreeDepInput) =
@@ -411,7 +419,7 @@ class WorkTreeServiceTest {
             val e1 = rig.seed("E1", project)
             val e2 = rig.seed("E2", project)
             rig.raw.dependencyRepository().create(Dependency(fromItemId = e1.id, toItemId = e2.id, type = DependencyType.BLOCKS))
-            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
 
             val error =
                 service
@@ -439,7 +447,7 @@ class WorkTreeServiceTest {
             val x = rig.seed("X", project)
             val e = rig.seed("E", project)
             rig.raw.dependencyRepository().create(Dependency(fromItemId = x.id, toItemId = e.id, type = DependencyType.BLOCKS))
-            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
+            val service = workTreeService(ToolServiceRegistry(rig.ctx).get(ItemWriteToolServices::class))
 
             val error =
                 service
