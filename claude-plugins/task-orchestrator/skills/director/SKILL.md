@@ -42,8 +42,8 @@ Calling the skill again refreshes the marker and the dashboard.
   patch flag, `git status` never `-v`, and `git branch` may only list. Revisions and paths are allowed
   as operands; the full flag lists are in guard-coverage.md.
 - `Agent` runs only in the background: `run_in_background: true`. A foreground dispatch is denied,
-  as its result would land here. Code Mode's `Agent` has no such field and is always background; the
-  guard allows it after a `REPL` call.
+  as its result would land here. In Code Mode (after a `REPL` call) and the desktop app, `Agent` has
+  no such field and always runs in the background, so the guard allows it.
 - `SendMessage` and `ListAgents` are never denied. Use them to talk to orchestrators.
 
 When a call is denied, the reason starts with `Director altitude rule:`. Do not retry it in another form. Delegate it: a background `Agent` with an explicit `model`, or `SendMessage` to the
@@ -63,7 +63,7 @@ The whole tool budget of a director session:
 | `report` | `rollup` per run; `usage`, `gates`, `contention`, `waste` on request |
 | `items_read` | `blocked` under the project root, for blocked work; `overview` for counts |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
-| `Agent` | Background only (`run_in_background: true`; always so in Code Mode), with `model` set |
+| `Agent` | Background only (see the altitude rule), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to orchestrators and other sessions |
 | `Skill` | Any skill (`task-orchestrator:model-effort`, entry skills); each call it makes is guarded |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
