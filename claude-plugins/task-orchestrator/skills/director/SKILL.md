@@ -25,8 +25,8 @@ Calling the skill again refreshes the marker and the dashboard.
 
 ## The altitude rule
 
-- Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+- Never open or search a work file. `Read` may open a skill's files (its `SKILL.md`, references and
+  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
@@ -37,10 +37,14 @@ Calling the skill again refreshes the marker and the dashboard.
 - `Skill` is open: each call a loaded skill makes is checked on its own.
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
-  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
+  `$`), no braces, globs or backslashes, and nothing chained after a command outside that list. A
+  segment may also be `node <script>` for a script inside an installed plugin, by its absolute path written
+  with `/` (a path with a space does not run): those scripts give you deterministic routing and decisions,
+  such as `scripts/coordinator-tiers.mjs`. The guard does not check what a script does, and some write files
+  or drive work: run one only to route or decide, never a generator (`gen-*`), `ralph-loop` or a `--out` write.
   `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log` never `-p` or another
   patch flag, `git status` never `-v`, and `git branch` may only list. Revisions and paths are allowed
-  as operands; the full flag lists are in guard-coverage.md.
+  as operands; full flag lists: [references/guard-coverage.md](references/guard-coverage.md).
 - `Agent` runs only in the background: `run_in_background: true`. A foreground dispatch is denied,
   as its result would land here. In Code Mode (after a `REPL` call) and the desktop app, `Agent` has
   no such field and always runs in the background, so the guard allows it.
@@ -73,12 +77,12 @@ The five MCP tools come from the director profile. Anything else (notes, items w
 holds its token and is its orchestrator.
 
 The guard enforces the altitude and write rules, not this whole budget; only the hardened entry does,
-through its tool list. What the guard denies, and where it stops: [references/guard-coverage.md](references/guard-coverage.md).
+through its tool list.
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
 that decision (`allow_one`, `skip_item`, `stop`) or by `close`; `resume` on it answers
-`invalid_run_state`. A run paused by a stored 4.0.0 budget decision (legacy) is answered `extend` or `stop`, with no other field. `close` ends a run whatever its pause; a `completed` close is refused while a
+`invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
 seat is still active, and a close leaves open decisions open (its snapshot's `openDecisions` is the number still open).
 
 ## Connection check
@@ -87,19 +91,15 @@ seat is still active, and a close leaves open decisions open (its snapshot's `op
 the orchestration one. Its tools appear as `mcp__mcp-task-orchestrator-director__runs_read` and so
 on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 
-That connection uses the server's director profile (the `/mcp/director` endpoint over
-HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
-that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and the guard enforces the rule there too: any read that returns body text is denied
-(`config`, `notes_read` and `docs_read` `get`, `search` with snippets, `schema` with guidance), their metadata
-forms run, and `runs_read` runs `get`, `list`, `frontier`, `decisions` and `decision`. The guard tells the orchestration connection from a host server by its server key; the limit is in
-guard-coverage.md. Use the hardened entry (below)
-when enforcement matters.
+That connection uses the server's director profile (`/mcp/director` over HTTP, or
+`MCP_TOOL_PROFILE=director` on stdio), which has no body read, so the server enforces the rule there.
+On the orchestration connection the guard enforces the same read rule (the altitude rule above),
+telling the two apart by the server key. Use the hardened entry (below) when enforcement matters.
 
 If the director profile's tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
 `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
-tool. Decisions cannot be shown or answered until init runs. Still never call `notes_read`.
+tool. Decisions cannot be shown or answered until init runs.
 
 ## Dashboard
 
@@ -259,19 +259,26 @@ At tier 4, warn the user once: the altitude holds only while each delegated agen
 summary, not raw file content, so ask each agent for a short summary.
 
 How to launch an orchestrator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
-`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; an
-orchestrator or background agent runs it, not you. A run of one or two items needs no
+Tier 1 `start_session` brief: `Run /task-orchestrator:run-wave <scope> --altitude-safe. Report to
+<address> with SendMessage, only the report helper's output, never
+"main". Send no note bodies, diffs or tokens. Never ask the user: put any need on the needs: line.
+Stop on a director close and report closed.` `<address>`: this session's name, the first `ListAgents`
+line (`This session is <name> [<ref>]`); if absent, ask the user.
+`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; run it with
+`node` by its absolute path (the plugin folder is this skill's base directory, two folders up). A run of one or two items needs no
 separate orchestrator: dispatch one background agent.
 
 ## Waking up
 
-On any wake-up (a `SendMessage` from an orchestrator, a task notification, or the user returning
-after idle), read the run that woke you. A message starting `TO report:` is an orchestrator report
-(events `planned`, `decision`, `paused`, `closed`): act on the ids it names only, after the board
-read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
-user's approval (missing allow rules: coordinator-tiers.md step 2); then call `Workflow` with the returned `args` and `SendMessage` the orchestrator
-`launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim, or the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval, then `SendMessage` the orchestrator `approved` or `stop`.
+A message starting `TO report:` is an orchestrator report (events `planned`, `decision`, `paused`,
+`closed`): read the run it names by its id (never search the board for your run), then act on the ids
+it names only, then Answering. Tier 2: on `planned` with `needs: approve launch`, get the user's
+approval (missing allow rules: name them; the user adds them, accepts the prompts or stops);
+then call `Workflow` with the returned `args` and `SendMessage` the orchestrator `launched` with the
+call's task id, run id and script path; on the task notification, send it the result JSON verbatim, or
+the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval,
+then `SendMessage` the orchestrator `approved` or `stop`. A linked session's turn note with no
+`TO report:` needs no board read: note it in one line and wait.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}
@@ -282,7 +289,8 @@ retrospective: the plugin's hooks tell you. A `Decision waiting:` directive mean
 `PushNotification` once for the ids it names. A retrospective directive comes one per completed
 scope (per closed run at boundary `run` or without REST) and is always the dispatch form in a
 director session, whatever `retrospective.mode` says (`off` still sends none): dispatch the one
-background agent it names. Never run `/session-retrospective` in this session; it reads note
+background agent it names. At tier 1 the orchestrator's own session closes the run, gets the directive
+and runs the retrospective: dispatch none for that run. Never run `/session-retrospective` in this session; it reads note
 bodies. Each fires once per decision, scope or run per session.
 
 ## Hardened entry

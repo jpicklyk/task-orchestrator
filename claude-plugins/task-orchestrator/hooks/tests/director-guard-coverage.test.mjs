@@ -12,14 +12,14 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep, relative, isAbsolute } from 'node:path';
 
 import { directorMarkerPath } from '../execution-mode.mjs';
 import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
 import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
-import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision } from '../director-guard.mjs';
+import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision, isSkillFile, isPluginFile } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
@@ -399,4 +399,152 @@ test('probe: PowerShell and Monitor with a missing or non-string command still d
     denies(call(tool, {}));
     denies(call(tool, { command: 5 }));
   }
+});
+
+// ---- M: denial wording (item d98e684b, F5) ------------------------------------------------------
+
+test('M1: the Bash denial does not claim a chain is refused, since a chain of allow-listed commands runs', () => {
+  const r = decide(call('Bash', { command: 'cat f' }));
+  assert.ok(r.startsWith(REASON_PREFIX));
+  assert.ok(!r.includes('unchained'), r);
+  assert.ok(r.includes('every command segment must start with'), r);
+  assert.equal(decide(call('Bash', { command: 'git status -s && git log --oneline -n 1' })), null);
+});
+
+test('M2: the note and document body-read denial has no nested brackets and names the delegate', () => {
+  for (const tool of [NOTES_READ, DOCS_READ]) {
+    const r = decide(call(tool, { select: 'get' }));
+    const detail = r.slice(r.indexOf('(') + 1, r.indexOf(')'));
+    assert.ok(!detail.includes('('), `${tool}: ${r}`);
+    assert.ok(r.includes('a background agent reads a body and returns a short summary'), r);
+  }
+});
+
+// ---- K: a director may Read a skill's Markdown (item d98e684b) -----------------------------------------
+
+function skillTree() {
+  const root = tmp('dg-skills-');
+  const skills = join(root, 'skills');
+  mkdirSync(join(skills, 'alpha', 'references'), { recursive: true });
+  mkdirSync(join(skills, '_generated'), { recursive: true });
+  mkdirSync(join(skills, 'not-a-skill'), { recursive: true });
+  mkdirSync(join(root, 'docs'), { recursive: true });
+  writeFileSync(join(skills, 'alpha', 'SKILL.md'), '# alpha\n');
+  writeFileSync(join(skills, 'alpha', 'references', 'r.md'), '# r\n');
+  writeFileSync(join(skills, 'alpha', 'references', 'tool.mjs'), 'export {}\n');
+  writeFileSync(join(skills, '_generated', 'shapes.md'), '# shapes\n');
+  writeFileSync(join(skills, 'not-a-skill', 'x.md'), '# x\n');
+  writeFileSync(join(root, 'docs', 'guide.md'), '# guide\n');
+  return { root, skills };
+}
+
+test('K1: Read of a skill SKILL.md and its references is allowed under the marker', () => {
+  const { skills } = skillTree();
+  for (const p of [join(skills, 'alpha', 'SKILL.md'), join(skills, 'alpha', 'references', 'r.md')]) {
+    assert.equal(isSkillFile(p), true, p);
+    allows(call('Read', { file_path: p }), p);
+  }
+});
+
+test('K2: Read of a folder with no SKILL.md, a non-skill file, a _ folder outside a plugin, a .. escape (either separator), Skills casing or no path is denied; a script in a skill is allowed', () => {
+  const { root, skills } = skillTree();
+  allows(call('Read', { file_path: join(skills, 'alpha', 'references', 'tool.mjs') }), 'a script in a skill folder');
+  for (const ti of [{ file_path: join(skills, 'not-a-skill', 'x.md') },
+    { file_path: join(root, 'docs', 'guide.md') }, { file_path: join(skills, '_generated', 'shapes.md') },
+    { file_path: [skills, 'alpha', '..', '..', 'docs', 'guide.md'].join('/') }, { file_path: [skills, 'alpha', '..', '..', 'docs', 'guide.md'].join(sep) },
+    { file_path: join(root, 'Skills', 'alpha', 'SKILL.md') }, {}, { file_path: 5 }]) {
+    denies(call('Read', ti), JSON.stringify(ti));
+  }
+});
+
+test('K3: the skill exception is Read only: Edit, Write, Grep and Glob on a skill file still deny', () => {
+  const { skills } = skillTree();
+  const p = join(skills, 'alpha', 'SKILL.md');
+  for (const tool of ['Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']) denies(call(tool, { file_path: p, path: p }), tool);
+});
+
+test('K4: isSkillFile fails closed when the file system check throws', () => {
+  const { skills } = skillTree();
+  assert.equal(isSkillFile(join(skills, 'alpha', 'SKILL.md'), { exists: () => { throw new Error('boom'); } }), false);
+});
+
+// ---- P: a director may read and run an installed plugin's scripts (item d98e684b) ---------------------
+
+function pluginTree() {
+  const root = tmp('dg-plugin-');
+  const plugin = join(root, 'my-plugin');
+  mkdirSync(join(plugin, '.claude-plugin'), { recursive: true });
+  mkdirSync(join(plugin, 'scripts', 'lib'), { recursive: true });
+  mkdirSync(join(root, 'repo', 'src'), { recursive: true });
+  writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), '{"name":"my-plugin"}');
+  writeFileSync(join(plugin, 'scripts', 'route.mjs'), 'console.log(1);');
+  writeFileSync(join(plugin, 'scripts', 'lib', 'deep.mjs'), 'export {};');
+  writeFileSync(join(root, 'repo', 'src', 'app.mjs'), 'console.log(2);');
+  const fwd = (p) => p.split(sep).join('/');
+  return { root, plugin, fwd };
+}
+
+test('P1: isPluginFile is true for a file under a folder holding .claude-plugin/plugin.json, nested or not', () => {
+  const { root, plugin } = pluginTree();
+  assert.equal(isPluginFile(join(plugin, 'scripts', 'route.mjs')), true);
+  assert.equal(isPluginFile(join(plugin, 'scripts', 'lib', 'deep.mjs')), true);
+  for (const p of [join(root, 'repo', 'src', 'app.mjs'), join(plugin, 'scripts', 'missing.mjs'), join(plugin, 'scripts', '..', '..', 'repo', 'src', 'app.mjs'), '', 5]) {
+    assert.equal(isPluginFile(p), false, String(p));
+  }
+  assert.equal(isPluginFile(join(plugin, 'scripts', 'route.mjs'), { exists: () => { throw new Error('boom'); } }), false, 'fails closed');
+});
+
+test('P2: Bash runs node on a plugin script, with arguments and in a chain of allowed segments, under the marker', () => {
+  const { plugin, fwd } = pluginTree();
+  const s = fwd(join(plugin, 'scripts', 'route.mjs'));
+  for (const c of [`node ${s}`, `node "${s}" probe --tier 1`, `git status -s && node ${s} report --event planned`]) allows(call('Bash', { command: c }), c);
+});
+
+test('P3: Bash denies node on a non-plugin file, node -e, a .. escape, and a plugin script with redirection or substitution', () => {
+  const { root, plugin, fwd } = pluginTree();
+  const s = fwd(join(plugin, 'scripts', 'route.mjs'));
+  for (const c of [`node ${fwd(join(root, 'repo', 'src', 'app.mjs'))}`, 'node -e 1', `node ${fwd(join(plugin, 'scripts', '..', '..', 'repo', 'src', 'app.mjs'))}`,
+    `node ${s} > out.txt`, `node ${s} $(whoami)`, 'node']) denies(call('Bash', { command: c }), c);
+});
+
+test('P4: Read of a plugin script is allowed; Read of a non-plugin script is denied', () => {
+  const { root, plugin } = pluginTree();
+  allows(call('Read', { file_path: join(plugin, 'scripts', 'lib', 'deep.mjs') }));
+  denies(call('Read', { file_path: join(root, 'repo', 'src', 'app.mjs') }));
+});
+
+test('K5: a link inside a skill folder cannot reach a file outside it', (t) => {
+  const { root, skills } = skillTree();
+  const link = join(skills, 'alpha', 'link');
+  try {
+    symlinkSync(join(root, 'docs'), link, 'junction');
+  } catch {
+    t.skip('this host cannot create a directory link');
+    return;
+  }
+  assert.equal(isSkillFile(join(link, 'guide.md')), false);
+  denies(call('Read', { file_path: join(link, 'guide.md') }));
+});
+
+// O13: a `..` that resolves back INTO a skill or plugin is still refused, so only the `..` check denies these.
+// O18: a relative script path is refused, since the hook would resolve it against its own working directory.
+test('K6/P5: a literal .. that lands inside a skill or plugin is denied; a relative node script path is denied', (t) => {
+  const { skills } = skillTree();
+  const { plugin, fwd } = pluginTree();
+  const intoSkill = [skills, 'alpha', 'references', '..', 'SKILL.md'];
+  for (const p of [intoSkill.join('/'), intoSkill.join(sep)]) {
+    assert.equal(isSkillFile(p), false, p);
+    denies(call('Read', { file_path: p }), p);
+  }
+  const intoPlugin = fwd(plugin) + '/scripts/lib/../route.mjs';
+  assert.equal(isPluginFile(intoPlugin), false, intoPlugin);
+  denies(call('Bash', { command: `node ${intoPlugin}` }), intoPlugin);
+  // A relative path to a real plugin script (this plugin's, from the repo root the suite runs in).
+  const rel = relative(process.cwd(), fileURLToPath(new URL('../../scripts/coordinator-tiers.mjs', import.meta.url))).split(sep).join('/');
+  if (isAbsolute(rel)) {
+    t.diagnostic('the suite runs from another drive than the plugin, so no relative path exists; the relative case is skipped');
+    return;
+  }
+  assert.equal(isPluginFile(rel), true, 'the file itself is a plugin file');
+  denies(call('Bash', { command: `node ${rel}` }), rel);
 });

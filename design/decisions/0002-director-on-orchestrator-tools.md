@@ -1,6 +1,6 @@
 # 0002 The director uses the orchestrator's tools; the guard hook enforces altitude
 
-**Status:** Accepted | **Date:** 2026-11-23, amended 2026-11-25 | **Source:** Entry Skills Design review (option C); [GLOSSARY.md](../../GLOSSARY.md) "Director mode", "Director profile"
+**Status:** Accepted, amended by [0014](0014-director-reads-skills-runs-plugin-scripts.md) | **Date:** 2026-11-23, amended 2026-11-25 | **Source:** Entry Skills Design review (option C); [GLOSSARY.md](../../GLOSSARY.md) "Director mode", "Director profile"
 
 ## Decision
 
