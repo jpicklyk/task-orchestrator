@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SubagentStart — injects agent-owned-phase protocol.
+// SubagentStart: injects a pointer to the seat's protocol rule plus the generated transition code lists.
 // Early exits, checked in order (headless first, then the pre-existing guards):
 //   1. Headless ralph iteration (TASK_ORCHESTRATOR_MODE=headless-iteration) — ralph iterations
 //      never dispatch subagents, but exit silently anyway rather than assume that holds forever.
@@ -17,10 +17,10 @@
 //      injecting it into Explore/Plan/general-purpose/etc. tells agents that own no phase to
 //      call advance and commit, which is wrong for them.
 //
-// The injected wording itself is conditional rather than a blanket "call advance(start)":
-// it tells the agent to defer to whatever seat its OWN dispatch prompt assigned it (only an
-// entry seat, or a single-phase owner with no seat named, advances the item; a non-entry or
-// read-only seat never does), since this hook cannot see the dispatch prompt's seat assignment.
+// The injected text is a pointer, not the protocol: this hook cannot see the dispatch prompt's
+// seat assignment, so it tells the agent to fetch the protocol rule its dispatch names (entry seat,
+// in-phase seat or read-only agent), which owns the transition behaviour and the seat's conduct.
+// It adds only what the rules cannot carry: the transition codes from the generated catalog.
 import { readHookInput } from './lib/stdin.mjs';
 import { emit } from './lib/emit.mjs';
 import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
@@ -73,30 +73,15 @@ const { retry, permanent } = codeLists();
 
 const protocol = `## Agent-Owned-Phase Protocol
 
-**Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance\` with \`ops: [{op: "transition", itemId: "<your-item-UUID>", trigger: "start"}]\`. A non-entry seat or a **read-only** agent never calls \`advance\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`notes_write\` (\`ops: [{op: "upsert", itemId, key, role, body}]\`). When your dispatch prompt carries a \`seatToken\`, send it as a top-level field of every call you make. Read the item's gate with \`items_read\` (\`select: "context"\`, \`itemId\`); it names the owed keys and a \`guidanceKey\`, and the guidance text itself comes from \`items_read\` \`select: "schema"\` with \`fields: ["guidance"]\`.
+Your dispatch names a protocol rule (\`protocol.entry-seat\`, \`protocol.in-phase-seat\` or \`protocol.read-only-agent\`); outside a run, the \`SEAT RULES:\` hint names it. Fetch it with \`docs_read\` \`get\` (\`kind\` \`rule\`, \`slug\`, \`rootId\`) and follow it, its \`## claude:\` section included: it says whether you transition the item, which notes are yours and how you report.
 
-When your dispatch names a protocol rule (\`protocol.entry-seat\`, \`protocol.in-phase-seat\` or \`protocol.read-only-agent\`), fetch it with \`docs_read\` \`get\` (\`kind\` \`rule\`, \`slug\`, \`rootId\`) and follow it over this summary.
+The codes an \`advance\` \`transition\` can answer, from the generated catalog, for the rule's branches:
 
-Every result is an envelope: branch on \`ok\` and on \`error.code\` / \`error.kind\` (and \`retryAfterMs\` when present) of the element, never on the absence of an error.
+\`gate_blocked\` means a required note is missing, a blocking violation, or both (\`detail.missing\`, \`detail.violations[].gate\`); report them and do not retry.
 
-**Read the role before you send \`start\`.** Call \`items_read\` (\`select: "context"\`, \`itemId\`) first. A \`start\` is not idempotent: a second \`start\` moves the item forward whenever its gate passes, so retrying it can advance the item past your phase. Send \`start\` only when the role is the one just before your phase: \`queue\`, for a seat that enters the work phase. A review-phase seat never sends \`start\`: the orchestrator moves the item to review before dispatching you. When the context already shows your phase, do not send \`start\`; read the guidance as above and begin. For any other role (blocked, terminal, or a phase past yours), do not send \`start\`: stop and report the role back to the orchestrator.
+Transient or shedding codes (${retry || 'none'}): stop and report \`error.code\`, \`error.message\` and \`retryAfterMs\`; do not retry or spin.
 
-**A \`gate_blocked\` answer means a required note is missing, a blocking violation, or both: read \`detail.missing\` and \`detail.violations[].gate\` (both may be present; a review-pending or independence violation is not cleared by filling notes)**. It says nothing about where the item is. Stop, report the missing notes or the violations back to the orchestrator, and do not retry.
-
-**If the transition fails with a transient or shedding code (${retry || 'none'}), do NOT treat it as already-in-phase and do NOT retry or spin.** Stop immediately and report the \`error.code\`, the \`error.message\` and \`retryAfterMs\` back to the orchestrator — do not proceed as if you had entered your phase.
-
-**Any other code** (${permanent || 'none'}) means the transition did not put the item in your phase. Stop immediately and report the \`error.code\` and \`error.message\` back to the orchestrator — do not proceed as if you had entered your phase, and do not retry the same call.
-
-**Never call \`advance\` again after entering your phase, and never use \`trigger: "complete"\`** — the orchestrator owns all subsequent transitions.
-
-If you stop with your phase's required notes still unfilled, you will be sent back (up to twice) with the missing keys named — fill them, or state plainly what blocks you.
-
-## Subagent Discipline
-
-1. **Commit before returning.** Commit and revert as the rule \`commit-discipline\` directs (point 6).
-2. **Stay in scope.** Stay inside the task's limits as the rule \`commit-discipline\` directs (point 7); finish the whole task rather than leaving stubs.
-3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.
-4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches; never search from \`/\` or a drive root.`;
+Any other code (${permanent || 'none'}): the transition did not put the item in your phase; stop and report \`error.code\` and \`error.message\`.`;
 
 const output = {
   hookSpecificOutput: {

@@ -25,3 +25,8 @@ fix, or transition anything.
   notes. The server answering `unauthenticated` means your seat is no longer valid: halt.
 - Fill your note with `notes_write` `upsert`. `note_owned_by_other` is final (no takeover is possible): log it as a finding. Where a note names a `skill`, a name the root serves as a rule is fetched by key with `config` `rules` and followed, and any other name is invoked as a skill; do that first and use what it returns to fill the note.
 - **End the seat on its own**, when your dispatch names an `end_seat` call. `runs_write` `end_seat` is sent alone, as the last task-orchestrator call, and only after the result of your final `notes_write` has been read as ok. Never batch it with a write. If a write failed, report it and leave the seat open for the orchestrator.
+- Distill findings into your note and route verbatim artifacts (test output, diffs, logs) through
+  `bodyFromFile`.
+- **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup)
+  that can outlive your return; wait for it or stop it before your final message. Bound filesystem
+  searches to the working tree and known caches; never search from `/` or a drive root.

@@ -688,14 +688,11 @@ function assertGuidance(block) {
   assert.ok(block.startsWith('## Task Orchestrator'), 'guidance block must lead: ' + block.slice(0, 60));
   assert.match(block, /Session Context/);
   assertNoStaleText(block, 'guidance');
-  assert.match(block, /`advance`/);
-  assert.match(block, /`transition`/);
-  assert.match(block, /`items_read`/);
-  assert.match(block, /`context`/);
-  assert.match(block, /`next`/);
-  assert.match(block, /UUID/);
-  assert.match(block, /\b8\b/);
-  assert.match(block, /hex/i);
+  // Boundary pass 1 (P14): `advance` over raw status edits, id prefixes and the `context` / `next` start
+  // are the server instructions' to state; the base guidance no longer repeats them.
+  assert.ok(!/raw status edits/.test(block), 'the advance line left the base guidance');
+  assert.ok(!/hex prefix/i.test(block), 'the id-prefix line left the base guidance');
+  assert.ok(!/select `next`/.test(block), 'the context / next line left the base guidance');
   assert.ok(
     block.split('\n').some((l) => /items_write/.test(l) && /create/.test(l) && /\btype\b/.test(l)),
     'a guidance line must say items_write create requires type',
@@ -1834,7 +1831,10 @@ test('a877f204 T4: orchestration-only registration, role-bearing config -> the o
   writeConfig(dir, 'project:\n  rootId: sw-root-1\nwork_item_schemas:\n  bug:\n    lifecycle: auto\n');
   writeProjectMcpJson(dir, ORCHESTRATION_REG);
   const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
-  assert.ok(ctx.includes('`advance` op `transition`'));
+  // The advance / context / next lines left the base guidance (boundary pass 1, P14: the server
+  // instructions own them); the orchestration variant is told apart by its profile line.
+  assert.ok(ctx.includes('These are orchestration-profile tools'));
+  assert.ok(!ctx.includes('`advance` op `transition`'));
   assert.ok(ctx.includes('`list`, `search`, `context`, `next` and `blocked`'));
   assert.ok(!ctx.includes(KNOWLEDGE_BULLETS[1]));
 });

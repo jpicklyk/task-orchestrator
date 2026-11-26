@@ -13,7 +13,20 @@
 - [Claude Code](https://claude.ai/code) CLI installed
 - [Tier 1: Bare MCP](bare-mcp.md) setup complete, against a 4.x server
 
-The 4.0 plugin needs a server of major version 4 that reports the `seats` feature (`hooks/lib/server-compat.mjs`, `assessServer`). Against any other server, `session-start` adds one warning line, and `phase-guard-record` and `dispatch-hint` show one warning per session when a tool result still has the 3.x shape. A 3.x server pairs with the 3.x plugin: to stay on it, pin the plugin marketplace to the `release/3.x` ref. See the compatibility table in [`claude-plugins/CLAUDE.md`](../../../claude-plugins/CLAUDE.md).
+The 4.0 plugin needs a server of major version 4 that reports the `seats` feature. See "Compatibility with the server" below.
+
+### Compatibility with the server
+
+The plugin and the server are versioned together by major version. The 4.x plugin speaks the 4.0 tool surface (`items_read`, `advance`, `runs_write` and the rest of the registry) and needs a server whose major version is 4 and whose `GET /.well-known/mcp-task-orchestrator.json` lists the `seats` feature (`hooks/lib/server-compat.mjs`, `assessServer`).
+
+| Plugin | Server | Result |
+|--------|--------|--------|
+| 4.x | 4.x with `seats` | Supported. |
+| 4.x | 3.x, or 4.x without `seats` | `session-start` shows one warning line (when a REST API URL resolves and the server answers); `run-wave` `plan` refuses (exit 3, `server incompatible: ...`); a tool result that still has the 3.x shape shows one warning per session from `phase-guard-record` and `dispatch-hint`, which record and hint nothing. The other hooks fail open. |
+| 3.x | 3.x | Supported (the `release/3.x` line). |
+| 3.x | 4.x | Not supported: every 3.x call shape is gone, so the hooks fail open and the skills call tools that do not exist. |
+
+To keep a 3.x server on the 3.x plugin, install the plugin from the `release/3.x` line: clone the repository and check out `release/3.x`; remove the 4.x marketplace first (`/plugin marketplace remove task-orchestrator-marketplace`, since both lines use that name); then run `/plugin marketplace add <checkout>` with the repository root, which holds `.claude-plugin/marketplace.json` and against which its `source` paths resolve. The marketplace serves the checkout's working tree, so keep that checkout on `release/3.x`.
 
 ---
 
@@ -194,7 +207,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Script:** `subagent-start.mjs`. **Event:** `SubagentStart` — any subagent launched via the `Agent` tool.
 
-**What it injects:** The full Agent-Owned-Phase Protocol (see below) — but only for a phase-owner
+**What it injects:** A short Agent-Owned-Phase Protocol (see below), but only for a phase-owner
 subagent (`agent_type` resolving to `implementer` or `reviewer`, bare or plugin-qualified, e.g.
 `task-orchestrator:implementer`). Any other agent type (`general-purpose`, `Explore`, `Plan`, a
 project-local research agent, etc.) gets no output at all. An `agent_type` of exactly
@@ -204,9 +217,9 @@ transition logic instead of this protocol (see the `workflow-authoring` skill). 
 stdin fails open (no output), the same as any other unrecognized `agent_type`. See "Execution modes"
 below.
 
-**Effect:** A phase-owner subagent knows to defer to whatever seat its own dispatch prompt assigned it: only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, sends `advance` op `transition` with `trigger: "start"` to enter its phase, and it reads the item's role first. A non-entry or read-only seat never calls `advance` at all — it does its assigned work and fills its own notes without transitioning the item. When it does own the transition, it fills notes using the `guidanceKey` loop, commits changes, and returns without calling `complete`. The orchestrator handles terminal transitions. A non-phase-owner subagent dispatched to work on an item still needs the protocol included in its dispatch prompt explicitly — it is not auto-injected.
+**Effect:** A phase-owner subagent is pointed at the protocol rule its dispatch names (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`; outside a run the `SEAT RULES:` hint names it), and is given the `advance` transition codes from the generated catalog, split into `gate_blocked`, transient or shedding, and permanent. The rule governs: only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, sends `advance` op `transition` with `trigger: "start"` to enter its phase, and it reads the item's role first. A non-entry or read-only seat never calls `advance` at all: it does its assigned work and fills its own notes without transitioning the item. When it does own the transition, it fills notes using the `guidanceKey` loop, commits changes, and returns without calling `complete`. The orchestrator handles terminal transitions. A non-phase-owner subagent dispatched to work on an item still needs the protocol included in its dispatch prompt explicitly — it is not auto-injected.
 
-**Subagent Discipline:** the same injection ends with a short discipline list — commit before returning, stay in scope, notes are the report, and leave nothing running (no background command may outlive the subagent's return, and filesystem searches stay bounded to the repo/worktree and known caches, never `/` or a drive root). The `implementer` and `reviewer` agent definitions carry the leave-nothing-running rule too, so a dispatch that bypasses the hook still sees it.
+**Seat conduct:** the `## claude:` section of each protocol rule carries notes-are-the-report and leave-nothing-running (no background command may outlive the subagent's return, and filesystem searches stay bounded to the working tree and known caches, never `/` or a drive root), so every seat that fetches its rule gets them, whether or not this hook fired. Commits follow `commit-discipline`, which only a writing seat is given, on its RULES line.
 
 ### Phase-Guard Record
 

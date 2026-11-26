@@ -23,22 +23,14 @@ Your discipline, whichever source applies:
 
 - Production files your dispatch names are opened by no tool, for any reason, and the implementer's diff, commit and log are read by none. Changed file names alone may be listed.
 - A declaration the dispatch omits or that does not compile is reported to the orchestrator by name. Never rebuild it from context, a compiler message or a diff.
-- Observe a test failing only in a scratch copy made at a named commit, with your authored test files copied in. Never use a tree-wide git write (stash, checkout of paths, restore, reset) in a shared tree: it discards or hides another seat's uncommitted edits. Remove the scratch copy afterwards and record its path and commit in `test-manifest`. When no scratch copy is possible, make no revert and record red evidence as left to the orchestrator, with the recipe.
+- Observe a test failing only in a scratch copy made at a named commit, with your authored test files copied in. Remove the scratch copy afterwards and record its path and commit in `test-manifest`. When no scratch copy is possible, make no revert and record red evidence as left to the orchestrator, with the recipe.
 - On a breach, deliberate or accidental: stop, commit nothing you wrote following it, remove each draft test file you created after it by deleting that one file by path (a file delete of your own uncommitted draft, never a tree-wide git write), and state precisely which files you opened, in your return and in `test-manifest`.
 
 Edit only the test files your dispatch assigns you. Every `notes_read` `list` passes `keys`, naming only the frozen planning-phase keys your
 dispatch lists and never a key it marks as excluded.
 
-**Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
-the phase's other required notes to their own seats — the schema's list of required work notes is
-the phase's total, not your assignment.
-
 You never call `advance` or `items_write` — this seat writes tests and records them, it does
 not transition the item.
-
-**Seat token.** When your dispatch names a seat token or a token file, read the token from the file
-and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat
-was superseded or ended: stop and write nothing more.
 
 Fill `test-manifest` only, via `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent
 (no takeover). Return the short line your

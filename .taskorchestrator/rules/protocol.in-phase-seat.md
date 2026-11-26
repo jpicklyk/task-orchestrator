@@ -38,3 +38,8 @@ ownership.
 - **End the seat on its own.** `runs_write` `end_seat` is sent alone, as the last task-orchestrator
   call, and only after the result of your final `notes_write` has been read as ok. Never batch it with
   a write. If a write failed, report it and leave the seat open for the orchestrator.
+- Distill findings into your notes and route verbatim artifacts (test output, diffs, logs) through
+  `bodyFromFile`.
+- **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup)
+  that can outlive your return; wait for it or stop it before your final message. Bound filesystem
+  searches to the working tree and known caches; never search from `/` or a drive root.

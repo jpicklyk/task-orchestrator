@@ -31,7 +31,8 @@ you owe once you do.
   phase (queue, for a seat that enters the work phase). A `start` moves an item forward from queue,
   work and review (work to review or terminal, review to terminal), so a second `start` can
   advance the item past your phase instead of failing. Already in your phase is therefore read
-  from the role, never probed by sending `start` again. In that case begin the work. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`.
+  from the role, never probed by sending `start` again. In that case begin the work. For any other
+  role (blocked, terminal, or a phase past yours), send nothing: stop and report the role. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`.
 - **Send it once.** `advance` `transition` with `trigger` `start`, one element, never repeated:
 
 ```to-call
@@ -60,6 +61,10 @@ you owe once you do.
   your output, commits and notes.
 - **Notes.** Fill notes with `notes_write` `upsert`; its answer is `{id, version, created?, warning?}` only. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. `note_owned_by_other` (it names the `ownerSeat` when the owner is a seat) is final: that note belongs to another seat
   and cannot be taken over, so log a finding instead.
+- **Fill only your seat's notes.** The phase's required notes are its total across every seat. A
+  key `gateStatus.missingBySeat` lists under another seat is filled by that seat after you return:
+  do not fill it, load its note's skill or write that seat's output. If a stop guard names another
+  seat's note, say so in one line and stop.
 - **A raise carries its evidence.** When you raise a decision with `runs_write` `raise`, fill
   `context` with what the answer needs (what you found, where, and why the options differ), within
   1000 characters, and `links` with the notes or commits it came from (`{kind: "note", ref:
@@ -67,3 +72,9 @@ you owe once you do.
 - **End the seat on its own.** `runs_write` `end_seat` is sent alone, as the last task-orchestrator
   call, and only after the result of your final `notes_write` has been read as ok. Never batch it with
   a write. If a write failed, report it and leave the seat open for the orchestrator.
+- **Notes are the report.** Distill findings into your notes and route verbatim artifacts (test
+  output, diffs, logs) through `bodyFromFile`. Your final message is one or two lines: item id,
+  outcome, and the note keys you filled; never restate note content.
+- **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup)
+  that can outlive your return; wait for it or stop it before your final message. Bound filesystem
+  searches to the working tree and known caches; never search from `/` or a drive root.
