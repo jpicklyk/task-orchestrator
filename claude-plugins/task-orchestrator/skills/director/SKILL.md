@@ -29,7 +29,9 @@ Calling the skill again refreshes the marker and the dashboard.
   denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
-  run rollup (`report` `rollup`).
+  run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
+  agent reads the notes and returns ids, a verdict and one line.
+- One board read per wake; act on its ids and do not re-read.
 - Never drive work. `advance`, `items_write`, `notes_write`, `deps_write` and `docs_write` are denied;
   `runs_write` runs only `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` and `reissue`.
 - `Skill` is open: each call a loaded skill makes is checked on its own.
@@ -63,7 +65,7 @@ The whole tool budget of a director session:
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
 | `Agent` | Background only (`run_in_background: true`; always so in Code Mode), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to orchestrators and other sessions |
-| `Skill` | Any skill (this one, `off`, `task-orchestrator:model-effort`, an entry skill); its calls are guarded one by one |
+| `Skill` | Any skill (`task-orchestrator:model-effort`, entry skills); each call it makes is guarded |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director profile. Anything else (notes, items writes,
@@ -88,9 +90,9 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 That connection uses the server's director profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
-`items_read` is allowed only with the `get`, `list`, `overview`, `blocked`, `context`, `next` and `history` selects, and `runs_read` only with
-`get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). The guard tells the orchestration connection from a host server by its server key; the limit is in
+stays registered, and the guard enforces the rule there too: any read that returns body text is denied
+(`config`, `notes_read` and `docs_read` `get`, `search` with snippets, `schema` with guidance), their metadata
+forms run, and `runs_read` runs `get`, `list`, `frontier`, `decisions` and `decision`. The guard tells the orchestration connection from a host server by its server key; the limit is in
 guard-coverage.md. Use the hardened entry (below)
 when enforcement matters.
 

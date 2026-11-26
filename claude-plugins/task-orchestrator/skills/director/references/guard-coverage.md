@@ -7,7 +7,8 @@ This page is for the user and for maintainers. A director session cannot read it
 The guard enforces the altitude rule and the write rule, not this whole budget: in a skill-entered session it
 denies the file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool
 (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies
-(`notes_read`, `docs_read`, and `items_read` `search`, `related` and `schema`), and every Task Orchestrator
+(`notes_read` and `docs_read` `get`, `items_read` `search` unless `snippet: false`, and `schema` with
+`fields: ["guidance"]`; the list, history, links and `related` reads run, since they return no body text), and every Task Orchestrator
 write that drives work: `advance`, `items_write`, `notes_write`, `deps_write`, `docs_write`, and `runs_write`
 unless every op of the call is `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` or `reissue` (so `open`,
 `update`, `mark`, `assign`, `end_seat` and `raise` deny). `describe: true` passes on every one of them. `Skill`

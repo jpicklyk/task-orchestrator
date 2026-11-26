@@ -14,8 +14,10 @@
 //    foreground work or drive work: advance, items_write, notes_write, deps_write and docs_write are denied,
 //    runs_write is allowed only when every op is in DIRECTOR_RUNS_WRITE_OPS (decision ops and run control),
 //    Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
-//    denied outright, docs_read and notes_read on any task-orchestrator server are denied, items_read
-//    is allowed only for DIRECTOR_ITEMS_READ_SELECTS (the selects that return no note body) or `describe: true`,
+//    denied outright, notes_read and docs_read on any task-orchestrator server run only their metadata selects
+//    (DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS; `get` returns a body and is denied), items_read
+//    is allowed only for DIRECTOR_ITEMS_READ_SELECTS, `search` with `snippet: false` and `schema` without
+//    `guidance` (the forms that return no body text) or `describe: true`,
 //    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
 //    `altitudeSafe: true` and no `scriptPath` or `resumeFromRunId`, config is denied, runs_read is
 //    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch and the MCP resource readers
@@ -83,11 +85,22 @@ export const SHELL_TOOLS = Object.freeze(['Bash', 'PowerShell', 'Monitor']);
 const SHELL_TOOL_SET = new Set(SHELL_TOOLS);
 
 /**
- * The items_read selects a director session may use: the director profile set (get, list, overview, blocked) plus the
- * orchestration selects that return no note body (context: gate state or a health view; next: ranked items; history:
- * transitions). search and related stay denied (they can return note body snippets), and so does schema.
+ * The items_read selects a director session may always use: the director profile set (get, list, overview, blocked)
+ * plus the orchestration selects that return no body text (context: gate state or a health view; next: ranked items;
+ * history: transitions; related: ids, titles and reasons). search and schema run only in their metadata form
+ * (DIRECTOR_ITEMS_READ_CONDITIONAL).
  */
-export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overview', 'blocked', 'context', 'next', 'history']);
+export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overview', 'blocked', 'context', 'next', 'history', 'related']);
+
+/** items_read selects allowed only in their metadata form: search with `snippet: false`, schema without guidance text. */
+const DIRECTOR_ITEMS_READ_CONDITIONAL = Object.freeze({
+  search: (ti) => ti.snippet === false,
+  schema: (ti) => !(Array.isArray(ti.fields) && ti.fields.includes('guidance')),
+});
+
+/** The notes_read and docs_read selects that return metadata only (no body); `get` returns the body and stays denied. */
+export const DIRECTOR_NOTES_READ_SELECTS = Object.freeze(['list']);
+export const DIRECTOR_DOCS_READ_SELECTS = Object.freeze(['list', 'history', 'links']);
 
 /** The only workflow that honours `altitudeSafe`. */
 const ALTITUDE_SAFE_WORKFLOW = 'task-orchestrator:implement-wave';
@@ -323,7 +336,15 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     if (mcp[1] === 'items_read') {
       const ti = toolInputOf(input);
       if (ti.describe === true || (typeof ti.select === 'string' && DIRECTOR_ITEMS_READ_SELECTS.includes(ti.select))) return null;
-      return denyReason(tool, `only the ${DIRECTOR_ITEMS_READ_SELECTS.map((e) => `\`${e}\``).join(', ')} selects run`);
+      const conditional = typeof ti.select === 'string' && Object.hasOwn(DIRECTOR_ITEMS_READ_CONDITIONAL, ti.select) ? DIRECTOR_ITEMS_READ_CONDITIONAL[ti.select] : null;
+      if (conditional !== null && conditional(ti)) return null;
+      return denyReason(tool, `only the ${DIRECTOR_ITEMS_READ_SELECTS.map((e) => `\`${e}\``).join(', ')} selects run, \`search\` with \`snippet: false\` and \`schema\` without \`guidance\``);
+    }
+    const metaSelects = mcp[1] === 'notes_read' ? DIRECTOR_NOTES_READ_SELECTS : mcp[1] === 'docs_read' ? DIRECTOR_DOCS_READ_SELECTS : null;
+    if (metaSelects !== null) {
+      const ti = toolInputOf(input);
+      if (ti.describe === true || (typeof ti.select === 'string' && metaSelects.includes(ti.select))) return null;
+      return denyReason(tool, `a body read; only the metadata selects ${metaSelects.map((e) => `\`${e}\``).join(', ')} run (a background agent reads a body and returns a short summary)`);
     }
     return denyReason(tool, 'a read that can return a note or document body');
   }

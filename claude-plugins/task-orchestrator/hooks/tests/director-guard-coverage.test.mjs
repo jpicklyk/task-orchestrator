@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import { directorMarkerPath } from '../execution-mode.mjs';
 import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
 import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
-import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, bashAllowed, guardDecision } from '../director-guard.mjs';
+import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS, bashAllowed, guardDecision } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
@@ -77,13 +77,26 @@ test('S3: Monitor running a shell command is denied under the director marker', 
 
 // ---- S4: note and document reads ---------------------------------------------------------
 
-test('S4: notes_read is denied for every select, describe included, and docs_read too', () => {
-  denies(call(NOTES_READ, { select: 'get' }));
-  denies(call(NOTES_READ, { select: 'list' }));
-  denies(call(NOTES_READ, { describe: true }));
-  denies(call(DOCS_READ, { select: 'get' }));
-  denies(call(DOCS_READ, { describe: true }));
-  denies(call(PLUGIN_DOCS_READ, { select: 'get' }));
+test('S4: notes_read and docs_read get (a body) and an absent or unknown select are denied', () => {
+  for (const tool of [NOTES_READ, DOCS_READ, PLUGIN_DOCS_READ]) {
+    denies(call(tool, { select: 'get' }), `${tool} get`);
+    denies(call(tool, {}), `${tool} absent select`);
+    denies(call(tool, { select: 'search' }), `${tool} unknown select`);
+  }
+  denies(call(NOTES_READ, { select: 'get', ifVersion: 1 }), 'notes get with ifVersion is still a body read');
+});
+
+test('S4: the metadata selects run: notes_read list, docs_read list, history and links, and describe', () => {
+  allows(call(NOTES_READ, { select: 'list' }));
+  for (const select of ['list', 'history', 'links']) {
+    allows(call(DOCS_READ, { select }), `docs ${select}`);
+    allows(call(PLUGIN_DOCS_READ, { select }), `plugin docs ${select}`);
+  }
+  allows(call(NOTES_READ, { describe: true }));
+  allows(call(DOCS_READ, { describe: true }));
+  assert.deepEqual([...DIRECTOR_NOTES_READ_SELECTS], ['list']);
+  assert.deepEqual([...DIRECTOR_DOCS_READ_SELECTS].sort(), ['history', 'links', 'list']);
+  assert.ok(Object.isFrozen(DIRECTOR_NOTES_READ_SELECTS) && Object.isFrozen(DIRECTOR_DOCS_READ_SELECTS));
 });
 
 // ---- S5: items_read select allow-list ------------------------------------------------------
@@ -94,16 +107,21 @@ test('S5: items_read get|list|overview|blocked are allowed on both connections',
   }
 });
 
-test('S5: items_read search|related|schema and an absent select are denied on both connections', () => {
+test('S5: items_read search with snippets, schema with guidance, and an absent select are denied on both connections', () => {
   for (const tool of [ITEMS_READ, ITEMS_READ_DIRECTOR]) {
-    for (const select of ['search', 'related', 'schema']) denies(call(tool, { select }), `${tool} ${select}`);
-    denies(call(tool, {}), `${tool} absent select`);
+    for (const ti of [{ select: 'search' }, { select: 'search', snippet: true }, { select: 'search', snippet: 'false' },
+      { select: 'schema', fields: ['guidance'] }, { select: 'schema', fields: ['x', 'guidance'] }, {}, { select: 'nope' }]) {
+      denies(call(tool, ti), `${tool} ${JSON.stringify(ti)}`);
+    }
   }
 });
 
-test('S5: items_read context, next and history (no note body) are allowed on both connections', () => {
+test('S5: items_read context, next, history and related, search with snippet:false and schema without guidance run', () => {
   for (const tool of [ITEMS_READ, ITEMS_READ_DIRECTOR]) {
-    for (const select of ['context', 'next', 'history']) allows(call(tool, { select }), `${tool} ${select}`);
+    for (const select of ['context', 'next', 'history', 'related']) allows(call(tool, { select }), `${tool} ${select}`);
+    allows(call(tool, { select: 'search', snippet: false }), `${tool} search snippet:false`);
+    allows(call(tool, { select: 'schema' }), `${tool} schema`);
+    allows(call(tool, { select: 'schema', fields: [] }), `${tool} schema fields []`);
   }
 });
 
@@ -112,7 +130,7 @@ test('S5: items_read with describe:true is allowed on both connections', () => {
 });
 
 test('S5: DIRECTOR_ITEMS_READ_SELECTS is the frozen set of selects that return no note body', () => {
-  assert.deepEqual([...DIRECTOR_ITEMS_READ_SELECTS].sort(), ['blocked', 'context', 'get', 'history', 'list', 'next', 'overview']);
+  assert.deepEqual([...DIRECTOR_ITEMS_READ_SELECTS].sort(), ['blocked', 'context', 'get', 'history', 'list', 'next', 'overview', 'related']);
   assert.ok(Object.isFrozen(DIRECTOR_ITEMS_READ_SELECTS));
 });
 
@@ -157,7 +175,6 @@ const NEW_DENY_INPUTS = [
   call('PowerShell', { command: 'git status' }),
   call('Monitor', { command: 'cat x' }),
   call(NOTES_READ, { select: 'get' }),
-  call(NOTES_READ, { describe: true }),
   call(DOCS_READ, { select: 'get' }),
   call(ITEMS_READ, { select: 'search' }),
   call(ITEMS_READ_DIRECTOR, { select: 'search' }),
