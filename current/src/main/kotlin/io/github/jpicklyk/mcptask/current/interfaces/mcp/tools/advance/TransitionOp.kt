@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
-import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.BlockInput
@@ -13,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteCo
 import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -21,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.pausedError
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.of
@@ -104,14 +103,14 @@ private suspend fun WriteScope<LifecycleStoreProvider>.runTransition(
     if (seat != null && seat.runLimited && req.trigger == TransitionTrigger.START) {
         val run = stores.runReads().getById(seat.runId)
         if (run != null && run.status == RunStatus.PAUSED && run.pauseReason != RunPauseReason.MANUAL) {
-            return Outcome.Err(RunService.runPaused(run))
+            return Outcome.Err(run.pausedError())
         }
     }
 
     // A decision named by prefix resolves under the call scope before the advance; the unit re-checks its state (R26).
     val decisionId =
         req.decisionId?.let { ref ->
-            when (val resolved = DecisionLoader.resolveId(stores, ctx.scope, ref)) {
+            when (val resolved = DecisionRefs.resolveId(stores, ctx.scope, ref)) {
                 is Outcome.Err -> return resolved
                 is Outcome.Ok -> resolved.value
             }

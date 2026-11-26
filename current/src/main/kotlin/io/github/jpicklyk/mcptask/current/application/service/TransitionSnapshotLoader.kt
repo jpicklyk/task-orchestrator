@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.noteScopeOf
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -26,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.model.note.requiredEntries
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
@@ -92,7 +94,7 @@ internal data class LoadedSnapshot(
 /**
  * Loads the [TransitionSnapshot] that [io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy]
  * evaluates, inside the caller's unit ([scope] supplies the unit instant). Shared by the advance pipeline
- * ([AdvanceService]) and the read-only previews ([TransitionPreview]), so a preview and an advance on the
+ * ([AdvanceService]) and the read-only [GateStatusQuery], so a preview and an advance on the
  * same state see the same facts.
  *
  * Config (schema, independence policy, resource requirements) is resolved here too, inside the unit, so it
@@ -143,7 +145,7 @@ class TransitionSnapshotLoader(
         var independence: IndependenceFacts? = null
         var notes: List<Note>? = null
         // No table target means the policy stops at TABLE: the note facts are never read, so skip them.
-        if (schema != null && target != null && noteGateApplies(trigger)) {
+        if (schema != null && target != null && noteScopeOf(trigger) != null) {
             val itemNotes: List<Note> = noteRepository.findByItemId(item.id)
             notes = itemNotes
             filledKeys = GatePredicate.filledNoteKeys(itemNotes)
@@ -228,7 +230,7 @@ class TransitionSnapshotLoader(
             TransitionSnapshot(
                 item = ItemFacts(item.id, item.role, item.previousRole, item.parentId),
                 schema = schemaFacts,
-                requiredNotes = schema?.notes?.filter { it.required }?.map { RequiredNote(it.key, it.role, it.seat) },
+                requiredNotes = schema?.notes?.requiredEntries()?.map { RequiredNote(it.key, it.role, it.seat) },
                 filledKeys = filledKeys,
                 independence = independence,
                 children = children,
@@ -278,13 +280,5 @@ class TransitionSnapshotLoader(
 
     companion object {
         private val DEPENDENCY_TARGETS: Set<Role> = setOf(Role.WORK, Role.REVIEW, Role.TERMINAL)
-
-        /** START and COMPLETE, the start cascade, and a non-cancel-origin complete cascade gate on notes. */
-        internal fun noteGateApplies(trigger: Trigger): Boolean =
-            when (trigger) {
-                Trigger.User.START, Trigger.User.COMPLETE, Trigger.Cascade.Start -> true
-                is Trigger.Cascade.Complete -> !trigger.cancelOrigin
-                else -> false
-            }
     }
 }

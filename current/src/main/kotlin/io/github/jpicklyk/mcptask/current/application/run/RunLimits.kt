@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.pausedError
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
@@ -103,9 +104,7 @@ class RunLimits(
         val write: suspend () -> Unit = { pauseForAttempts(run.id, itemId, seat, attempt, allowed, decisionId) }
         scope.afterRollback { write() }
         scope.afterCommit { write() }
-        return RunService.runPaused(
-            run.copy(status = RunStatus.PAUSED, pauseReason = RunPauseReason.ATTEMPTS, pauseDecisionId = decisionId)
-        )
+        return run.copy(status = RunStatus.PAUSED, pauseReason = RunPauseReason.ATTEMPTS, pauseDecisionId = decisionId).pausedError()
     }
 
     /**

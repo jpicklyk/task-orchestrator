@@ -47,6 +47,7 @@ import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.note.requiredEntries
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
@@ -532,8 +533,8 @@ class AdvanceService(
         val pinner = schemaPinService?.takeIf { it.enabled } ?: return null
         if (allow.lifecycleFrom() != Role.TERMINAL || allow.lifecycleTarget() == Role.TERMINAL) return null
         val pin = pinner.pinFor(item, item.rootId, now)
-        return if (SchemaPinService.crossesLifecycleClass(allow.lifecycleTarget(), pin)) {
-            ItemCommandErrors.lifecycleCrossing(item.id, item.role, PinReason.REOPEN)
+        return if (LifecycleClass.crosses(allow.lifecycleTarget(), pin)) {
+            LifecycleClass.crossing(item.id, item.role, PinReason.REOPEN)
         } else {
             null
         }
@@ -963,7 +964,7 @@ class AdvanceService(
     ): List<NoteSchemaEntry> {
         if (schema == null) return emptyList()
         return keys.mapNotNull { key ->
-            schema.notes.firstOrNull { it.key == key && it.required }
+            schema.notes.requiredEntries().firstOrNull { it.key == key }
                 ?: schema.notes.firstOrNull { it.key == key }
         }
     }
@@ -1091,7 +1092,7 @@ class AdvanceService(
                     updatedItem,
                     updatedItem.rootId,
                     now
-                )?.takeUnless { SchemaPinService.crossesLifecycleClass(targetRole, it) }
+                )?.takeUnless { LifecycleClass.crosses(targetRole, it) }
         val toStore = if (reopenPin != null) updatedItem.copy(pin = reopenPin) else updatedItem
 
         val updated =

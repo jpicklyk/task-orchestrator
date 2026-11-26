@@ -131,13 +131,4 @@ internal object DecisionView {
             }
             put("version", decision.version)
         }
-
-    /** One entry of `items_read context` `decisions[]`: `{id, class, status, option?}`. */
-    fun contextEntry(decision: DecisionRequest): JsonObject =
-        buildJsonObject {
-            put("id", decision.id.toString())
-            put("class", decision.decisionClass)
-            put("status", decision.status.wire)
-            decision.answer?.option?.let { put("option", it) }
-        }
 }

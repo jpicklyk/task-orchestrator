@@ -1,8 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.NoteScope
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.inScope
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.note.requiredEntries
 import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
@@ -58,7 +61,7 @@ fun computePhaseNoteContext(
 ): PhaseNoteContext? {
     if (role == null || role == Role.TERMINAL || schema == null) return null
 
-    val required = schema.filter { it.role == role && it.required }
+    val required = schema.requiredEntries().inScope(NoteScope.CURRENT_PHASE, role) { it.role }
     // "Filled" is the gate's own definition (GatePredicate.filledNoteKeys), never a second blank-body test.
     val filledKeys = GatePredicate.filledNoteKeys(notesByKey.values.toList())
     val missing = required.filter { entry -> entry.key !in filledKeys }

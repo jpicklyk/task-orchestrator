@@ -358,6 +358,23 @@ class ItemsReadContextTest {
         }
 
     @Test
+    fun `LC2 a dependency reject still lists the unfilled required notes of the phase and no missingBySeat`(): Unit =
+        irApp(db.db, dir, yaml = CTX_YAML) { rig ->
+            val blocker = rig.vwMake("Blocker")
+            val item = rig.vwMake("Waiting and unfilled", type = "ctx-type")
+            rig.vwBlocks(blocker, item)
+
+            val r = select(ctx(item.id))
+
+            assertEquals(200, r.status, r.raw)
+            val gate = gateOf(r)
+            assertEquals(false, gate.boolOf("canAdvance"))
+            assertEquals("dependency", gate.str("blockedBy"), "the gate stops at DEPENDENCY, before NOTE")
+            assertEquals(listOf("note-a", "note-b"), missingKeys(gate), "missing is the phase's unfilled keys, not the decision's")
+            assertFalse("missingBySeat" in gate, "a seat-free schema has no missingBySeat: $gate")
+        }
+
+    @Test
     fun `S4 the unblock threshold decides satisfaction, a BLOCKED blocker never satisfies and RELATES_TO is ignored`(): Unit =
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             // (blocker role, unblockAt wire, expected canAdvance)

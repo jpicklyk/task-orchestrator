@@ -1,8 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.RequiredNote
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.evaluateNotes
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.note.requiredEntries
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -310,5 +316,43 @@ class PhaseNoteContextTest {
         assertNotNull(result)
         assertNull(result.skillPointer)
         assertEquals("Write spec", result.guidancePointer)
+    }
+
+    // ──────────────────────────────────────────────
+    // LC3: one required-note selector for the phase view and the note gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `LC3 the phase view and the START gate list the same unfilled queue keys and COMPLETE covers every phase`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "q-filled", role = Role.QUEUE, required = true),
+                NoteSchemaEntry(key = "q-open", role = Role.QUEUE, required = true),
+                NoteSchemaEntry(key = "q-optional", role = Role.QUEUE, required = false),
+                NoteSchemaEntry(key = "w-open", role = Role.WORK, required = true),
+                NoteSchemaEntry(key = "r-open", role = Role.REVIEW, required = true)
+            )
+        val snapshot =
+            TransitionSnapshot(
+                item = ItemFacts(UUID.randomUUID(), Role.QUEUE),
+                requiredNotes = schema.requiredEntries().map { RequiredNote(it.key, it.role, it.seat) },
+                filledKeys = setOf("q-filled")
+            )
+
+        val phase = computePhaseNoteContext(Role.QUEUE, schema, mapOf("q-filled" to note("q-filled")))
+        assertNotNull(phase)
+        assertEquals(listOf("q-open"), phase.missingKeys)
+        assertEquals(listOf("q-open"), evaluateNotes(snapshot, Trigger.User.START)?.missing?.map { it.key })
+        assertEquals(listOf("q-open"), evaluateNotes(snapshot, Trigger.Cascade.Start)?.missing?.map { it.key })
+        assertEquals(
+            listOf("q-open", "w-open", "r-open"),
+            evaluateNotes(snapshot, Trigger.User.COMPLETE)?.missing?.map { it.key }
+        )
+        assertEquals(
+            listOf("q-open", "w-open", "r-open"),
+            evaluateNotes(snapshot, Trigger.Cascade.Complete(cancelOrigin = false))?.missing?.map { it.key }
+        )
+        assertNull(evaluateNotes(snapshot, Trigger.Cascade.Complete(cancelOrigin = true)), "a cancel-origin cascade skips the gate")
+        assertNull(evaluateNotes(snapshot, Trigger.User.CANCEL), "cancel skips the gate")
     }
 }

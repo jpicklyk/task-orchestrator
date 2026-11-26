@@ -5,8 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvide
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.GateStatusQuery
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
@@ -32,6 +32,6 @@ class LifecycleToolServices(
 
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceFactory.value
 
-    /** The read-only preview `context` inspects: the same snapshot loader and policy every advance uses. */
-    fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
+    /** The read-only gate status `context` inspects: the same snapshot loader and policy every advance uses. */
+    fun gateStatusQuery(): GateStatusQuery = advanceServiceFactory().gateStatusQuery()
 }

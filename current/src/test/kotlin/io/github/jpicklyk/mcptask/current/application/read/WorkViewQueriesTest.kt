@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.dependency.internal.domain.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
@@ -105,6 +107,24 @@ class WorkViewQueriesTest {
         unblockAt: String? = null
     ) {
         deps.create(Dependency(fromItemId = from.id, toItemId = to.id, type = type, unblockAt = unblockAt))
+    }
+
+    /** Inserts a lifecycle-free row (null role, lifecycle 'none') the way the V26 relation CHECK needs it. */
+    private fun insertLifecycleFree(
+        id: UUID,
+        title: String
+    ) {
+        val ts = P7Raw.canon(t)
+        P7Raw.exec(
+            db.jdbcUrl,
+            "INSERT INTO work_items (id, title, role, lifecycle, depth, created_at, modified_at, role_changed_at) " +
+                "VALUES (?, ?, NULL, 'none', 0, ?, ?, ?)",
+            id,
+            title,
+            ts,
+            ts,
+            ts
+        )
     }
 
     private fun live(seconds: Long = 300): Instant = t.plusSeconds(seconds)
@@ -349,6 +369,57 @@ class WorkViewQueriesTest {
             val slice = provider.itemStore().findBlocked(parentId = null, ancestorId = null, limit = 100, offset = 0)
             assertEquals(byId.keys, ids(slice.items).toSet())
             assertEquals(6, slice.total)
+        }
+
+    @Test
+    fun `LC1 the blocked view and BlockerEvaluator agree with the threshold table for every blocker role and unblockAt`(): Unit =
+        runBlocking {
+            // Oracle: a blocker satisfies an edge iff its role is a progression role (queue 0, work 1, review 2, terminal 3)
+            // whose rank is >= the threshold's rank (an absent unblockAt is terminal); BLOCKED and no role never do.
+            val rank = mapOf(Role.QUEUE to 0, Role.WORK to 1, Role.REVIEW to 2, Role.TERMINAL to 3)
+            val blockerRoles = listOf(Role.QUEUE, Role.WORK, Role.REVIEW, Role.TERMINAL, Role.BLOCKED, null)
+            val thresholds = listOf("queue", "work", "review", "terminal", null)
+            val fixtures = ArrayList<Triple<Role?, String?, Pair<WorkItem, WorkItem>>>()
+            lateinit var relatesBlocked: WorkItem
+            // Raw rows go in before the unit: a raw write inside it would contend for the database lock.
+            val noneIds = thresholds.associateWith { UUID.randomUUID() }
+            noneIds.forEach { (threshold, id) -> insertLifecycleFree(id, "blocker-none-$threshold") }
+            db.unitOfWork().inUnit {
+                for (role in blockerRoles) {
+                    for (threshold in thresholds) {
+                        val blocker =
+                            if (role != null) {
+                                make("blocker-$role-$threshold", role)
+                            } else {
+                                assertNotNull(repo.getById(noneIds.getValue(threshold)))
+                            }
+                        val blocked = make("blocked-$role-$threshold")
+                        link(blocker, blocked, unblockAt = threshold)
+                        fixtures += Triple(role, threshold, blocker to blocked)
+                    }
+                }
+                relatesBlocked = make("relates only")
+                link(make("relates blocker", Role.QUEUE), relatesBlocked, DependencyType.RELATES_TO)
+            }
+
+            val inBlockedView =
+                queries
+                    .blocked(BlockedScope(), PageRequest(limit = 200))
+                    .items
+                    .filter { it.blockType == BlockType.DEPENDENCY }
+                    .map { it.item.id }
+                    .toSet()
+
+            for ((role, threshold, pair) in fixtures) {
+                val (blocker, blocked) = pair
+                val thresholdRole = Role.valueOf((threshold ?: "terminal").uppercase())
+                val satisfied = role != null && role in rank && rank.getValue(role) >= rank.getValue(thresholdRole)
+                val edge = BlockingEdge(blocker = blocker.id, blocked = blocked.id, unblockAt = thresholdRole)
+                val unsatisfied = BlockerEvaluator.unsatisfied(setOf(blocked.id), listOf(edge), mapOf(blocker.id to role))
+                assertEquals(!satisfied, unsatisfied.getValue(blocked.id).isNotEmpty(), "evaluator: role=$role threshold=$threshold")
+                assertEquals(!satisfied, blocked.id in inBlockedView, "blocked view: role=$role threshold=$threshold")
+            }
+            assertTrue(relatesBlocked.id !in inBlockedView, "RELATES_TO never blocks")
         }
 
     @Test

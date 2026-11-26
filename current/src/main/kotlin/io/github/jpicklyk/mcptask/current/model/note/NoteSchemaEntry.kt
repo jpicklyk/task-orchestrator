@@ -74,3 +74,6 @@ data class NoteSchemaEntry(
         require(skills.firstOrNull() == skill) { "skill must be the first of skills" }
     }
 }
+
+/** The entries a note gate can require, in schema order: the one selector of "which notes are required". */
+fun Iterable<NoteSchemaEntry>.requiredEntries(): List<NoteSchemaEntry> = filter { it.required }

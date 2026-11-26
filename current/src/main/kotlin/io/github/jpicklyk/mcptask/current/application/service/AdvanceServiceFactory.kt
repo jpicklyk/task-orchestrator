@@ -15,12 +15,12 @@ import java.util.UUID
 
 /**
  * Builds a per-item [AdvanceService] (status labels bound to that item's `rootId` through
- * [EffectiveConfigResolver.labelFor]) and the shared [TransitionPreview], from ONE shared
+ * [EffectiveConfigResolver.labelFor]) and the shared [GateStatusQuery], from ONE shared
  * [configResolver].
  *
  * The single construction site for [AdvanceService] in production: the `advance` `transition` op,
  * `items_write` `complete_tree` and the structural cascades of `items_write` all call [forItem]; `items_read`
- * `select=context` evaluates through [preview], so previews and advances share one loader and one
+ * `select=context` evaluates through [gateStatusQuery], so previews and advances share one loader and one
  * policy.
  */
 class AdvanceServiceFactory(
@@ -44,8 +44,8 @@ class AdvanceServiceFactory(
      */
     private val openRunResolver: suspend (UUID) -> UUID? = { null }
 ) {
-    private val previewLazy by lazy {
-        TransitionPreview(
+    private val gateStatusQueryLazy by lazy {
+        GateStatusQuery(
             unitOfWork,
             TransitionSnapshotLoader(
                 workItemRepository,
@@ -92,6 +92,6 @@ class AdvanceServiceFactory(
         )
     }
 
-    /** The shared read-only [TransitionPreview] (lease kill switch read per evaluation). */
-    fun preview(): TransitionPreview = previewLazy
+    /** The shared read-only [GateStatusQuery] (lease kill switch read per evaluation). */
+    fun gateStatusQuery(): GateStatusQuery = gateStatusQueryLazy
 }

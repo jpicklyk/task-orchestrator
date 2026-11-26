@@ -371,6 +371,8 @@ class SliceGraphReportTest {
                 // application/service
                 "application/service/Advance" to "lifecycle",
                 "application/service/GatePredicate.kt" to "lifecycle",
+                "application/service/GateStatusQuery.kt" to "lifecycle",
+                "application/service/LifecycleClass.kt" to "lifecycle",
                 "application/service/PhaseNoteContext.kt" to "lifecycle",
                 "application/service/SeatOwnership.kt" to "lifecycle",
                 "application/service/Transition" to "lifecycle",

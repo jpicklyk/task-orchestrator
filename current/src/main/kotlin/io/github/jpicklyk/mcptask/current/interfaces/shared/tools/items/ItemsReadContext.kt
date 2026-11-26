@@ -2,14 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
 import io.github.jpicklyk.mcptask.current.application.read.ContextView
-import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchBySeatFlatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
-import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
 import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
@@ -20,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphB
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionView
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -29,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
@@ -53,7 +51,7 @@ import kotlinx.serialization.serializer
  *
  * - **item mode** (`itemId`): the gate state of one item for an advance or dispatch decision. `canAdvance`, `blockedBy`,
  *   `blockers`, `contended`, `missing`, `missingBySeat` and `violations` all come from ONE
- *   `transitionPreview().inspect(item, start)` read unit, so they never disagree with `advance` on the same state.
+ *   `gateStatusQuery().inspect(item)` read unit, so they never disagree with `advance` on the same state.
  *   `transitions` is the item row of the status graph for its resolved schema (`resume` resolved to `previousRole`).
  *   `claimDetail` is the only sanctioned claim-identity disclosure. `decisions` lists the item's open, acknowledged and
  *   answered decision requests as `{id, class, status, option?}`. A per-root config read fault answers `unavailable`
@@ -134,18 +132,17 @@ object ItemsReadContext {
 
         // canAdvance is the advance own policy evaluation of start (ownership excluded); the schema, notes and violations
         // come from the SAME read unit, so missing / missingBySeat / violations never disagree with canAdvance / blockedBy.
-        val preview = env.transitionPreview().inspect(item, Trigger.User.START)
-        val decision = preview.decision
+        val gate = env.gateStatusQuery().inspect(item)
+        val decision = gate.decision
         val canAdvance = decision is Decision.Allow
-        val schema = preview.schema
-        val notesByKey = preview.notes.associateBy { it.key }
+        val schema = gate.schema
         val isTerminal = item.role == Role.TERMINAL
         // A lifecycle-free item (null role) has no phase: no phase context, seats, dispatch or status-graph row.
         val role = item.role
-        val phase = computePhaseNoteContext(role, schema?.notes, notesByKey)
-        val missing = phase?.missingKeys ?: emptyList()
-        val missingBySeat = if (isTerminal) null else computeMissingBySeat(schema, missing)
-        val violations = if (isTerminal) null else preview.violations
+        val phase = gate.phase
+        val missing = gate.missing
+        val missingBySeat = gate.missingBySeat
+        val violations = gate.violations
         val seats = role?.let { schema?.seatsForRole(it) } ?: emptyList()
         val dispatchBySeat =
             if (seats.isEmpty() || role == null) emptyMap() else env.configResolver.resolveDispatchBySeat(item, schema)[role] ?: emptyMap()
@@ -172,8 +169,8 @@ object ItemsReadContext {
                     "schema",
                     buildExpectedNotesJson(
                         schema = schema?.notes,
-                        existingNoteKeys = notesByKey.keys,
-                        filledNoteKeys = GatePredicate.filledNoteKeys(preview.notes),
+                        existingNoteKeys = gate.notes.map { it.key }.toSet(),
+                        filledNoteKeys = gate.filledKeys,
                         seatAware = schema?.isSeatAware() == true
                     )
                 )
@@ -276,8 +273,17 @@ object ItemsReadContext {
                     }
                 store.list(itemId = item.id, statuses = shown)
             } ?: return null
-        return if (found.isEmpty()) null else JsonArray(found.map { DecisionView.contextEntry(it) })
+        return if (found.isEmpty()) null else JsonArray(found.map { contextEntry(it) })
     }
+
+    /** One entry of `decisions[]`: `{id, class, status, option?}`. */
+    private fun contextEntry(decision: DecisionRequest): JsonObject =
+        buildJsonObject {
+            put("id", decision.id.toString())
+            put("class", decision.decisionClass)
+            put("status", decision.status.wire)
+            decision.answer?.option?.let { put("option", it) }
+        }
 
     /** Full claim detail: the only sanctioned disclosure of a claim identity (a diagnostic for stalled or expired claims). */
     private suspend fun claimDetail(

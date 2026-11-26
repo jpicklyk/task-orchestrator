@@ -51,22 +51,6 @@ internal fun Role?.wireOrNone(): String = this?.wire() ?: NONE_ROLE_WIRE
 /** The `fromRole` reported for a lifecycle-free (null-role) item. */
 internal const val NONE_ROLE_WIRE: String = "none"
 
-/** Which required notes and independence findings a trigger's note gate covers. */
-internal enum class NoteScope { CURRENT_PHASE, ALL_PHASES }
-
-/**
- * START and the start cascade check the current phase; COMPLETE and a non-cancel-origin complete
- * cascade check every phase; every other trigger skips the note gate.
- */
-internal fun noteScopeOf(trigger: Trigger): NoteScope? =
-    when (trigger) {
-        User.START -> NoteScope.CURRENT_PHASE
-        User.COMPLETE -> NoteScope.ALL_PHASES
-        is Cascade.Complete -> if (trigger.cancelOrigin) null else NoteScope.ALL_PHASES
-        Cascade.Start -> NoteScope.CURRENT_PHASE
-        else -> null
-    }
-
 /** The note-gate evaluation; null when the gate is skipped (trigger out of scope or schema-free). */
 internal data class NoteEvaluation(
     val missing: List<RequiredNote>,
@@ -80,12 +64,7 @@ internal fun evaluateNotes(
 ): NoteEvaluation? {
     val scope = noteScopeOf(trigger) ?: return null
     val required = snapshot.requiredNotes ?: return null
-    val inScope =
-        when (scope) {
-            NoteScope.CURRENT_PHASE -> required.filter { it.role == snapshot.item.role }
-            NoteScope.ALL_PHASES -> required
-        }
-    val missing = inScope.filter { it.key !in snapshot.filledKeys }
+    val missing = required.inScope(scope, snapshot.item.role) { it.role }.filter { it.key !in snapshot.filledKeys }
     val independence = snapshot.independence
     val violations =
         when (scope) {
