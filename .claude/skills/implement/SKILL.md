@@ -313,5 +313,5 @@ step below. Always call `items_read` `context` (`itemId`) first to determine exa
 | terminal | Already done — report status |
 | an open run found (run-wave preflight F7) | `wave.md`: `/task-orchestrator:run-wave --resume <runId>` |
 
-Steps 2-6 moved out of this file: a citation of "`/implement` Step 5" or "Step 6" written before
-the split means the same step in the tier's path file (`wave.md` for Parallel and for any run).
+A citation of "`/implement` Step N" for N from 2 to 6 means that step in the tier's path file
+(`wave.md` for Parallel and for any run).

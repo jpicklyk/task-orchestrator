@@ -674,14 +674,14 @@ merged into `release/4.0` before the landing PR leaves draft. The landing keeps 
 (step c), so anything on `main` without a twin is dropped from `main` (it survives on `release/3.x`).
 
 **c. Landing PR.** The two lines conflict widely (for 4.0.0, 270 paths), so GitHub cannot
-merge `release/4.0` into `main` directly. Cut a landing branch from `release/4.0`, retire the `guard`
-job by deleting `.github/workflows/pr-base-guard.yml`, and record `main` as a parent while keeping the
+merge `release/4.0` into `main` directly. Cut a landing branch from `release/4.0`, retire any
+base-guard workflow the long-lived line added (check `.github/workflows/`), and record `main` as a parent while keeping the
 `release/4.0` tree, which is correct only after step b passes:
 
 ```bash
 git switch -c land/4.0.0 origin/release/4.0
-git rm .github/workflows/pr-base-guard.yml
-git commit -m "ci: retire the pr-base-guard guard job for the 4.0 landing"
+# only when a base-guard workflow exists:
+git rm .github/workflows/<guard>.yml && git commit -m "ci: retire the base guard for the <major> landing"
 git merge -s ours origin/main -m "Merge main into land/4.0.0: release/4.0 supersedes 3.x (twin audit passed)"
 git push -u origin land/4.0.0
 ```

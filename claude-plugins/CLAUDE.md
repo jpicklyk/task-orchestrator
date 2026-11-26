@@ -60,7 +60,7 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
 { "enabledPlugins": { "task-orchestrator@task-orchestrator-marketplace": true } }
 ```
 - Marketplace name: `task-orchestrator-marketplace` (from `.claude-plugin/marketplace.json` → `name`)
-- If plugin stops loading: `/plugin marketplace add .claude-plugin` then `/plugin enable task-orchestrator@task-orchestrator-marketplace`
+- If plugin stops loading: `/plugin marketplace add <repository root>` (the folder holding `.claude-plugin/marketplace.json`, against which its `source` paths resolve) then `/plugin enable task-orchestrator@task-orchestrator-marketplace`
 - After editing plugin files: the plugin cache is **version-keyed** — while the plugin version is
   unchanged, `claude plugin marketplace update` AND full remove/re-add both silently reuse the stale
   cached copy at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. Force a refresh:

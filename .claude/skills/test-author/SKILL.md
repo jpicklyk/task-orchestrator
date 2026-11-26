@@ -69,7 +69,7 @@ Rule `test-author` section 6.
 Rules `forbidden-test-patterns`, `test-author` section 7 and `test-assertion-vacuity`. Before/after
 examples are in `references/forbidden-patterns.md`. Claim-fixture instance: a claim built with
 `claimedAt = Instant.now()` and a past `claimExpiresAt` is rejected by `WorkItem.validate()`
-(`model/item/WorkItem.kt:107,132`); derive `claimedAt = claimExpiresAt.minus(ttl)`.
+(through `ClaimState.orderingViolations`, `model/claim/ClaimState.kt`); derive `claimedAt = claimExpiresAt.minus(ttl)`.
 
 ---
 

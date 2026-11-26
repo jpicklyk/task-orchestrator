@@ -5,7 +5,7 @@ description: Checklists for adding a new MCP tool, select or op, a new Flyway da
 
 # Adding New Components
 
-Moved from the root `CLAUDE.md` so it loads only when needed. The single-source documentation policy summary stays in `CLAUDE.md`; this file is the full procedure.
+The root `CLAUDE.md` holds the single-source documentation policy summary; this file is the full procedure.
 
 ### New MCP Tool, Select or Op
 
@@ -37,7 +37,7 @@ A tool is a `ToolSpec` (`SelectToolSpec` for reads, `OpsToolSpec` for writes) ho
 - Do NOT reintroduce per-field prose in a `description` or `doc` that restates a `@Doc`.
 
 ### New Database Migration
-Create `current/src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation (see the migration-review skill's table-recreation template). The migration is the only schema definition: Direct mode no longer exists. Edit the matching Exposed table object (`platform/sqlite/schema/`) too; `SchemaParityTest`, not the compiler, checks it.
+Create `current/src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation (see the migration-review skill's table-recreation template). The migration is the only schema definition (`USE_FLYWAY` is ignored). Edit the matching Exposed table object (`platform/sqlite/schema/`) too; `SchemaParityTest`, not the compiler, checks it.
 Every migration also needs one new file `current/src/test/kotlin/.../infrastructure/sqlite/upgrade/seeds/SeedV{N}.kt` (`object SeedV{N} : MigrationSeed({N})`); `UpgradeHarnessTest` fails when a migration of version 18 or later has none. Add the rows the migration transforms in `seed`, declare the exact post-migration values of any column it rewrites in `expected(table, row)` (verified exactly, applied only to steps whose chain includes your migration; there is no column-wide exclusion), and assert the transformation in `verify`. Give any new column a seeded value in `BaselineDataset` (`BaselineColumnCoverageTest` fails otherwise). After an intentional schema change, edit only the per-table files you changed under `current/src/test/resources/schema/snapshot/<table>.txt` (a new table adds its own file); `SchemaParityTest` writes the actual files to `current/build/schema-snapshot.actual/` on a mismatch.
 
 ### New Gradle Dependency
