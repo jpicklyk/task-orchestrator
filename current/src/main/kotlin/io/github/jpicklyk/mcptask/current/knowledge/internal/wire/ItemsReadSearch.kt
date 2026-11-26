@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.knowledge.internal.wire
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.RoleWire
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveOptionalId
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.RoleWire
+import io.github.jpicklyk.mcptask.current.item.resolveOptionalId
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.knowledge.SearchHit

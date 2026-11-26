@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

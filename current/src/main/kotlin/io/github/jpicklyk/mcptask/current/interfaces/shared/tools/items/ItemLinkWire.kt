@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromRef
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation

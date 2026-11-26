@@ -40,7 +40,7 @@ import kotlin.time.Duration.Companion.seconds
  * false` and was withheld from every root-scoped SSE subscriber. The fix makes 8 of 10
  * [io.github.jpicklyk.mcptask.current.dependency.DependencyStore] methods `suspend`
  * and switches the decorator to the suspend `resolveRoots`, which does a real DB lookup
- * ([io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChains])
+ * ([io.github.jpicklyk.mcptask.current.item.WorkItemRepository.findAncestorChains])
  * on a cache miss instead of giving up.
  *
  * Oracles (frozen in test-plan note `558ec4a3-bce6-4234-b450-1dea9e51d218`, before this file was

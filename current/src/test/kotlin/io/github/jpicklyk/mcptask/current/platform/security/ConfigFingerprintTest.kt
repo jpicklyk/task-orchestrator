@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.security
 
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.model.config.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.event.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.awaitSubscrib
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.collectUntil
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.ktor.client.plugins.sse.SSE as ClientSSE
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -46,7 +47,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
-import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * TEST-AUTHOR INDEPENDENT SUITE for item `a3ebd108` -- SSE `Last-Event-ID` replay after

@@ -4,6 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
+import io.github.jpicklyk.mcptask.current.item.PriorityWire
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation

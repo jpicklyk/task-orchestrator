@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.runs.RunsFrontierReque
 import io.github.jpicklyk.mcptask.current.application.read.FrontierWaitReason
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontier
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontierQueries
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role

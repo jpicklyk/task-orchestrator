@@ -5,8 +5,8 @@ import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
 import io.github.jpicklyk.mcptask.current.config.RuleGetResult
 import io.github.jpicklyk.mcptask.current.config.RuleListResult
 import io.github.jpicklyk.mcptask.current.config.RuleService
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

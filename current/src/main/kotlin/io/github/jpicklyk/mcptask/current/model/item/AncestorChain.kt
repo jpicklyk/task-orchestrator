@@ -4,9 +4,9 @@ package io.github.jpicklyk.mcptask.current.model.item
  * An item's resolved ancestor chain plus an explicit completeness signal.
  *
  * Returned by
- * [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChainsDetailed].
+ * `WorkItemRepository.findAncestorChainsDetailed`.
  * The plain
- * [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChains]
+ * `WorkItemRepository.findAncestorChains`
  * returns only [ancestors], which makes a truncated chain indistinguishable from a genuinely
  * shallow one. Callers that make a safety decision on chain completeness (root-scope
  * authorization, reparent cycle guards) should use the detailed form and treat

@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

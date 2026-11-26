@@ -7,10 +7,10 @@ import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
 import io.github.jpicklyk.mcptask.current.config.StatusGraphSource
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
+import io.github.jpicklyk.mcptask.current.item.ItemToolServices
 import io.github.jpicklyk.mcptask.current.item.OverviewQueries
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices

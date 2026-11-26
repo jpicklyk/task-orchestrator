@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.config.internal.app
 
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

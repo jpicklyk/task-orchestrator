@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  */
 class PlacementWriteConfinementTest {
     companion object {
-        const val HIERARCHY_STORE = "infrastructure/sqlite/repository/SqliteHierarchyStore.kt"
+        const val HIERARCHY_STORE = "item/internal/sqlite/SqliteHierarchyStore.kt"
         const val BASELINE = "placement-write-baseline.txt"
 
         val WRITES =

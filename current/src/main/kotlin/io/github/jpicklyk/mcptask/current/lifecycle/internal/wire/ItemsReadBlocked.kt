@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.wire
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ancestorChains
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveOptionalId
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.withAncestors
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.ancestorChains
+import io.github.jpicklyk.mcptask.current.item.resolveOptionalId
+import io.github.jpicklyk.mcptask.current.item.withAncestors
 import io.github.jpicklyk.mcptask.current.lifecycle.BlockType
 import io.github.jpicklyk.mcptask.current.lifecycle.BlockedEntry
 import io.github.jpicklyk.mcptask.current.lifecycle.BlockedScope

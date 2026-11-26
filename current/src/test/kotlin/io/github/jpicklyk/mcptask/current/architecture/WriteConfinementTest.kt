@@ -82,6 +82,8 @@ internal class WriteConfinementTest {
                 "claim/ClaimStore.kt",
                 "claim/LeaseStore.kt",
                 "dependency/DependencyStore.kt",
+                "item/ItemStore.kt",
+                "item/WorkItemRepository.kt",
                 "knowledge/DocumentStore.kt",
                 "knowledge/LinkStore.kt",
                 "knowledge/PlanDocumentStore.kt",
@@ -105,7 +107,7 @@ internal class WriteConfinementTest {
         private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/")
         private val CLAIM_IMPL_FILES =
             setOf(
-                "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
+                "item/internal/sqlite/SQLiteWorkItemRepository.kt",
                 "claim/internal/sqlite/SQLiteResourceLeaseRepository.kt",
                 "claim/internal/sqlite/SqliteClaimStore.kt"
             )
@@ -894,7 +896,7 @@ internal class WriteConfinementTest {
             CLAIM_SERVICE,
             "claim/ClaimStore.kt",
             "claim/LeaseStore.kt",
-            "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
+            "item/internal/sqlite/SQLiteWorkItemRepository.kt",
             "claim/internal/sqlite/SQLiteResourceLeaseRepository.kt",
             "claim/internal/sqlite/SqliteClaimStore.kt",
             "claim\\ClaimService.kt"

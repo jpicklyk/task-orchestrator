@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.config.ConfigStore
@@ -13,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigSto
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.SqliteReportQueries
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.LinkStore
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore

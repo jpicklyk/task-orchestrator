@@ -80,9 +80,9 @@ class P5bWriteUnitGuardsTest {
         val actual = GuardSupport.countByFile(sources) { CancellationSafetyTest.violations(it.text) }
         val burned =
             listOf(
-                "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
-                "infrastructure/sqlite/repository/SqliteItemStore.kt",
-                "infrastructure/sqlite/repository/SqliteHierarchyStore.kt",
+                "item/internal/sqlite/SQLiteWorkItemRepository.kt",
+                "item/internal/sqlite/SqliteItemStore.kt",
+                "item/internal/sqlite/SqliteHierarchyStore.kt",
                 "claim/internal/sqlite/SqliteClaimStore.kt",
                 "knowledge/internal/sqlite/search/SqliteSearchEngine.kt",
                 "platform/sqlite/repository/WorkItemRows.kt",
@@ -105,7 +105,8 @@ class P5bWriteUnitGuardsTest {
          * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged),
          * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged),
          * and with ConfigSession.kt re-keyed to its path under platform/support (moved, count unchanged),
-         * and with the four config files re-keyed to their paths in the config slice (moved unchanged, counts unchanged).
+         * and with the four config files re-keyed to their paths in the config slice (moved unchanged, counts unchanged),
+         * and with SQLiteWorkItemRepository.kt re-keyed to its path in the item slice (moved unchanged, count unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
@@ -127,7 +128,7 @@ class P5bWriteUnitGuardsTest {
             platform/sqlite/repository/ProofClaimsSerialization.kt 1
             note/internal/sqlite/SQLiteNoteRepository.kt 1
             claim/internal/sqlite/SQLiteResourceLeaseRepository.kt 6
-            infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
+            item/internal/sqlite/SQLiteWorkItemRepository.kt 10
             platform/shutdown/ShutdownCoordinator.kt 1
             identity/BearerTokenStore.kt 2
             identity/JwksApiVerifier.kt 6

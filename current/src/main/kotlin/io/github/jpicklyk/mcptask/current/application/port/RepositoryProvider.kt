@@ -8,6 +8,10 @@ import io.github.jpicklyk.mcptask.current.config.ConfigStore
 import io.github.jpicklyk.mcptask.current.config.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
+import io.github.jpicklyk.mcptask.current.item.HierarchyStore
+import io.github.jpicklyk.mcptask.current.item.ItemStore
+import io.github.jpicklyk.mcptask.current.item.ItemStoreProvider
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.knowledge.LinkStore

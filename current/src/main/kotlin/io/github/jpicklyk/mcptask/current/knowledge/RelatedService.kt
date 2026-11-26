@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.knowledge
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.internal.app.search.Ranker
 import io.github.jpicklyk.mcptask.current.knowledge.internal.domain.related.SimilarTerms
 import io.github.jpicklyk.mcptask.current.knowledge.internal.domain.search.RrfFusion

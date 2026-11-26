@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.knowledge.internal.wire
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.resolveTarget
 import io.github.jpicklyk.mcptask.current.knowledge.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.knowledge.RelatedHit
 import io.github.jpicklyk.mcptask.current.knowledge.RelatedRequest

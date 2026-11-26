@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.dependency.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.dependency.DepType
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.dependency.DepsFanInRequest
 import io.github.jpicklyk.mcptask.current.dependency.DepsFanOutRequest
 import io.github.jpicklyk.mcptask.current.dependency.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.dependency.UnblockAt
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

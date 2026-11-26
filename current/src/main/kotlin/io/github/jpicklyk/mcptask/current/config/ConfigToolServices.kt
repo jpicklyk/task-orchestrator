@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.ItemLookup
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.rest.dto.StatusGraphDto

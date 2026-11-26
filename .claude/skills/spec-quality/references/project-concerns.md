@@ -59,7 +59,7 @@ The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 
 ## Repository Interface Contracts
 
-Storage ports (`*Store`, plus `WorkItemRepository`) live in `application/port/`, except `EventStore` and `IdempotencyStore`, which live in `platform/port/`, and a slice's own
+Storage ports (`*Store`) live in `application/port/`, except `EventStore` and `IdempotencyStore`, which live in `platform/port/`, and a slice's own
 ports, which sit in its top package or `internal/app/`; their SQLite implementations live in `infrastructure/sqlite/repository/`, `platform/sqlite/repository/` or a slice's `internal/sqlite/`. SQLite and Exposed code (`org.sqlite`, `org.jetbrains.exposed`,
 dialect SQL tokens in string literals) stays under `infrastructure/sqlite/`, `platform/sqlite/` and a slice's `internal/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
 updating the implementation, and any mocks in test files that use that repository.

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.event.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.awaitSubscribers
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.collectUntil
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.ktor.client.plugins.sse.SSE as ClientSSE
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -44,7 +45,6 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
-import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * TEST-AUTHOR INDEPENDENT SUITE for item `ad2c23ea` -- SSE `/api/v1/events` per-event `tags_include`

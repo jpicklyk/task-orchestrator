@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.claim.EligibilityBreakdown
 import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.claim.ReleaseResult
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.countByFilters
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findByFilters
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceService
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim

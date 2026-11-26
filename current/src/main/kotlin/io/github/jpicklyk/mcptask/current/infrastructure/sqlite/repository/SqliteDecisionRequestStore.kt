@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.IdPrefixRange
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx

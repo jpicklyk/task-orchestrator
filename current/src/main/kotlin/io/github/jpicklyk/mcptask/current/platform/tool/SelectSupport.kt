@@ -112,7 +112,7 @@ internal fun countsJson(counts: Map<Role, Int>): JsonObject =
         }
     }
 
-/** `not_found` for an item id that does not exist (visible only to an unrestricted caller, see [resolveTarget]). */
+/** `not_found` for an item id that does not exist (visible only to an unrestricted caller, see `resolveTarget`). */
 internal fun itemNotFound(id: UUID): DomainError =
     DomainError(
         code = ErrorCode.NOT_FOUND,

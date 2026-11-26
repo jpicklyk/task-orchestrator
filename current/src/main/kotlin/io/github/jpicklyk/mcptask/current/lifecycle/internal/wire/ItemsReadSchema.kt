@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.wire
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
+import io.github.jpicklyk.mcptask.current.item.ItemView
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.resolveTarget
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

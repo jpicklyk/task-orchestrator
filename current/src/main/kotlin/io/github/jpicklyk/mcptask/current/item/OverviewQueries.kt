@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.item
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemStoreProvider
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope

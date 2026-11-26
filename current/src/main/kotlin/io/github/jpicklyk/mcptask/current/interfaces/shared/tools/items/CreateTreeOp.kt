@@ -13,6 +13,8 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.config.RuleService
 import io.github.jpicklyk.mcptask.current.dependency.DepType
+import io.github.jpicklyk.mcptask.current.item.checkItemScope
+import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.knowledge.ItemDerivedFromTarget
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.app
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyEdges
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.lifecycle.BlockerState
 import io.github.jpicklyk.mcptask.current.lifecycle.ChildFacts
 import io.github.jpicklyk.mcptask.current.lifecycle.IndependenceFacts

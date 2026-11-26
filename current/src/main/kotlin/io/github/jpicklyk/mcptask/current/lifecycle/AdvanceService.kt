@@ -2,7 +2,6 @@
 
 package io.github.jpicklyk.mcptask.current.lifecycle
 
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.config.statusLabelKey
 import io.github.jpicklyk.mcptask.current.dependency.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.UnsatisfiedBlocker
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.LeaseInput
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.LoadedSnapshot
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.app.OwnershipInput

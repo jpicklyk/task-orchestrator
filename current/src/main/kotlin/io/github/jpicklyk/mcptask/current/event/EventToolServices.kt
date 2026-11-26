@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.event
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.ItemLookup
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 
 /** The services `items_read` `history` takes as `env`. Building the holder touches no store. */

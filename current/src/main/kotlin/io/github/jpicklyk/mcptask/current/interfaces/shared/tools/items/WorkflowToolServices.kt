@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.config.SchemaPinService
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
+import io.github.jpicklyk.mcptask.current.item.ItemLookup
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.note.NoteCommandService

@@ -15,11 +15,11 @@ import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.findByFilters
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.lifecycle.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -10,11 +9,8 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
-import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
-import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
@@ -245,24 +241,6 @@ internal suspend fun <T> itemWriteBody(
             )
         )
     }
-
-/**
- * Resolves [ref] to an item id by the one scope-aware rule ([ScopedIds.resolve]): under a restricted scope a prefix
- * that names nothing admitted is `forbidden`, and an ambiguous prefix lists only the admitted candidates.
- */
-internal suspend fun resolveItemId(
-    env: ItemLookup,
-    scope: AccessScope,
-    ref: IdRef,
-    field: String
-): Outcome<UUID> = ScopedIds.resolve(env.workItemRepository(), scope, ref, field)
-
-/** Checks the caller's scope admits item [id] (an unrestricted scope reads nothing). */
-internal suspend fun checkItemScope(
-    env: ItemLookup,
-    ctx: CallContext,
-    id: UUID
-): Outcome<Unit> = ScopeGuard.check(ctx.scope, id, env.workItemRepository())
 
 /** Joins [tags] as the stored comma-separated column; an empty list is no tags. */
 internal fun joinTags(tags: List<String>): String? = tags.joinToString(",").takeIf { it.isNotBlank() }

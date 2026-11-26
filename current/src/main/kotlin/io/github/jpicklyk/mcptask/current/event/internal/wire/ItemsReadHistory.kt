@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.event.internal.wire
 
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadDocs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveTarget
+import io.github.jpicklyk.mcptask.current.item.ItemsReadDocs
+import io.github.jpicklyk.mcptask.current.item.resolveTarget
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent

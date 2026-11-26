@@ -149,7 +149,7 @@ data class ItemDeleteResult(
  * Every method is ONE write unit, joining an ambient one. Inside it:
  * - **Placement** is derived from the parent row read in the unit, under the writer lock held from BEGIN (AR-19):
  *   `depth = parent.depth + 1`, `rootId = parent.rootId ?: parent.id`; a root is depth 0 and its own root. A
- *   reparent restamps every descendant in one statement ([io.github.jpicklyk.mcptask.current.application.port.HierarchyStore.restampSubtree]).
+ *   reparent restamps every descendant in one statement ([io.github.jpicklyk.mcptask.current.item.HierarchyStore.restampSubtree]).
  * - **Structural rules** come from [TransitionPolicy] with [Trigger.Structural]: an item is always created in QUEUE;
  *   a create or reparent under a TERMINAL parent whose effective lifecycle is AUTO is rejected
  *   (`invalid_transition`); a reparent away from, or a delete under, a parent re-evaluates that OLD parent exactly

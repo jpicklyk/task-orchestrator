@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.knowledge.PlanDocumentStore

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.lifecycle
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.item.ItemLookup
+import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
