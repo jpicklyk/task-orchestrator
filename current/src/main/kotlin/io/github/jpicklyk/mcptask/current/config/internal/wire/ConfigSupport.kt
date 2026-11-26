@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.config.internal.wire
 
 import io.github.jpicklyk.mcptask.current.config.ConfigService
 import io.github.jpicklyk.mcptask.current.config.ConfigToolServices
-import io.github.jpicklyk.mcptask.current.config.ConfigViolation as AppViolation
 import io.github.jpicklyk.mcptask.current.config.internal.app.ConfigDelta
 import io.github.jpicklyk.mcptask.current.config.internal.app.ConfigDiff
 import io.github.jpicklyk.mcptask.current.item.checkItemScope
@@ -10,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.item.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.model.error.ConfigViolation as ErrorViolation
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -27,6 +25,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
+import io.github.jpicklyk.mcptask.current.config.ConfigViolation as AppViolation
+import io.github.jpicklyk.mcptask.current.model.error.ConfigViolation as ErrorViolation
 
 /** The one documentation source of each field two or more `config` ops share (a shared name has one schema). */
 internal object ConfigDocs {

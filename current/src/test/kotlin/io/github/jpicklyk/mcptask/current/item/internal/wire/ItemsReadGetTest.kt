@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.short
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.strings
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.titles
-import io.github.jpicklyk.mcptask.current.item.ItemView
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.serialization.json.JsonPrimitive

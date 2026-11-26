@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.ktor.client.plugins.sse.SSE as ClientSSE
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -47,6 +46,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
+import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * TEST-AUTHOR INDEPENDENT SUITE for item `a3ebd108` -- SSE `Last-Event-ID` replay after
