@@ -26,7 +26,7 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a work file. `Read` may open a skill's files (its `SKILL.md`, references and
-  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  scripts, this skill's included) and any file inside an installed plugin. `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background

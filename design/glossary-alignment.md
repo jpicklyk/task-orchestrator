@@ -40,7 +40,7 @@ Each row below is a place where code, skills, hooks or docs disagree with [GLOSS
 | # | Where | What changes | Kind |
 |---|-------|--------------|------|
 | A11 | `agents/director.md`, `skills/director/SKILL.md`, `init` registration | The hardened `claude --agent director` entry stops being the default. Director mode runs in an ordinary session on the orchestration connection. | plugin |
-| A12 | `hooks/director-guard.mjs` | This becomes the one place altitude is enforced: deny body reads (note and document bodies, diffs, test output) and edits; allow read-only scripts and background dispatch. Its coverage list must track every tool select that returns a body. | hook |
+| A12 | `hooks/director-guard.mjs` | This becomes the one place altitude is enforced: deny body reads (note and document bodies, diffs, test output) and edits; allow skill and plugin files, a plugin's scripts (decision record 0014) and background dispatch. Its coverage list must track every tool select that returns a body. | hook |
 | A13 | GLOSSARY.md (Director mode, Director profile); root CLAUDE.md Altitude rule | Once implemented, both describe altitude as enforced by the guard. The director profile stays served (2026-11-15 ruling) but is optional. | prose |
 
 ## B. Session layers (prose, skills, hooks)
