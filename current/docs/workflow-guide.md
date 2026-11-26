@@ -398,7 +398,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
       { "key": "implementation-notes", "role": "work", "required": true, "description": "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold.", "guidance": "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal." },
       { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment and test quality review.", "guidance": "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`." }
     ],
-    "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills"]
+    "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites"]
   },
   "meta": { "reqId": "k7f3q9ab" }
 }
@@ -1368,7 +1368,7 @@ Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-
 - A seat writes only the note keys its seat owns, plus unowned keys. The orchestrator token writes only the keys of the seat named `orchestrator`, and unowned ones.
 - A human credential without a token is exempt. Over stdio the caller is the `local` principal, which is an agent, so it is not exempt.
 - A refusal is `seat_forbidden` (or `note_owned_by_other` for a note) and applies nothing.
-- A seat entry may list `rules:` (rule keys) and `skills:` (skill names). The server serves each list and never enforces it; the run-wave plugin hands them to the seat's agent. `items_read` `context` and `advance` `transition` carry `callerSeat`, the seat a seat token holds on its own item.
+- A seat entry may set `writes` (whether the seat changes files and commits; default true in the work phase, false elsewhere), served on every seat and never enforced, and may list `rules:` (rule keys) and `skills:` (skill names). The server serves each list and never enforces it; the run-wave plugin hands them to the seat's agent. `items_read` `context` and `advance` `transition` carry `callerSeat`, the seat a seat token holds on its own item.
 
 ```json
 {"seatToken": "<seatToken>",

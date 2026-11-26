@@ -169,6 +169,7 @@
         "name": { "type": "string", "minLength": 1 },
         "phase": { "$ref": "#/$defs/role" },
         "enters": { "type": "boolean" },
+        "writes": { "type": "boolean" },
         "after": { "type": "array", "items": { "type": "string" } },
         "reads_exclude": { "type": "array", "items": { "type": "string" } },
         "transitions": {

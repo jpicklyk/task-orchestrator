@@ -98,7 +98,7 @@ internal object ConfigKeyCatalog {
             "lane"
         )
     val NOTE_LANE: Set<String> = setOf("output", "after")
-    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules", "skills")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules", "skills", "writes")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
@@ -635,7 +635,7 @@ internal object YamlSchemaParser {
      * Parses a `seats:` list (schema-level or trait-level) into [SeatDefinition]s. Malformed
      * entries warn-and-skip at their own granularity (A1a W4), never failing the whole section:
      * missing/blank `name`, invalid/missing `phase`, non-boolean `enters` (defaults to false),
-     * non-list `after`/`reads_exclude` (default to empty), a non-list `transitions` (treated as absent) or an element
+     * non-list `after`/`reads_exclude` (default to empty), a non-boolean `writes` (treated as absent), a non-list `transitions` (treated as absent) or an element
      * of it that is not a user trigger other than `start` (dropped), and an unknown entry key.
      */
     @Suppress("UNCHECKED_CAST")
@@ -708,6 +708,7 @@ internal object YamlSchemaParser {
             val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
             val rules = parseSeatRules(entryMap, context, name, entryPath, warnings)
             val skills = parseSeatSkills(entryMap, context, name, entryPath, warnings)
+            val writes = parseSeatWrites(entryMap, context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
@@ -727,11 +728,33 @@ internal object YamlSchemaParser {
                     readsExclude = readsExclude,
                     transitions = transitions,
                     rules = rules,
-                    skills = skills
+                    skills = skills,
+                    writes = writes
                 )
             )
         }
         return result
+    }
+
+    /**
+     * A seat's `writes:` flag: null when absent (the phase default applies) or when not a boolean (a soft warning at
+     * `<entry>/writes`); otherwise the declared value.
+     */
+    private fun parseSeatWrites(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): Boolean? {
+        if (!entryMap.containsKey("writes")) return null
+        val raw = entryMap["writes"]
+        if (raw is Boolean) return raw
+        warnings.soft(
+            "$entryPath/writes",
+            "$context seats (name='$seatName') has non-boolean 'writes' value '$raw'; ignoring"
+        )
+        return null
     }
 
     /**

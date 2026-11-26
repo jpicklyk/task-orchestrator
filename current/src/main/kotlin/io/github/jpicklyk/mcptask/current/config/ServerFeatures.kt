@@ -12,7 +12,9 @@ package io.github.jpicklyk.mcptask.current.config
  * per-root rule text served by the `config` tool's `rules` op (A3),
  * so REST-only clients (which cannot see `tools/list`) can detect it too. `"seatSkills"` advertises a seat's `skills`
  * list in the served `seats` and the `callerSeat` member of `items_read` `context` and `advance` `transition`.
+ * `"seatWrites"` advertises the `writes` member the served `seats` carry on every seat.
  */
 object ServerFeatures {
-    val ADVERTISED: List<String> = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
+    val ADVERTISED: List<String> =
+        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites")
 }

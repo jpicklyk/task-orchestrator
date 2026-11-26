@@ -290,6 +290,11 @@ traits:
                 seats.map { it.jsonObject["name"]!!.jsonPrimitive.content },
                 "current-phase (work) seats only, in merged-seat order",
             )
+            assertEquals(
+                listOf(true, true, true),
+                seats.map { it.jsonObject["writes"]!!.jsonPrimitive.boolean },
+                "every work-phase seat is served writes: true (the phase default, never omitted)",
+            )
             val implementerSeat = seats[0].jsonObject
             assertEquals("work", implementerSeat["phase"]!!.jsonPrimitive.content)
             assertTrue(implementerSeat["enters"]!!.jsonPrimitive.boolean, "implementer seat declares enters: true")
@@ -431,7 +436,38 @@ traits:
     // including a SEAT-LESS config.
     // ─────────────────────────────────────────────────────────────────────
 
-    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
+    @Test
+    fun `writes is served as a boolean on every seat of the schema by type, false included`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val data =
+                extractData(
+                    schemaView(
+                        buildJsonObject {
+                            put("operation", JsonPrimitive("schema"))
+                            put("type", JsonPrimitive("bug-fix"))
+                        },
+                        newToolContext(tempDir),
+                    ),
+                )
+            val writesBySeat =
+                data["seats"]!!.jsonArray.associate {
+                    it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject["writes"]!!.jsonPrimitive.boolean
+                }
+            assertEquals(
+                mapOf(
+                    "planner" to false,
+                    "implementer" to true,
+                    "orchestrator" to true,
+                    "reviewer" to false,
+                ),
+                writesBySeat,
+                "writes follows the phase when undeclared: true in work, false in queue and review (trait seats join per item)",
+            )
+        }
+
+    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites")
 
     @Test
     fun `S13 - query_items schema by type reports features on both a seat-aware and a seat-less schema`(

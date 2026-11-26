@@ -78,7 +78,7 @@ class SeatSkillsServingTest {
             notes: []
         """.trimIndent() + "\n"
 
-    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
+    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites")
 
     private fun world(block: suspend (SeatWorld) -> Unit) =
         runBlocking {
@@ -175,7 +175,7 @@ class SeatSkillsServingTest {
         assertNotNull(reply.data, reply.toString()).getValue("features").jsonArray.map { it.jsonPrimitive.content }
 
     @Test
-    fun `S11 the schema features list ends with seatSkills on a seat-aware type, a seat-aware item and a seat-less schema`(): Unit =
+    fun `S11 the schema features list is the advertised list on a seat-aware type, a seat-aware item and a seat-less schema`(): Unit =
         world { w ->
             val seated = w.rig.seed("S11 seated", parent = w.root, role = Role.WORK, tags = "seated-task")
             val plain = w.rig.seed("S11 plain", parent = w.root, role = Role.WORK, tags = "plain-task")

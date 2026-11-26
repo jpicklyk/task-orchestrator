@@ -27,6 +27,13 @@ A named position in an item's workflow, declared in a schema for one phase, that
 Distinct from: role. A role is the phase a note belongs to; a seat is the position whose agent fills it.
 In code: `SeatDefinition`. The reserved names are `unowned` and `director` (refused) and `orchestrator` (given meaning by the server); `coordinator` loads with a warning.
 
+### Writing seat
+
+A seat that changes files in the item's worktree and commits them. A seat's `writes` declares it; undeclared, a work-phase seat writes and a queue or review seat does not. The server serves the flag and never enforces it.
+
+Distinct from: entering seat. An entering seat starts the item into its phase; writing is about changing and committing files, and every seat writes its own notes.
+In code: `SeatDefinition.writes`, `SeatDefinition.effectiveWrites`.
+
 ### Seat-aware schema
 
 A schema that declares at least one seat.

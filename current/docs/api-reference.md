@@ -514,11 +514,12 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
-the served `seats` and the `callerSeat` member of `context` and `transition`.
+the served `seats` and the `callerSeat` member of `context` and `transition`. `seatWrites` advertises the `writes` member
+every served seat carries (always present: the declared value, else true in the work phase; never enforced).
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
 (title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page

@@ -329,7 +329,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
         configWarnings:
@@ -362,7 +362,7 @@ components:
 
     SeatDto:
       type: object
-      required: [name, phase]
+      required: [name, phase, writes]
       description: >-
         One declared orchestration seat (A1) — parsed, merged, and served, but not itself
         enforced by the server. See config-format.md "Seats (Trait & Schema Dimension)".
@@ -375,6 +375,9 @@ components:
         enters:
           type: boolean
           description: Present only when true.
+        writes:
+          type: boolean
+          description: Always present - the declared writes, else true in the work phase; served, never enforced.
         after:
           type: array
           items:

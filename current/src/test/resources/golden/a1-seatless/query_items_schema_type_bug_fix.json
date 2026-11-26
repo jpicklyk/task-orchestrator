@@ -46,7 +46,8 @@
             "dispatchBySeat",
             "independent_of",
             "rules",
-            "seatSkills"
+            "seatSkills",
+            "seatWrites"
         ]
     },
     "metadata": {

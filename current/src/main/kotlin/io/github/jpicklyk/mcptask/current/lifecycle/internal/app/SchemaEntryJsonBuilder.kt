@@ -211,8 +211,8 @@ fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
 
 /**
  * Builds the `seats` JSON array for `items_read` `select=schema` and `select=context` item
- * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?, rules?, skills?}]`, in [seats]' order (merged order for a
- * trait-merged schema). `enters` is included only when `true`; `after`/`readsExclude` only when
+ * mode: `[{name, phase, enters?, writes, after?, readsExclude?, transitions?, rules?, skills?}]`, in [seats]' order (merged order for a
+ * trait-merged schema). `enters` is included only when `true`; `writes` is always present (the declared value, else true in the work phase: absent must never mean false, since an older server omits it); `after`/`readsExclude` only when
  * non-empty; `transitions`, `rules` and `skills` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
  * key entirely in that case (same omit-when-empty contract as [buildDispatchByRoleJson]).
  */
@@ -224,6 +224,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
                 put("name", JsonPrimitive(seat.name))
                 put("phase", JsonPrimitive(seat.phase.toJsonString()))
                 if (seat.enters) put("enters", JsonPrimitive(true))
+                put("writes", JsonPrimitive(seat.effectiveWrites))
                 if (seat.after.isNotEmpty()) put("after", JsonArray(seat.after.map { JsonPrimitive(it) }))
                 if (seat.readsExclude.isNotEmpty()) {
                     put("readsExclude", JsonArray(seat.readsExclude.map { JsonPrimitive(it) }))
