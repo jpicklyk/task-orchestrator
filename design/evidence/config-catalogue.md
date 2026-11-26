@@ -81,7 +81,7 @@ SCHEMA:114-125. A trait is a named bundle; applied per item via the item's `trai
 - Server behaviour (fleet-deployment.md:1407-1447): attempt over cap -> `assign` refused `run_paused`, run pauses, high-severity `attempt-cap` decision (answers `allow_one`, `skip_item`, `stop`); `max_active_seats` over -> `409 run_at_capacity`, no decision. `usage.observedTokens` is an estimate that enforces nothing.
 - Readers: server only. Plugin run-planner reads a separate opt-in `runBudget` in `run-profile.json` (12).
 
-## 9. `decision_classes` SCHEMA:86-103; CR:193-233; KT/application/decision/DecisionClasses.kt
+## 9. `decision_classes` SCHEMA:86-103; CR:193-233; KT/run/internal/app/DecisionClasses.kt
 - Name `^[a-z][a-z0-9_-]{0,63}$`. Keys: `answerers` (`human-only` | `director-or-human` | `any-actor`; a non-built-in defaults to director-or-human), `severity` (high|normal|low; default normal), `expires_after` (int seconds >=1; absent = never overdue), `on_expiry` (`escalate` only), `freeform` (bool; free-text answer).
 - Built-ins: `run-budget` (director-or-human, high, never; legacy, not raised any more), `attempt-cap` (same; server-raised), `deviation` (director-or-human, normal, 14400s), `question` (any-actor, low, freeform). A built-in entry overrides field by field. `run-budget`/`attempt-cap` answerers can be raised to `human-only`, never lowered to `any-actor` (rejected at `/decision_classes/<name>/answerers`).
 - Expresses: who may answer a class of decision raised by a seat or orchestrator (`runs_write raise` with `class`, 1-8 options, `dedupeKey`, `block`); overdue reading one step more urgent after `expires_after`. `on_expiry: escalate` changes only the reported severity.

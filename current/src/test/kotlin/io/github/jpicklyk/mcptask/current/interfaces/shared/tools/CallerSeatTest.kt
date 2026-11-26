@@ -4,13 +4,13 @@ import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.identity.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Opened
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Opened
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Reply
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SeatWorld
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient

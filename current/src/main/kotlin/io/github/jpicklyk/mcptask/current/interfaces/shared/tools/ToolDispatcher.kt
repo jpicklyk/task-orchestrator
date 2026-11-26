@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.BatchElement
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
-import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -44,6 +42,8 @@ import io.github.jpicklyk.mcptask.current.platform.tool.unknownParameters
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleOps
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleSelects
+import io.github.jpicklyk.mcptask.current.run.SeatService
+import io.github.jpicklyk.mcptask.current.run.SeatTokenMatch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

@@ -1,8 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.report.ReportFixture
-import io.github.jpicklyk.mcptask.current.application.report.ReportWasteRequest
-import io.github.jpicklyk.mcptask.current.application.report.WasteReport
 import io.github.jpicklyk.mcptask.current.config.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
@@ -14,6 +11,9 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFixture
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportWasteRequest
+import io.github.jpicklyk.mcptask.current.report.internal.app.WasteReport
 import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.telemetry.internal.wire.CallLogWriter
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
@@ -77,7 +77,7 @@ private const val ROOT_SHIFTY_AUTO = "work_item_schemas:\n  shifty:\n    lifecyc
  * `carry-in-df10fafb-n8`: an MCP `items_write` flip that the lifecycle rules refuse for a lifecycle-free item writes a `call_log`
  * row with `lifecycle_free_rejections` = 1, and `report waste` counts it. The harness is the one of `McpCallLogFollowThroughTest`
  * (the real [McpOperationAdapter] over an in-memory client / server pair, the production registry, the real composition and a
- * real [CallLogWriter]); the waste answer comes from the real [io.github.jpicklyk.mcptask.current.application.report.ReportService]
+ * real [CallLogWriter]); the waste answer comes from the real [io.github.jpicklyk.mcptask.current.report.internal.app.ReportService]
  * over the same database.
  *
  * Oracles (frozen, none read from a run). The flip rule (`LifecycleFlipRuleTest`, task-scope of Q31b / U13b): a none item may

@@ -1,17 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
-import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
-import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.config.ConfigStore
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.SqliteReportQueries
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
@@ -31,6 +26,12 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteEventStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteIdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
+import io.github.jpicklyk.mcptask.current.report.ReportQueries
+import io.github.jpicklyk.mcptask.current.report.ReportStores
+import io.github.jpicklyk.mcptask.current.run.DecisionRequestStore
+import io.github.jpicklyk.mcptask.current.run.RunSeatStore
+import io.github.jpicklyk.mcptask.current.run.RunStore
+import io.github.jpicklyk.mcptask.current.run.RunStores
 import io.github.jpicklyk.mcptask.current.telemetry.UsageDailyStore
 import io.github.jpicklyk.mcptask.current.telemetry.internal.app.CallLogStore
 import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore
@@ -60,10 +61,10 @@ class DefaultRepositoryProvider(
     private val eventStoreInstance by lazy { SqliteEventStore(databaseManager) }
     private val searchEngine by lazy { SqliteSearchEngine(databaseManager) }
     private val callLogStoreInstance by lazy { SqliteCallLogStore(databaseManager) }
-    private val runStoreInstance by lazy { SqliteRunStore(databaseManager) }
-    private val runSeatStoreInstance by lazy { SqliteRunSeatStore(databaseManager, clock) }
-    private val decisionRequestStoreInstance by lazy { SqliteDecisionRequestStore(databaseManager) }
-    private val reportQueriesInstance by lazy { SqliteReportQueries(databaseManager) }
+    private val runStoreInstance by lazy { RunStores.runs(databaseManager) }
+    private val runSeatStoreInstance by lazy { RunStores.seats(databaseManager, clock) }
+    private val decisionRequestStoreInstance by lazy { RunStores.decisions(databaseManager) }
+    private val reportQueriesInstance by lazy { ReportStores.queries(databaseManager) }
     private val usageDailyStoreInstance by lazy { SqliteUsageDailyStore(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo

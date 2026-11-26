@@ -1,0 +1,113 @@
+package io.github.jpicklyk.mcptask.current.run.internal.app
+
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.run.RunEndedSnapshot
+import io.github.jpicklyk.mcptask.current.run.internal.app.RunWireKeys.putWithAlias
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.time.Instant
+
+/**
+ * The one wire form of a run, shared by `runs_read` (get and list items) and every `runs_write` op result. Absent
+ * members are omitted, never null; `hints` and `marks` are always present.
+ */
+internal object RunView {
+    /**
+     * [members] is the member count and [seats] the run's active seat assignments at read time (the `coordinator` pseudo-seat may be
+     * among them; it is never counted). `activeSeats` is the number of active member seats and `stalledSeats` the number
+     * of those that are stalled ([RunLiveness.isSeatStalled], the run's pinned threshold); a closed run has neither.
+     */
+    fun of(
+        run: Run,
+        members: Int,
+        seats: List<RunSeat>,
+        now: Instant
+    ): JsonObject {
+        val memberSeats = seats.filter { it.isActive && !it.isOrchestrator }
+        val stalledSeats =
+            if (run.status == RunStatus.CLOSED) 0 else memberSeats.count { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
+        return of(run, members, memberSeats.size, stalledSeats, now)
+    }
+
+    private fun of(
+        run: Run,
+        members: Int,
+        activeSeats: Int,
+        stalledSeats: Int,
+        now: Instant
+    ): JsonObject =
+        buildJsonObject {
+            put("runId", run.id.toString())
+            put("rootId", run.rootId.toString())
+            run.scopeId?.let { put("scopeId", it.toString()) }
+            run.label?.let { put("label", it) }
+            run.title?.let { put("title", it) }
+            put("status", run.status.wire)
+            run.pauseReason?.let { put("pauseReason", it.wire) }
+            run.terminalReason?.let { put("terminalReason", it.wire) }
+            run.openedBy?.let { put("openedBy", it) }
+            run.openedByKind?.let { put("openedByKind", it) }
+            put("openedAt", run.openedAt.toString())
+            run.closedBy?.let { put("closedBy", it) }
+            run.closedAt?.let { put("closedAt", it.toString()) }
+            run.orchestratorSeenAt?.let { putWithAlias(RunWireKeys.ORCHESTRATOR_SEEN_AT, JsonPrimitive(it.toString())) }
+            putWithAlias(RunWireKeys.ORCHESTRATOR_STALLED, JsonPrimitive(RunLiveness.isOrchestratorStalled(run, now)))
+            put("stallAfterSeconds", run.stallAfterSeconds)
+            run.budget?.takeUnless { it.isUnlimited }?.let { put("budget", budget(it)) }
+            put(
+                "usage",
+                buildJsonObject {
+                    put("observedTokens", run.observedTokens)
+                }
+            )
+            put("hints", JsonObject(run.hints.mapValues { JsonPrimitive(it.value) }))
+            put("marks", JsonObject(run.marks.toSortedMap().mapValues { JsonPrimitive(it.value.toString()) }))
+            put("members", members)
+            put("activeSeats", activeSeats)
+            put("stalledSeats", stalledSeats)
+            put("version", run.version)
+        }
+
+    /** `snapshot`: what a close recorded. */
+    fun snapshot(snapshot: RunEndedSnapshot): JsonObject =
+        buildJsonObject {
+            put("reason", snapshot.reason.wire)
+            put("countsByRole", JsonObject(snapshot.countsByRole.mapValues { JsonPrimitive(it.value) }))
+            put(
+                "inFlight",
+                buildJsonArray {
+                    for (f in snapshot.inFlight) {
+                        add(
+                            buildJsonObject {
+                                put("itemId", f.itemId.toString())
+                                put("role", f.role)
+                                put("seat", f.seat)
+                            }
+                        )
+                    }
+                }
+            )
+            put(
+                "released",
+                buildJsonObject {
+                    put("claims", snapshot.released.claims)
+                    put("leases", snapshot.released.leases)
+                    put("seats", snapshot.released.seats)
+                }
+            )
+            put("openDecisions", snapshot.openDecisions)
+        }
+
+    private fun budget(budget: RunBudget): JsonObject =
+        buildJsonObject {
+            budget.attemptsPerSeat?.let { put("attemptsPerSeat", it) }
+            budget.maxActiveSeats?.let { put("maxActiveSeats", it) }
+        }
+}

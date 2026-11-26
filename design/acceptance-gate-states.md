@@ -31,11 +31,11 @@ Paths are relative to `current/src/main/kotlin/io/github/jpicklyk/mcptask/curren
 
 **Decisions.**
 
-- Four statuses: open, acknowledged, answered, withdrawn (`model/run/DecisionRequest.kt:7-13`). Answered and withdrawn are final; acknowledging, answering or withdrawing a final decision is `decision_closed` (`application/decision/DecisionService.kt:38-41`).
+- Four statuses: open, acknowledged, answered, withdrawn (`model/run/DecisionRequest.kt:7-13`). Answered and withdrawn are final; acknowledging, answering or withdrawing a final decision is `decision_closed` (`run/DecisionService.kt:36-39`).
 - Options belong to each decision, not to its class (`DecisionRequest.kt:110`). A freeform class may be answered with text and no option (`DecisionService.kt:199-203`). The answer records the option, rationale, who answered, through which profile, and `answeredAt` (`DecisionRequest.kt:74-88`, `DecisionService.kt:219-236`).
 - Raise returns the existing request when one with the same root, scope key and dedupe key is not withdrawn, answered ones included (`DecisionService.kt:110-114`).
 - Withdraw needs the raiser or the run's token (`DecisionService.kt:45-47`). Nothing withdraws a decision when its item is cancelled or reopened.
-- Who may answer: `human-only` admits a human credential with a real proof and no seat token; `director-or-human` also admits a call on the director profile with no seat token; `any-actor` admits anyone (`application/decision/DecisionCommands.kt:46-61`, `interfaces/shared/tools/runs/RunPermissions.kt:42`). The `answer` op is served on the director profile only (`interfaces/shared/tools/runs/RunsAnswerOp.kt:25`).
+- Who may answer: `human-only` admits a human credential with a real proof and no seat token; `director-or-human` also admits a call on the director profile with no seat token; `any-actor` admits anyone (`run/DecisionCommands.kt:46-61`, `run/internal/app/RunPermissions.kt:45`). The `answer` op is served on the director profile only (`run/internal/wire/RunsAnswerOp.kt:28`).
 - Over stdio every call runs as the local principal: kind agent, proof none (`platform/call/LocalPrincipal.kt:16-23`, `bootstrap/CurrentMcpServer.kt:323`), so it is never a human. A stdio process serves one profile, chosen by `MCP_TOOL_PROFILE` (`CurrentMcpServer.kt:181-190`).
 - An answer never moves the item. In Claude Code the `decision-guard` hook also denies a subagent's `answer` (`claude-plugins/task-orchestrator/hooks/decision-guard.mjs:3-15`); other harnesses have no such hook.
 

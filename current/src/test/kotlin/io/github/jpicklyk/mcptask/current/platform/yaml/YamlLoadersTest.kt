@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.current.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.config.ParseMode
 import io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.TypeBackfillStep
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

@@ -148,7 +148,7 @@ internal class WriteConfinementTest {
 
         fun isImplDir(path: String): Boolean = norm(path).let { p -> IMPL_DIRS.any { p.startsWith(it) } || isSliceSqlite(p) }
 
-        /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and impl dirs and owner files. Opt-ins are narrower. */
+        /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and owner files. Opt-ins are narrower. */
         fun storeWriteAllowed(path: String): Boolean {
             val p = norm(path)
             return p in STORE_OWNER_FILES ||

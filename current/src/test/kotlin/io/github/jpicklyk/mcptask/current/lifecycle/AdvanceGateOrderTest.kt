@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -14,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.schema.SeatCaller
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
+import io.github.jpicklyk.mcptask.current.run.internal.wire.Reply
+import io.github.jpicklyk.mcptask.current.run.internal.wire.SeatWorld
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.rejections
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned

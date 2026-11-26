@@ -59,5 +59,5 @@ A change to director, orchestrator or run-wave behaviour is judged against decis
 placement); `skills/run-wave/SKILL.md`; `hooks/decision-guard.mjs` (a subagent never answers,
 acknowledges, pauses, resumes or reissues); `scripts/lib/meters.mjs` and
 `skills/session-retrospective/SKILL.md` (cost); server side
-`interfaces/shared/tools/runs/RunPermissions.kt` and `platform/tool/ToolProfile.kt`; user-facing
+`run/internal/app/RunPermissions.kt` and `platform/tool/ToolProfile.kt`; user-facing
 chapter 12 of `current/docs/workflow-guide.md`.

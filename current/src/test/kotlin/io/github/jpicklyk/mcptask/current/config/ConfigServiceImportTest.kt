@@ -1,9 +1,5 @@
 package io.github.jpicklyk.mcptask.current.config
 
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
-import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfigImportStep
 import io.github.jpicklyk.mcptask.current.config.internal.app.CanonicalConfigJson
 import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
@@ -19,6 +15,10 @@ import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.platform.security.configFingerprint
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepException
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepKind
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepPhase
+import io.github.jpicklyk.mcptask.current.upgrade.internal.app.steps.ServerConfigImportStep
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout

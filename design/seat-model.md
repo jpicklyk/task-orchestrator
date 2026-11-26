@@ -163,7 +163,7 @@ Target: `orchestrator` is a reserved note owner, valid in every schema, and no s
 
 ## The run token
 
-The run token is the credential `runs_write` `open` returns and `reissue` replaces: the server's only proof that a caller is a run's orchestrator (`KT/interfaces/shared/tools/runs/RunPermissions.kt:47-54`). It may send any trigger on any member of its run (`TransitionPolicy.kt:327`), write orchestrator notes, assign seats and close the run. It fills no seat.
+The run token is the credential `runs_write` `open` returns and `reissue` replaces: the server's only proof that a caller is a run's orchestrator (`KT/run/internal/app/RunPermissions.kt:47-54`). It may send any trigger on any member of its run (`TransitionPolicy.kt:327`), write orchestrator notes, assign seats and close the run. It fills no seat.
 
 Today it is stored as the one `run_seats` row with no item, whose `seat` value is `coordinator` (`KT/model/run/RunSeat.kt:69`, `:88`), and the served `seat_forbidden` detail lists that value among the allowed seats (`TransitionPolicy.kt:377`). Target: the wire key `orchestratorToken` (alias `coordinatorToken` until 5.0), the stored value and the `coordinator_seen_at` column are unchanged under [0005](decisions/0005-renames-with-deprecated-aliases.md); the store gives member seats and the run token separate reads so its readers stop filtering the row out; `allowedSeats` stops listing `coordinator`. An entry skill acting on an open-run member uses the run token from the run files or hands the step to that run's orchestrator; there is no new server rule ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)). Where the token is checked is in [enforcement-map.md](enforcement-map.md).
 

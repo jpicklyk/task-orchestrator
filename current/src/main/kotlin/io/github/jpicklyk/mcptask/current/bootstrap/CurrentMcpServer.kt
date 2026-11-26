@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
-import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.claim.internal.wire.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.claim.internal.wire.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.config.ServerConfigSource
@@ -53,6 +51,8 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.telemetry.internal.app.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.telemetry.internal.wire.CallLogWriter
+import io.github.jpicklyk.mcptask.current.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.upgrade.DataStepException
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application

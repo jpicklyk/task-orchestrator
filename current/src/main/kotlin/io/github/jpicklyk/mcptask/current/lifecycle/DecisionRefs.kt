@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.ItemScopeReads
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import java.util.UUID
@@ -23,19 +24,20 @@ internal object DecisionRefs {
      * `forbidden` (never `not_found`), and an ambiguous prefix keeps only the candidates whose root [ScopeGuard] admits.
      */
     suspend fun resolveId(
-        stores: LifecycleStoreProvider,
+        decisions: DecisionReads,
+        items: ItemScopeReads,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> {
         if (ref.raw.length == UUID_LENGTH) return Outcome.Ok(UUID.fromString(ref.raw))
         val restricted = !scope.isUnrestricted
-        val store = stores.decisionReads()
+        val store = decisions
         var hits = store.findIdsByPrefix(ref.raw, if (restricted) RESTRICTED_PREFIX_PROBE else PREFIX_PROBE)
         if (restricted) {
             hits =
                 hits.filter { id ->
                     val decision = store.getById(id)
-                    decision != null && ScopeGuard.check(scope, decision.rootId, stores.workItemRepository()) is Outcome.Ok
+                    decision != null && ScopeGuard.check(scope, decision.rootId, items) is Outcome.Ok
                 }
         }
         return when (hits.size) {

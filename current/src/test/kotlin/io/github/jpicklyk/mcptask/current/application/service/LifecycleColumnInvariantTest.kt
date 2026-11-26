@@ -1,13 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.config.ConfigPushResult
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_DEFAULT_YAML
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_EXACT_YAML
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_SERVER_YAML
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.bootProductionSteps
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.migratedGolden
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.resolveGoldenBases
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.sqlRows
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.itemwrite.ItemCreateCommand
@@ -16,6 +9,13 @@ import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.updateOp
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.PIN_ROOT_DEFAULT_YAML
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.PIN_ROOT_EXACT_YAML
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.PIN_SERVER_YAML
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.bootProductionSteps
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.migratedGolden
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.resolveGoldenBases
+import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.sqlRows
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
