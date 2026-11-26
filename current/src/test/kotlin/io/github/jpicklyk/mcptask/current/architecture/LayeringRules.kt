@@ -4,7 +4,7 @@ package io.github.jpicklyk.mcptask.current.architecture
  * The layering rule engine behind [LayeringTest], kept pure (a file's path, its import names and its text in; violations
  * out) so [LayeringRulesTest] can prove each rule on synthetic input without a Konsist scan.
  *
- * Layer model (CONTRIBUTING.md, CLAUDE.md): `domain -> application -> infrastructure -> interfaces`; an outer layer may
+ * Layer model (CONTRIBUTING.md, `.claude/skills/repo-architecture/SKILL.md`): `domain -> application -> infrastructure -> interfaces`; an outer layer may
  * depend on an inner one, the reverse is forbidden. The shared `model` tree is innermost, beside `domain`.
  *
  * - R1: `domain` and `model` (the shared model) must not import from `application`, `infrastructure` or `interfaces`.

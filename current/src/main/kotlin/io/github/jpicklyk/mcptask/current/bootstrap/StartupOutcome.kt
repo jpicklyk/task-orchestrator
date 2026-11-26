@@ -17,7 +17,7 @@ data object Started : StartupOutcome
 /**
  * `FLYWAY_REPAIR=true` ran successfully and the process exits 0 WITHOUT ever serving — a success
  * outcome, not a [Failed] one, because a repair-then-exit run completing as intended is not a
- * startup failure (see `CLAUDE.md`'s "run repair and exit" documentation of this env var).
+ * startup failure (see `FLYWAY_REPAIR` in `current/docs/fleet-deployment.md`).
  * [CurrentMcpServer.run] returns this before [ServerComposition] is built and before the readiness
  * marker is written, so the Docker `HEALTHCHECK` never reports healthy for a repair-only run.
  */

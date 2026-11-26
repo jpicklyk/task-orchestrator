@@ -1,0 +1,110 @@
+# Seams
+
+The seam catalogue: every place a project, an operator or a user varies Task Orchestrator without editing it, with its contract, who writes it, who reads it, where the default comes from, what enforces it, and whether it exists today. It is for contributors adding or changing a seam and for reviewers checking that a change reaches the platform through one. It describes the state of 2026-11-26 (origin/main `ce75ca2a8`). This file is kept current as seams land: when a package builds, retires or repairs a seam, the same change updates its row here. The zones, actors and the responsibility matrix that cite these ids are in [target-architecture.md](target-architecture.md); the edges between zones are drawn in [system-context.md](system-context.md).
+
+## How to read it
+
+- **Status**: **exists** (built and clean today); **leaky** (exists today, and the cell names the leak); **new** (target, not built); **held** (deliberately not built until a project asks); **folded** (absorbed into another seam); **not taken** (the owner declined it). A row marked new describes the target, never current behaviour.
+- **Ids are stable.** A seam that is held, folded or not taken keeps its id, so older analysis and other design documents still resolve.
+- **Grouping** is by the zone that defines the seam's contract and parses or reads it. The writer column says who supplies the variation. Z4 Project process has no section of its own on purpose: it owns no contract, it is the writer of most seams below.
+- "Default from: none" means absent means off.
+
+## Z1 Server: config seams (stored, validated and served)
+
+The server parses these at push or boot, refuses a malformed one, and serves the result through `items_read` `schema` and `config` `effective`, whether or not it acts on the value.
+
+| Id | Seam | Contract | Writer | Reader | Default from | Enforcement | Status |
+|---|---|---|---|---|---|---|---|
+| S01 | `work_item_schemas.<type>` | `lifecycle`, `default_traits`, `notes`, `seats`, `builds`. No `orchestrator` key at schema level: a schema reaches an orchestrator binding through `default_traits` | Project; server config | Server, plugin | Server-config type of the same name, then `default` | Server, strict push | exists |
+| S02 | Note entry core fields | `key`, `role`, `required`, `description`, `guidance`, `maxLength`, `lane`, `shared` | Project; server config traits | Server gates; seats | none | Server gate, `maxLength` | **leaky**: guidance is restated in rules and skills; mechanics read keys instead of S05 |
+| S03 | Note `skill:`, `skill_mode`, `skillPointer` | A skill name or a rule key | Project | Seats, skill-enforcement hook | none | Hooks | exists |
+| S04 | Note `seat`, `independent_of` | The note's owning seat; independence pairs | Project | Server | unowned | Server (`NoteSeatRule`, the independence gate) | **leaky**: the plugin ignores `seat:` on seat-less schemas and re-derives owners itself (closed by S64) |
+| S05 | Note `purpose` | One value naming the note's job for the tool's machinery or an entry skill: the eight mechanism values `closure-record`, `dispatch-provenance`, `findings-register`, `finding-dispositions`, `fix-cycle-rulings`, `test-plan`, `carry-in-dispositions`, `run-pointer`, plus `goal`, `finding`, `ruling` | Project; server config traits | Plugin code, prompts, entry skills | Server-config mechanism traits | Server push refuses an unknown value; the plugin reports a missing purpose and never reads its absence as a signal | **new** ([0015](decisions/0015-note-purpose.md)) |
+| S06 | Acceptance note `satisfied_by` | A decision class and the option keys that satisfy it | Project | Server gate | none (opt-in per type) | Server, on the transition into terminal | **new** ([0012](decisions/0012-acceptance-gate-note-form.md)) |
+| S07 | Seat facts `name`, `phase`, `enters`, `transitions` | Server fields with structural checks | Project | Server; plugin | `transitions`: `block`, `hold` | Server, in open runs (`lifecycle/TransitionPolicy.kt`) | **leaky**: the plugin's protocol text ignores `transitions` (closed by S44) |
+| S08 | Seat `after`, `reads_exclude` | Ordering hint (a cycle is refused); blindness hint | Project | Planner; target also verify | none | Planner order; verify (target) | **leaky**: verify fixes implementer-before-test-author order, and the extractor is inserted by seat name |
+| S09 | Seat `writes` | Optional boolean: the seat changes files in the worktree and commits them; default true in the work phase, false elsewhere | Project | Protocol resolver, commit form, tool list, owned paths | Phase | Plugin; the server parses and serves, never enforces | **new** ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)) |
+| S10 | Seat `kind` | A second name keying defaults | - | - | - | - | **held** until a project asks for one seat name to inherit another's defaults; defaults are keyed by seat name ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)) |
+| S11 | Seat `rules:` | A declared list replaces the seat's defaults; the seat's protocol rule (chosen from `enters` and `writes`, including `protocol.commit` for a writing seat) is always given first and no list removes it; a declared protocol key that is not the seat's own is dropped and reported | Project | Planner, seat hint, RULES line | S24 row for the seat's name | Planner | **leaky**: defaults come from a derived role; dogfood lists are written into prompts |
+| S12 | Seat `skills:` | A declared list replaces the defaults, never merges | Project | Seat hint, skill gate, planner | S25 row for the seat's name | Seat skill gate | exists |
+| S13 | Orchestrator binding (`orchestrator:` block) | `rules`, `skills` at config root and on a trait. The root list replaces the plugin's orchestrator defaults; a trait's list adds for an item carrying it; `protocol.orchestrator` is always first; never makes a type seat-aware | Project; server config | Core hook, background orchestrator brief, run plan | S24 orchestrator row | None (advice) | **new** ([0017](decisions/0017-orchestrator-binding.md)) |
+| S14 | Orchestrator note owner | `seat: orchestrator` on a note entry names the reserved owner in every schema; only the run token writes such a note inside an open run of a seat-aware type. A seat named `orchestrator` or `coordinator` warns for one release, then is refused at push | Project; server config | Server, plugin (through S64) | n/a | Server (`NoteSeatRule`, parser) | **new** ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)); today the owner holds only when a seat of that name is declared (`model/note/OwningSeat.kt:26`) |
+| S15 | Traits | Notes, seats, dispatch, `builds`, `applies_when`, and in the target the orchestrator binding; a per-root entry replaces the server-config trait of the same name whole | Project; server config | Server merge; planner | Server-config trait | Server | exists |
+| S16 | Trait `dispatch.<phase>.seats.<seat>` | `agent`, `model`, `effort` | Project | run-wave, dispatch hint | S34 classes | Dispatch-model guard (presence only) | exists |
+| S17 | Server config vs project config | Boot import of the server config vs per-root push of project config, with precedence ([config-layering.md](config-layering.md)) | Operator; config-sync | Server | Server config | Server | **leaky**: the server config ships no mechanism traits, and its guidance names dogfood keys |
+| S18 | `decision_classes` | `answerers`, severity, `on_expiry` | Project | Server | Server defaults | Server | exists |
+| S19 | `independence`, `runs`, `note_limits`, `status_labels`, `project`, `resources` | `current/docs/config-reference.md` | Project; operator | Server | Server defaults | Server | exists |
+
+## Z1 Server: runtime and contract seams
+
+| Id | Seam | Contract | Writer | Reader | Default from | Enforcement | Status |
+|---|---|---|---|---|---|---|---|
+| S35 | Tool profiles | The knowledge, orchestration and director op sets (`platform/tool/ToolProfile.kt`); a profile carries no identity | Server | Clients | orchestration | Server | **leaky**: `runs_write` `open` is on the director profile (`interfaces/shared/tools/runs/RunsOpenOp.kt:34`); decision and rollup reads are not on orchestration |
+| S36 | Credentials | Kind, capabilities and scope (token file, JWT); target adds a `decide` capability | Operator | Server | The local principal, of kind `agent` with every capability | Server | exists |
+| S37 | `decisions_read`, `decisions_write` | `list`; `raise`, `ack`, `delegate`, `escalate`, `answer`, `withdraw`, served on every profile that needs them; authority from the class's `answerers` plus the credential | Server | Every layer | none | Server | **new** ([0003](decisions/0003-role-neutral-decisions-surface.md)); today decision ops are `runs_write` ops on the director profile, tested by profile |
+| S38 | Decision gate on item `resume` | `resume` refused while the item's blocking decision is pending | Server | Orchestrator | n/a | Server gate | **new** ([0003](decisions/0003-role-neutral-decisions-surface.md)); today only role checks (`lifecycle/AdvanceService.kt:943-950`) |
+| S39 | Seat tokens and the run token | `assign` issues a seat token per run, item, seat and attempt; `open` returns the run token (wire `orchestratorToken`, deprecated alias `coordinatorToken`), replaced by `reissue`; both passed as top-level `seatToken` | Server | Seat agents, orchestrator | n/a | Server | exists |
+| S47 | Server feature flags | `ServerFeatures.ADVERTISED` (`config/ServerFeatures.kt:17`); target adds one flag for the whole seat-model change set, P9 in [architecture-breakdown.md](architecture-breakdown.md) (`writes`, refused seat names, served owner, orchestrator binding) and one for `purpose` | Server | Plugin | n/a | The plugin falls back when a flag is absent | exists |
+| S53 | MCP instructions, `describe`, `@Doc` | The tool contract, documented once per parameter | Server | Clients | n/a | Server; goldens | exists |
+| S62 | Ruling provenance links | Nodes built on a ruling carry `derived_from` to the ruling's decision or note | shape, orchestrator | shape | none | None | exists (the link); the reader is new |
+| S63 | Declared types on the knowledge profile | Types and their `lifecycle`, no config body | Server | capture | none | Server | **held** until a knowledge client needs it |
+| S64 | Served note owner | Each note entry's computed owner (a seat name, `orchestrator`, or unowned) served in `items_read` `schema` and `config` `effective`, so no client recomputes ownership. Today the owner is served only inside a `note_owned_by_other` refusal (`platform/envelope/EnvelopeEncoder.kt:268`) | Server | Plugin planner, review lanes | n/a | Server | **new** ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)) |
+| S65 | Seat refusal detail | `seat_forbidden` lists the real seats that may act and says the run token may; it no longer lists `coordinator` as a seat (today `lifecycle/TransitionPolicy.kt:377`) | Server | Every caller | n/a | Server | **new** ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)) |
+| S66 | Run hand-off hint on refusals | `fixArgs` on `seat_forbidden` and `note_owned_by_other` naming the open run, so an entry skill acting on a run member uses the run token from the run files or hands the step to that run's orchestrator | Server | Entry skills | n/a | Server | **new** ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)) |
+| S67 | Run token read (server-internal) | `RunSeatStore` answers member seats and the run token separately, so readers stop filtering the run token row out of seat lists (today `application/run/StoreRunFacts.kt:114`, `:121`, `:144`, `application/read/RunFrontierQueries.kt:100` and others) | Server | Server read sites | n/a | Store | **new**; a module seam inside Z1, not a project seam |
+
+## Z2 Plugin mechanics: client contracts
+
+Contracts the plugin defines and reads. Several are written by the project inside its own files; the plugin documents them in `skills/manage-schemas/references/config-format.md`.
+
+| Id | Seam | Contract | Writer | Reader | Default from | Enforcement | Status |
+|---|---|---|---|---|---|---|---|
+| S20 | `extensions.claude-code` | `steering`, `retrospective.*` | Project; user config | Hooks only | `workflow`, `nudge` | Push rejects top-level copies | exists |
+| S21 | Template record | Applied template id and version, under `extensions.claude-code` | start | start, learn | none | None | **new** ([0009](decisions/0009-setup-applies-tested-templates.md)) |
+| S22 | Approval routing | What plan approval sets in motion: materialize only, materialize and build inline, or materialize and dispatch; an `extensions.claude-code` key set by each template | Project; template | Post-plan skill and hook | Today's behaviour (materialize and dispatch) | None | **new**; today plugin text decides it (`skills/post-plan-workflow/SKILL.md:9`) |
+| S27 | Run profile: toolchain fields | `shell`, `verify[]` (`name`, `command`, `appliesTo`, `ownedTestsPattern`, placeholders), `searchScope`, `worktreeRoot`, `appendOnlyFiles`, `knownRed` | Project | run-wave helper, hand paths | `{}` | Run planner validation | **leaky**: the contract exists only in code |
+| S28 | Run profile: process fields | `branchPrefix`, `maxItems`, `verify[].seats`, `review.{mode, skill, onFail}` | Project | run-wave; target also the hand paths | `{}` | Run planner validation | **leaky**: `review.step` names a prose heading; `onFail` is unread on hand paths |
+| S29 | `postRun[]` | `step`, `when`, `rule`, `command` | Project | Post-run | none | Run planner (`rule` required, `scripts/run-planner-lib.mjs:367`) | **leaky**: a step's procedure is forced into a rule |
+| S30 | `postRun[].skill` | The skill holding a step's procedure; `rule` keeps the must-dos; at least one of the two | Project | Post-run | none | Run planner | **new** |
+| S31 | `postRun[].when: accept` | The ship step after acceptance | Project | accept skill | none | Run planner | **new** |
+| S40 | Agent label grammar | `<seat>:<short>`, `<seat>.<lane>:<short>`, `retrospective:`, `research:` and the run's orchestrator labels | Plugin | Meters; target also the dispatch-model guard | n/a | Script; hook (target) | exists |
+| S41 | Stage `ruleOutputs` | `{ <rule key>: value }`, required only when a stage rule declares an output; includes `hold`, the item ids a rule holds back from the post-run advance | Plugin contract; rules declare their outputs | Verify, post-run | none | Verify | **new** |
+| S42 | Hold input to the post-run advance | - | - | - | - | - | **folded** into S41 as `ruleOutputs.hold`; today post-run parses a `Live-owed` line from a note itself (`skills/run-wave/references/post-run.md`) |
+| S43 | Label classes from `postRun[].step` | The plugin's classes plus the run profile's step names; the class for the run's orchestrator named `orchestrator` (readers keep accepting `coordinator` in old notes) | Plugin; project | Meters, retrospective | Plugin classes | Script | **new**; today a reserved list (`scripts/run-exec-lib.mjs:2781`) |
+| S44 | Effective `transitions` in the dispatch | The dispatch lists the seat's effective `transitions`, plus `start` when it enters; protocol rules say to send only the triggers the dispatch lists | Plugin, from S07 | Seat agents | S07 | Server seat gate | **new** |
+| S45 | Orchestrator binding delivery | One resolved RULES and SKILLS line at SessionStart, in the background orchestrator brief and in the run plan | Plugin, from S13 and S24 | Orchestrator | S24 orchestrator row | None | **new** ([0017](decisions/0017-orchestrator-binding.md)) |
+| S51 | SubagentStart pointer | Protocol rule pointer and generated code lists for every seat agent | Plugin | Seat agents | n/a | None | **leaky**: reaches implementer and reviewer agents only |
+| S52 | SessionStart core | Mechanics and live state, plus the resolved RULES line (S45) | Plugin | Main session | S20 steering | None | **leaky**: carries presentation, closure policy and orchestrator prose |
+| S55 | Plugin packaging | `${CLAUDE_PLUGIN_ROOT}` paths; published docs URLs instead of repo-relative links | Plugin | Skills | n/a | Domain-boundary test (to extend) | **new** |
+| S56 | Generated copies for the mod plugins | Config locator, retrospective library and dispatch policy generated into the mod | Plugin | Mod | n/a | Generation check | **new** |
+| S57 | Hand-dispatch provenance | A provenance mode that reads one Agent transcript without a run | Plugin | Orchestrator | none (prose accepted meanwhile) | None | **new** |
+| S58 | Acceptance claims as decision evidence | The accept skill raises the acceptance decision with its claims (commit, verify command and result, count of disposed findings) in `context` and `links`; the acceptance gate checks they are present on the answered decision (presence only) | Accept skill | Acceptance gate, reviewers | none | Server: presence on the answered decision | **new** ([0012](decisions/0012-acceptance-gate-note-form.md), [0015](decisions/0015-note-purpose.md)) |
+| S59 | Journey purposes | - | - | - | - | - | **folded** into S05 (`goal`, `finding`, `ruling`) |
+| S60 | Agreed-plan store on every host | The skill that agrees a plan stores it as a plan document before `create_tree`; plan capture stays the Claude Code fast path | shape, orchestrator | Post-plan, accept | none | None | **new** |
+| S61 | Task Orchestrator glossary as a plugin reference | - | - | - | - | - | **not taken**: the glossary is not shipped; learn's vocabulary gap stays open |
+
+## Z3 Shipped defaults: tables, rule text and dispatch policy
+
+Each default here reaches a project through the seam the project uses to replace it.
+
+| Id | Seam | Contract | Writer | Reader | Default from | Enforcement | Status |
+|---|---|---|---|---|---|---|---|
+| S23 | Rule text | `docs` kind `rule`, slug grammar, size cap; a project copy under a bundled key replaces it and stops receiving updates | Project; init seeding | `config` `rules`, seats | `bundled-rules/` in the plugin | Server size and grammar | **leaky**: dogfood copies author the bundled text; an op doc names git |
+| S24 | Rule table (`hooks/lib/seat-rules.json`) | Two rule classes. Protocol rules, from a capability table (`enters` and `writes` to protocol keys, `protocol.commit` for every writing seat; `protocol.orchestrator` on the orchestrator row), always given. Seat defaults, in rows keyed by seat name, replaced by a declared list | Plugin | Planner, hooks, workflows | itself | Planner | **leaky**: rows keyed by a derived role, a third class (`pluginChosen`) carrying `commit-discipline`, no orchestrator row ([0018](decisions/0018-content-placement.md)) |
+| S25 | Seat skill defaults (`hooks/lib/seat-skill-defaults.json`) | Seat name to skill names | Plugin | Hooks, planner | itself | Seat skill gate | exists |
+| S26 | Bundled rule sync | Manifest hashes; config-sync; init seeding; lifecycle-free roots skipped | Plugin | config-sync | `manifest.json` | config-sync | exists |
+| S32 | `tier-policy.json` | `thresholds`, `rows`, `forceUp`, `forceDown` | Project | Tier policy script | S34 `tiers` | Script | **leaky**: undocumented; folded into S33 with an alias |
+| S33 | Project dispatch overlay | Project `classes` and `tiers` over S34, in a project client file | Project | Dispatch policy library | S34 | Script | **new** |
+| S34 | `dispatch-policy.json` | `models` (host), `classes`, `tiers`, `escalation` | Plugin | Policy library, generator | itself | Tier policy tests | **leaky**: no project seam (S33); the class for the run's orchestrator is named `coordinator`, renamed `orchestrator` with a one-release alias before S33 ships |
+| S46 | Presentation reference | A shared status-presentation reference cited by the rendering skills; an active output style overrides it | Plugin | work-summary, status-progression, director, run-wave | itself | None | **new** |
+
+## Host channel seams (Z5, Z6 and Z7 content)
+
+The host defines these channels; the content belongs to the project's toolchain (Z5), the user (Z6) or the host (Z7). Channel rules are in [target-architecture.md](target-architecture.md) section 2.
+
+| Id | Seam | Contract | Writer | Reader | Default from | Enforcement | Status |
+|---|---|---|---|---|---|---|---|
+| S48 | Output style | User stance, voice, presentation override | User | Host | none | None | exists |
+| S49 | Instruction files | Repo facts, traps, guard rules and their tests, pointers to records | Repo owner; user | Host | none | None | **leaky**: the project file holds design records and process ([0018](decisions/0018-content-placement.md)) |
+| S50 | Auto memory | User facts, host traps | User, agent | Host | none | None | **leaky** in personal files (the user's call) |
+| S54 | Host settings and permissions | `enabledPlugins`, `outputStyle`, permissions | User, project | Host | Host | Host | exists |

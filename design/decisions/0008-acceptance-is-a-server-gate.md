@@ -1,6 +1,8 @@
 # 0008 Acceptance becomes a server gate; plan approval is a conditional grant
 
-**Status:** Accepted | **Date:** 2026-11-24 | **Source:** [journey-config-fit.html](../journey-config-fit.html) (gap 1, R8); Entry Skills Design calls 11 and 12
+**Status:** Accepted | **Date:** 2026-11-24, amended 2026-11-26 | **Source:** [journey-config-fit.html](../journey-config-fit.html) (gap 1, R8); Entry Skills Design calls 11 and 12. Amendment: Boundary analysis 2026-11-26, owner answers (plans/boundaries/README.md, not tracked), decision 17.
+
+**Amended 2026-11-26:** "merge is armed only on acceptance" is narrowed to gated types; on an ungated type merge is armed by the project's own merge step, as today; the run profile's post-merge steps run after that merge. Why: the gate is opt-in per type, so on an ungated type there is no acceptance record to wait for, and the sentence read as if every merge waited on one.
 
 ## Decision
 
@@ -18,7 +20,7 @@ In Claude acceptance happens today through conversation or plan-mode approval, a
 
 ## Consequences
 
-- Merge is armed only on acceptance.
+- On a gated type, merge is armed only on acceptance. On an ungated type, merge is armed by the project's own merge step, as today; the run profile's `postRun` steps with `when: post-merge` run after that merge and are never a merge gate.
 - Over stdio a `human-only` decision cannot be answered, a limitation already accepted.
 - Without authentication the server records who said they accepted, not proof that a person did: provenance, not security.
 

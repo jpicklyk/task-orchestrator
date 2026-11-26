@@ -19,7 +19,7 @@ table objects, to determine:
   2. Copy data from old table
   3. Drop old table
   4. Rename new table
-- **New tables** - the migration defines the table; the Exposed table object and its `schema/snapshot/<table>.txt` change with it, and `SchemaParityTest` checks both (root `CLAUDE.md` "Flyway is the only schema path")
+- **New tables** - the migration defines the table; the Exposed table object and its `schema/snapshot/<table>.txt` change with it, and `SchemaParityTest` checks both (`.claude/skills/repo-architecture/SKILL.md` "Flyway is the only schema path")
 - **Index changes** — `CREATE INDEX` / `DROP INDEX` work normally
 
 ## Step 2: SQLite Constraint Check

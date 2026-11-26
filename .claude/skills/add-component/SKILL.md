@@ -5,7 +5,7 @@ description: Checklists for adding a new MCP tool, select or op, a new Flyway da
 
 # Adding New Components
 
-The root `CLAUDE.md` holds the single-source documentation policy summary; this file is the full procedure.
+The `repo-architecture` skill (`.claude/skills/repo-architecture/SKILL.md`, "Rules a guard test enforces") holds the single-source documentation policy summary; this file is the full procedure.
 
 ### New MCP Tool, Select or Op
 

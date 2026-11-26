@@ -213,6 +213,9 @@ git -C <wt> show --stat HEAD
 **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
 `perf` for performance, `test` for test-only changes, `chore` for maintenance.
 
+Every commit is a conventional commit that references its item (the tag above), made only after
+the "Verification command" passes. Never force-push `main`.
+
 **CHANGELOG check and Docs line.** Confirm the branch carries the `[Unreleased]` bullet written in
 Step 4c, or that the PR body will state `Changelog: none (<why>)`.
 Both PR-body lines come from the diff, never from the plan: run
@@ -221,15 +224,16 @@ body's Docs line; (b) require `CHANGELOG.md` in that output unless the body stat
 `Changelog: none (<why>)`. Recompute both lines after any merge round (a base merge or
 update-branch), before merge.
 
-**Merge method** (`<method>` below). `--squash` for a PR with its own item (Direct, Delegated, a
-per-item wave item). `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
+**Merge method** (`<method>` below). `--squash` is the default: a PR with its own item (Direct,
+Delegated, a per-item wave item), a fix, docs or chore branch, and any branch whose commits carry
+review churn. `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
 subject from `git log --first-parent --format=%s origin/main..HEAD` is a conventional commit ending in
 an 8-hex item tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Only
 the branch's own commits count: main's commits merged in reach HEAD through a merge's second
 parent, while the merge commit itself stays on the first-parent chain and must be tagged. Any other subject
 (wip, untagged, a bare "address review") makes it `--squash`. Never rewrite the branch to clean it:
 notes and run files record its SHAs (dispatch pre/post SHAs, repair SHAs, `fixed <sha>`
-dispositions), and a rebase orphans them. The repo titles both merge and squash commits with the
+dispositions), and a rebase orphans them. Rebase-merge is disabled. The repo titles both merge and squash commits with the
 PR title, so the PR title is the conventional-commit subject that lands on `main`.
 
 **The gate**, once the PR is open:

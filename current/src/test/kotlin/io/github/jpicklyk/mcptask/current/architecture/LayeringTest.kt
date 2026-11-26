@@ -6,7 +6,7 @@ import java.io.File
 import kotlin.test.assertTrue
 
 /**
- * Enforces the layer model documented in CONTRIBUTING.md and CLAUDE.md over the PRODUCTION source
+ * Enforces the layer model documented in CONTRIBUTING.md and `.claude/skills/repo-architecture/SKILL.md` over the PRODUCTION source
  * (`Konsist.scopeFromProduction()`; test sources are exempt): rules R1-R5 as defined, and self-tested, in
  * [LayeringRules] (R1-R3 the inward-only layer edges, R4 no MCP SDK or Ktor in domain and application, R5 no layer
  * imports the `bootstrap` composition root). The root package (`CurrentMain.kt`) and `bootstrap/` are not checked.

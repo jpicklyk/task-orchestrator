@@ -41,7 +41,7 @@ Checked, holds: R1, R4, R6, R17 (held; `NextItemOrder` has three orders, `model/
 5. **"Plugin-side settings scattered" mixes four different things.** R14 is hook behaviour with one mode key; R16 is partly E; R21 is a plugin library, not a setting; R22 is a missing version marker (top-level schema is `additionalProperties:false`, `extensions` is unread). Split R22 off.
 6. **"Setup has no library" is wrong and double-counts R21 and R22 with cause 5.** The library exists (ten YAML profiles plus advisor). The gap is that `init` and `quick-start` do not call it and J7's light config has only `schema-free`. R22 is unrelated to a library.
 
-## Misplaced requirements (layer table, CLAUDE.md "Domains and responsibilities")
+## Misplaced requirements (layer table, then CLAUDE.md "Domains and responsibilities", now [0018](../decisions/0018-content-placement.md))
 
 - R19 and R20: skill and tool contract, not project config.
 - R21: plugin asset (mechanics layer).

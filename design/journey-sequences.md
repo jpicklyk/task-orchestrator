@@ -2,7 +2,9 @@
 
 Sequence diagrams for four user journeys, used to test one thing: does every step have exactly one owning layer? Each journey has a diagram, the steps whose owner is missing, ambiguous or split, and a table of what exists today against what the design adds. A cross-journey section closes the document.
 
-Terms follow [GLOSSARY.md](../GLOSSARY.md). Layers and concepts follow the root `CLAUDE.md` ("Domains and responsibilities": plugin mechanics, engineering skills, bundled rules, project config, project skills; and mechanics skill, engineering skill, rule, schema, hook, server). Moments, journeys and stages follow the [Strategic Journey Map](user-journey-map.html); entry skills follow [Entry Skills Design](entry-skills.html). Settled choices are in [decisions/](decisions/README.md); this document links to them and does not restate them.
+**Graded against the target (2026-11-26).** These diagrams show today's lanes. The same steps are walked against the target architecture ([target-architecture.md](target-architecture.md)) in [journey-overlay.md](journey-overlay.md), which grades each step fits, gap or leak and keeps the open ones as a burn-down list. Where this document names an owner as missing, the overlay says which decision or work package now supplies it, or that it is still open.
+
+Terms follow [GLOSSARY.md](../GLOSSARY.md). Layers and concepts follow [0018](decisions/0018-content-placement.md) (plugin mechanics, engineering skills, bundled rules, project config, project skills; and mechanics skill, engineering skill, rule, schema, hook, server). Moments, journeys and stages follow the [Strategic Journey Map](user-journey-map.html); entry skills follow [Entry Skills Design](entry-skills.html). Settled choices are in [decisions/](decisions/README.md); this document links to them and does not restate them.
 
 The acceptance gate appears as one box in every diagram. Its states are modelled in [acceptance-gate-states.md](acceptance-gate-states.md).
 
@@ -15,7 +17,7 @@ The acceptance gate appears as one box in every diagram. Its states are modelled
 
 ## Citations
 
-`PLUG` is `claude-plugins/task-orchestrator/`. `KT` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`. Line numbers are as of main `256b2bd34` and go stale as the code moves. Design pages are cited by file and line of their source HTML.
+`PLUG` is `claude-plugins/task-orchestrator/`. `KT` is `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`. Line numbers were taken at main `256b2bd34`; every `KT` path, and the `PLUG` lines that had moved, were re-checked against `ce75ca2a8` on 2026-11-26 (the item and lifecycle code now sits in the `itemwrite` and `lifecycle` slices). They go stale as the code moves. Design pages are cited by file and line of their source HTML.
 
 Some leaks recorded in [evidence/journey-knowledge-base.md](evidence/journey-knowledge-base.md) (KL5, KL9 to KL12, KL16, KL17) were fixed after that file's commit. The tables below cite today's code, not the evidence file.
 
@@ -78,7 +80,8 @@ sequenceDiagram
 - **Step 7: a plain yes has two meanings (ambiguous).** It agrees the plan, and in Auto mode it also grants acceptance in advance (map gap "Plan approval carries two meanings", `design/user-journey-map.html:429`). The design reads the grant from Claude Code's `permission_mode` in a hook (entry-skills call 11, `design/entry-skills.html:394`). This harness has neither, so no lane decides whether the yes is a grant. Under 0007 it would be judgement, with its outcome recorded; no document says so for this case.
 - **Step 8: storing the plan (owner missing).** A Claude Code hook stores it today. No skill owns it on another harness, so materialization falls back to the plan text in context.
 - **Steps 10, 11 and 21: who records the acceptance decision (split).** Call 11 has post-plan record the grant; the accept card records the verdict. Both are relays of the user's words, which the orchestrator may do in orchestration mode. Today no orchestration-profile tool can record an answer.
-- **Step 17: the grant's conditions (split across Entry skill and Server).** The server can check an answered decision, no other open decision and filled review notes. Build green at HEAD and disposed findings are checked only by the accept skill (`design/architecture-breakdown.md:160-170`, question 4). A client that calls `advance complete` without the skill passes the gate on a red build.
+- **Step 17: the grant's conditions (split across Entry skill and Server).** The server can check an answered decision, no other open decision and filled review notes. Build green at HEAD and disposed findings are checked only by the accept skill ([architecture-breakdown.md](architecture-breakdown.md), "Gate form", question 4). A client that calls `advance complete` without the skill passes the gate on a red build. In the target the accept skill raises the acceptance decision with these claims as its evidence, and the gate checks that the answered decision carries them ([0012](decisions/0012-acceptance-gate-note-form.md)); that records the claims, it does not prove the build.
+- **Steps 18, 21 and 23: an open-run member needs the run token (J-F1).** When the accepted item is a member of an open run on a seat-aware type, the server refuses the user's own session: its `advance` gets `seat_forbidden` (`KT/lifecycle/TransitionPolicy.kt:122-124`) and its write of the acceptance note gets `note_owned_by_other`, since only the run token may write an orchestrator note there (`KT/note/internal/domain/NoteSeatRule.kt:40`, `:61`). The human exemption needs a credential of kind `human`; stdio, local HTTP and `API_AUTH_MODE=none` run as the local principal, of kind `agent` (`KT/platform/call/LocalPrincipal.kt:5-19`). No lane in the diagram passes the token today. In the target the accept skill uses the run token from the run files, or hands the step to the run's orchestrator, and the refusals carry a `fixArgs` hint naming the run ([0016](decisions/0016-seat-capability-and-orchestrator-notes.md)); in director mode the step goes to the run's orchestrator.
 - **Step 25: the ship step (owner missing).** How accept hands approval to the project's ship step without naming a project skill is still open (`design/entry-skills.html:418`).
 
 ### Today versus the design
@@ -88,11 +91,11 @@ sequenceDiagram
 | 2-6 | Entry skill | mechanics skill | Only via plan mode: `PLUG/hooks/pre-plan.mjs:2,28-36` orders `pre-plan-workflow`, which is internal and hook-triggered (`PLUG/skills/pre-plan-workflow/SKILL.md:3-4`) | shape reads the schema and asks (`design/entry-skills.html:444-447`) |
 | 7 | User, Agent | judgement | No event: `post-plan.mjs` fires on `ExitPlanMode` only (`PLUG/hooks/hooks-config.json:140`; `PLUG/hooks/post-plan.mjs:2`) | 0008: a skill satisfies the gate on a harness without plan mode |
 | 8 | Agent | none named | `PLUG/hooks/plan-capture.mjs:1-5` (Claude Code hook over REST); fallback to the plan text in context (`PLUG/skills/post-plan-workflow/SKILL.md:21`) | nothing |
-| 9 | Server | server | `create_tree` with `docRef` (`PLUG/skills/post-plan-workflow/SKILL.md:23-29`), orchestration only (`KT/interfaces/shared/tools/items/CreateTreeOp.kt:57`) | shape renders one `create_tree` (entry-skills investigation 6) |
+| 9 | Server | server | `create_tree` with `docRef` (`PLUG/skills/post-plan-workflow/SKILL.md:23-29`), orchestration only (`KT/itemwrite/internal/wire/CreateTreeOp.kt:63`) | shape renders one `create_tree` (entry-skills investigation 6) |
 | 10-11, 20-22 | Agent, User, Director | server (class and credential) | `raise` is orchestration (`KT/interfaces/shared/tools/runs/RunsRaiseOp.kt:48`); `answer` is director only (`KT/interfaces/shared/tools/runs/RunsAnswerOp.kt:25`) | role-neutral `decisions_write` with `decidedBy` and `relayed` (P2, [0003](decisions/0003-role-neutral-decisions-surface.md)); the grant as an answered decision (0012) |
 | 12-14 | Seat agent | schema, server | post-plan routes to run-wave or hand-dispatch (`PLUG/skills/post-plan-workflow/SKILL.md:63-101`) | unchanged |
 | 15-17 | Entry skill | mechanics skill | No accept skill | the accept card and its checks (`design/entry-skills.html:464`; architecture P4) |
-| 18, 23-24 | Server | server | No acceptance gate (architecture P4 not started) | a required note filled only by an answered decision (0012) |
+| 18, 23-24 | Server | server | No acceptance gate (architecture P4 not started); on an open-run member, a token-less accept is refused (J-F1, `KT/lifecycle/TransitionPolicy.kt:122-124`) | a required note filled only by an answered decision carrying the claims as evidence (0012); the accept skill acts with the run token on a run member (0016) |
 | 25 | Entry skill | open | `postRun` `when` is `post-run` or `post-merge` only (`PLUG/scripts/run-planner-lib.mjs:104`) | `when: accept` (architecture P4); the hand-off is open |
 
 ---
@@ -165,13 +168,13 @@ sequenceDiagram
 | Steps | Lane | Owner concept | Today | The design adds |
 |---|---|---|---|---|
 | 1-5 | Entry skill | mechanics skill | init verifies with `context` and `runs_read` (`PLUG/skills/init/SKILL.md:35-43`); must not write `extensions` (`:190-194`); default steering `workflow` (`PLUG/hooks/orchestration-lib.mjs:18`); no light template (R21) | start applies one light template with steering and records it (0009, architecture P6) |
-| 6 | Hook | hook | workflow core with tiers and "Materialize before implement" (`PLUG/hooks/orchestration-context.mjs:71-79,165-178`) | the template's steering decides what is injected |
-| 8 | Agent | judgement or mechanics skill | tiers named by hook text (`PLUG/hooks/orchestration-context.mjs:73,93`) | nothing |
+| 6 | Hook | hook | workflow core with tiers and "Materialize before implement" (`PLUG/hooks/orchestration-context.mjs:66-78,140-141`) | the template's steering decides what is injected |
+| 8 | Agent | judgement or mechanics skill | tiers named by hook text (`PLUG/hooks/orchestration-context.mjs:66`) | nothing |
 | 9-14 | Hook | hook | `PLUG/hooks/pre-plan.mjs:28-36`, `PLUG/hooks/plan-capture.mjs:1-5`, `PLUG/hooks/post-plan.mjs:28-36` | unchanged |
 | 15 | Agent | mechanics skill | post-plan materializes, then routes to run-wave or hand-dispatch (`PLUG/skills/post-plan-workflow/SKILL.md:11-85`) | approval materializes at the plan's own scope (stage 7.3) |
 | 16-17 | Hook, Agent | hook, server | No grant: `permission_mode` appears in the plugin only in orchestrator placement (`PLUG/scripts/coordinator-tiers.mjs:84,109`) | grant read from the permission mode (call 11) and recorded as an answered decision (0012) |
 | 18-20 | Agent, Seat agent, Server | server | the advance gates; a light type with no review notes goes straight to terminal | unchanged |
-| 21-23 | Server | server | `next` returns a queued leaf that builds, unclaimed, with no unsatisfied blocker (`KT/interfaces/shared/tools/items/ItemsReadNext.kt:94-97`) | `refined` filter (0004 phase 2) |
+| 21-23 | Server | server | `next` returns a queued leaf that builds, unclaimed, with no unsatisfied blocker (`KT/lifecycle/internal/wire/ItemsReadNext.kt:106-109`) | `refined` filter (0004 phase 2) |
 | 24-25 | Entry skill | mechanics skill | No learn skill | learn (architecture P7) |
 | 26-27 | Entry skill | mechanics skill | Nothing records the template (R22, R46) | start compares the recorded template (architecture P6) |
 
@@ -179,7 +182,7 @@ sequenceDiagram
 
 ## 3. Keep a knowledge base
 
-**Confirmed against the map.** Journey "Keep a knowledge base" (`design/user-journey-map.html:369-379`), stages 8.1 to 8.8, on the knowledge tool profile. Items are lifecycle-free, so there is no `advance`, no run, no seat and no director ([0010](decisions/0010-two-domains.md)). The knowledge profile serves item reads and writes, notes, dependency edges and documents; `advance`, `config`, `runs_*`, `report`, `context` and `next` are orchestration or director only (`KT/platform/tool/ToolProfile.kt:58-65`; for example `KT/interfaces/mcp/tools/advance/TransitionOp.kt:55`, `KT/config/internal/wire/ConfigPushOp.kt:41`).
+**Confirmed against the map.** Journey "Keep a knowledge base" (`design/user-journey-map.html:369-379`), stages 8.1 to 8.8, on the knowledge tool profile. Items are lifecycle-free, so there is no `advance`, no run, no seat and no director ([0010](decisions/0010-two-domains.md)). The knowledge profile serves item reads and writes, notes, dependency edges and documents; `advance`, `config`, `runs_*`, `report`, `context` and `next` are orchestration or director only (`KT/platform/tool/ToolProfile.kt:58-65`; for example `KT/lifecycle/internal/wire/TransitionOp.kt:58`, `KT/config/internal/wire/ConfigPushOp.kt:41`).
 
 ```mermaid
 sequenceDiagram
@@ -237,10 +240,10 @@ sequenceDiagram
 
 | Steps | Lane | Owner concept | Today | The design adds |
 |---|---|---|---|---|
-| 1-4 | Entry skill | mechanics skill | init reads `context` and requires `runs_read` (`PLUG/skills/init/SKILL.md:35-43`), both absent here (`KT/interfaces/shared/tools/items/ItemsReadContext.kt:91`); the registration library knows the knowledge URL (`PLUG/hooks/lib/mcp-registrations.mjs:121`), init does not | start checks the profile and applies the knowledge template (0009, architecture P6) |
-| 5 | Hook | hook | config-sync over REST, and no bundled rules for a lifecycle-free root (`PLUG/hooks/config-sync.mjs:6-8,669`) | unchanged |
-| 6 | Hook | hook | knowledge guidance (`PLUG/hooks/session-start.mjs:33-39,318-328`); the orchestration core, plan hooks and dispatch guard stay silent (`PLUG/hooks/orchestration-context.mjs:170`; `PLUG/hooks/pre-plan.mjs:16`; `PLUG/hooks/post-plan.mjs:16`; `PLUG/hooks/dispatch-model-guard.mjs:50`), all keyed on `isKnowledgeSession` (`PLUG/hooks/lib/session-profile.mjs:77-89`) | profile-aware hooks finished (architecture P5) |
-| 7-10 | Agent | mechanics skill (internal) | create-item's lifecycle-free branch (`PLUG/skills/create-item/SKILL.md:15-22`); search over all kinds (`KT/knowledge/internal/wire/ItemsReadSearch.kt:69`) | capture follows the applied template's types (map gap, `design/user-journey-map.html:425`) |
+| 1-4 | Entry skill | mechanics skill | init reads `context` and requires `runs_read` (`PLUG/skills/init/SKILL.md:35-43`), both absent here (`KT/lifecycle/internal/wire/ItemsReadContext.kt:99`); the registration library knows the knowledge URL (`PLUG/hooks/lib/mcp-registrations.mjs:121`), init does not | start checks the profile and applies the knowledge template (0009, architecture P6) |
+| 5 | Hook | hook | config-sync over REST, and no bundled rules for a lifecycle-free root (`PLUG/hooks/config-sync.mjs:6-8,786`) | unchanged |
+| 6 | Hook | hook | knowledge guidance (`PLUG/hooks/session-start.mjs:33-37,318-328`); the orchestration core, plan hooks and dispatch guard stay silent (`PLUG/hooks/orchestration-context.mjs:159`; `PLUG/hooks/pre-plan.mjs:16`; `PLUG/hooks/post-plan.mjs:16`; `PLUG/hooks/dispatch-model-guard.mjs:50`), all keyed on `isKnowledgeSession` (`PLUG/hooks/lib/session-profile.mjs:77-89`) | profile-aware hooks finished (architecture P5) |
+| 7-10 | Agent | mechanics skill (internal) | create-item's lifecycle-free branch (`PLUG/skills/create-item/SKILL.md:15-22`); search over all kinds (`KT/knowledge/internal/wire/ItemsReadSearch.kt:67`) | capture follows the applied template's types (map gap, `design/user-journey-map.html:425`) |
 | 11-15 | Agent, Server | server | `related` (`KT/knowledge/internal/wire/ItemsReadRelated.kt:55`); `deps_write` on knowledge (`KT/dependency/internal/wire/DepsCreateOps.kt:50`) | relation words held (R38) |
 | 16-18 | Agent | judgement | search, related and document links; no skill (evidence stage 8.4, rated good) | unchanged |
 | 19-20 | Agent, Server | server | `docs_write` on knowledge (`KT/knowledge/internal/wire/DocsWriteOps.kt:28`) | unchanged |
@@ -304,6 +307,7 @@ sequenceDiagram
 - **Steps 13 to 17: build to learn has two owners in the design.** The small node is driven by the orchestrator and built by seats. The director card also "sends a background research or prototype agent" (`design/entry-skills.html:459`; map "Inside Decide", `design/user-journey-map.html:201`). Two paths settle a question by building, with no line between them.
 - **Step 18: who writes the ruling (ambiguous).** For a planned question, the design says answering "writes the ruling note and completes the item" (`design/entry-skills.html:187`), without saying whether the server or a skill writes it. `answer` takes no links, so the ruling cannot be tied to its decision (`design/entry-skills.html:562`).
 - **Step 19: whose verdict closes the small node (ambiguous).** Acceptance is the user's verdict (glossary "Acceptance"); the keep-or-throw call is the agent's. Nothing orders the two, or says whether the user accepts a finding at all.
+- **Step 22: resume while the decision is pending (server gate missing).** The server does not refuse `resume` while the item's blocking decision is pending: `resume` is checked only for the blocked role and a restorable previous role (`KT/lifecycle/internal/domain/TransitionTable.kt:106-110`, refusal messages at `KT/lifecycle/AdvanceService.kt:943-950`), and the gate set has no decision gate (`KT/lifecycle/Decision.kt:10`). Only hook prose tells the orchestrator to wait (`PLUG/hooks/orchestration-context.mjs:46`). [0003](decisions/0003-role-neutral-decisions-surface.md) accepts the refusal; architecture P2 carries it.
 - **Steps 20 and 21: stale rulings (owner missing).** Reopen works only from terminal and nothing flags items built on a ruling that later changed (map gap, `design/user-journey-map.html:410`).
 
 ### Today versus the design
@@ -311,9 +315,9 @@ sequenceDiagram
 | Steps | Lane | Owner concept | Today | The design adds |
 |---|---|---|---|---|
 | 1-3 | Entry skill | mechanics skill, engineering skill | decomposing-work names a spike as a PR boundary reason (`PLUG/skills/decomposing-work/SKILL.md:25`); no shape skill | shape classifies each choice (`design/entry-skills.html:444`) |
-| 4 | Server | server | `create_tree` deps may name existing items (`KT/interfaces/shared/tools/items/CreateTreeOp.kt:45-48`, #787) | `derived_from` on create (architecture P8) |
+| 4 | Server | server | `create_tree` deps may name existing items (`KT/itemwrite/internal/wire/CreateTreeOp.kt:49-50`, #787) | `derived_from` on create (architecture P8) |
 | 5 | Entry skill | schema | a type with a required work note and no review notes is expressible (R6); no incremental-delivery profile ships (`PLUG/skills/manage-schemas/references/profiles/`) | the profile, with "no production code in a spike" as a project rule (`design/user-journey-map.html:447`) |
-| 6-7 | Server | server | leaf rule and `builds` (`KT/interfaces/shared/tools/items/ItemsReadNext.kt:94-97`; `KT/model/schema/WorkItemSchema.kt:33`) | `refined` filter (0004 phase 2) |
+| 6-7 | Server | server | leaf rule and `builds` (`KT/lifecycle/internal/wire/ItemsReadNext.kt:106-109`; `KT/model/schema/WorkItemSchema.kt:33`) | `refined` filter (0004 phase 2) |
 | 8 | Hook | hook | `PLUG/hooks/dispatch-model-guard.mjs:5-12` | unchanged |
 | 9-11 | Seat agent | schema, server | hand-dispatch or run-wave (`PLUG/skills/post-plan-workflow/SKILL.md:87-99`) | unchanged |
 | 12 | Agent | none named | nothing | nothing |
@@ -321,8 +325,8 @@ sequenceDiagram
 | 14-17 | User, Director | server (class and credential) | `answer` director only (`KT/interfaces/shared/tools/runs/RunsAnswerOp.kt:25`); a subagent is denied `answer` (`PLUG/hooks/decision-guard.mjs:2-4`) | answer on every profile that needs it, with provenance (P2) |
 | 18 | Agent | ambiguous | a note write; no link to the decision | evidence links on an answer (P2) |
 | 19 | Server | server | the advance gates; no acceptance gate | 0012 where the type opts in |
-| 20-21 | Entry skill | mechanics skill | reparent by `items_write` update, cancel by `complete_tree`; reopen only from terminal (`KT/application/service/AdvanceService.kt:954`) | shape re-shapes after a ruling |
-| 22 | Agent | mechanics skill | the orchestrator resumes an item held by the decision before re-dispatch (`PLUG/hooks/orchestration-context.mjs:47`); the server refuses resume on role and previous role only, never on an open decision (`KT/application/service/AdvanceService.kt:945-952`) | resume refused while a decision is pending (P2) |
+| 20-21 | Entry skill | mechanics skill | reparent by `items_write` update, cancel by `complete_tree`; reopen only from terminal (`KT/lifecycle/AdvanceService.kt:952`) | shape re-shapes after a ruling |
+| 22 | Agent | mechanics skill | the orchestrator resumes an item held by the decision before re-dispatch (`PLUG/hooks/orchestration-context.mjs:46`); the server refuses resume on role and previous role only, never on an open decision (`KT/lifecycle/AdvanceService.kt:943-950`; no decision gate in `KT/lifecycle/Decision.kt:10`) | resume refused while a decision is pending (P2) |
 
 ---
 
@@ -346,5 +350,5 @@ Named here, not resolved.
 - **[0004](decisions/0004-next-means-startable.md) and [0013](decisions/0013-no-sibling-rank-yet.md) against Light touch stage 7.4.** The stage wants next in the graph, next by rank, or breadth- or depth-first (`design/user-journey-map.html:366`). 0004 holds further `next` changes, and 0013 builds no rank.
 - **[0008](decisions/0008-acceptance-is-a-server-gate.md) against itself on a light template.** Acceptance is opt-in per type, and merge is armed only on acceptance. The lightest template declares no gated type, so its merge is never armed (journey 2 steps 16-17).
 - **[0008](decisions/0008-acceptance-is-a-server-gate.md) against entry-skills call 11.** 0008 says every surface satisfies the gate the same way. Call 11 reads the Auto-mode grant from Claude Code's `permission_mode` in a hook, which no other harness has (journey 1 step 7). [0012](decisions/0012-acceptance-gate-note-form.md) makes the grant an answered decision but does not say who records it there.
-- **[0002](decisions/0002-director-on-orchestrator-tools.md) against today's code.** Director mode runs on the orchestration connection, but `answer`, `ack`, `pause`, `resume` and the decision reads are served on the director profile only (`KT/interfaces/shared/tools/runs/RunsAnswerOp.kt:25`, `RunsAckOp.kt:24`, `RunsPauseOp.kt:23`, `RunsResumeOp.kt:23`, `RunsDecisionsSelect.kt:26`). Until P2, a director-mode session cannot answer (journey 1 step 22, journey 4 step 17).
+- **[0002](decisions/0002-director-on-orchestrator-tools.md) against today's code (resolved in the record).** 0002 said director mode runs on the orchestration connection, but `answer`, `ack`, `pause`, `resume` and the decision reads are served on the director profile only (`KT/interfaces/shared/tools/runs/RunsAnswerOp.kt:25`, `RunsAckOp.kt:24`, `RunsPauseOp.kt:23`, `RunsResumeOp.kt:23`, `RunsDecisionsSelect.kt:26`). 0002 now describes two connections as the interim state, with [0003](decisions/0003-role-neutral-decisions-surface.md) as the destination: until P2, a director-mode session answers over the director profile (journey 1 step 22, journey 4 step 17).
 - **[0001](decisions/0001-two-session-layers.md) against the director's prototype agent.** 0001 says the director never drives. The director card and the map have it send a prototype agent that builds code to settle a decision (journey 4 steps 13-17).

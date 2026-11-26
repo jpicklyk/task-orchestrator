@@ -259,7 +259,7 @@ class SseAuthFullWiringTest {
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 client.get("/api/v1/events?token=$VALID_TOKEN").status,
-                "S4: with the flag off, ?token= must not authenticate (CLAUDE.md default is false)",
+                "S4: with the flag off, ?token= must not authenticate (fleet-deployment.md default is false)",
             )
         }
 

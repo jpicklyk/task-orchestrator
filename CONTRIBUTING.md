@@ -72,7 +72,7 @@ When you clone this repository, plugin discovery is pre-configured for developme
 
 After building the dev Docker image and installing the plugin, restart Claude Code. The MCP server will start automatically with your local build, and all skills and hooks will be active.
 
-See [CLAUDE.md](CLAUDE.md) for comprehensive architecture details and development patterns.
+See [design/](design/README.md) for architecture and decisions, and [repo-architecture](.claude/skills/repo-architecture/SKILL.md) for the guard rules and config traps.
 
 ## Development Workflow
 
@@ -388,7 +388,7 @@ class MySelectTest {
 
 When adding features, update:
 - **`current/docs/api-reference.md`** - Behavior prose and examples (the field tables and error catalog are generated: run `./gradlew :current:regenerateApiReference`)
-- **`CLAUDE.md`** - Developer guidance (if architectural changes)
+- **`.claude/skills/repo-architecture/SKILL.md`** - Guard rules and config traps (if architectural changes); `CLAUDE.md` only for what every agent session needs
 - **README.md** - Only for major feature additions
 - **`claude-plugins/task-orchestrator/skills/`** - If Skills change
 - **`claude-plugins/task-orchestrator/hooks/`** - If Hooks change
@@ -488,7 +488,7 @@ When adding features, update:
 ## Questions?
 
 - **Technical questions**: Open a GitHub issue
-- **Architecture questions**: See [CLAUDE.md](CLAUDE.md)
+- **Architecture questions**: See [design/](design/README.md) and [design/decisions/](design/decisions/README.md)
 - **Setup issues**: See [current/docs/quick-start.md](current/docs/quick-start.md)
 - **General discussion**: Start a GitHub discussion
 
