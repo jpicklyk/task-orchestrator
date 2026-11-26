@@ -68,7 +68,11 @@ internal object ErrorFixtures {
             ErrorCode.CLAIM_HELD to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
             ErrorCode.NOT_CLAIM_HOLDER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
             ErrorCode.SEAT_FORBIDDEN to
-                mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "action" to "write", "runId" to "22222222-2222-2222-2222-222222222222"),
+                mapOf(
+                    "itemId" to "11111111-1111-1111-1111-111111111111",
+                    "action" to "write",
+                    "runId" to "22222222-2222-2222-2222-222222222222"
+                ),
             ErrorCode.NOTE_OWNED_BY_OTHER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "key" to "task-scope"),
             ErrorCode.NOTE_TOO_LONG to mapOf("key" to "task-scope", "max" to "100"),
             ErrorCode.RESOURCE_UNAVAILABLE to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),

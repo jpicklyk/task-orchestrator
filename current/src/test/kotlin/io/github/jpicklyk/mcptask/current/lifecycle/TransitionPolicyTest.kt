@@ -1021,7 +1021,10 @@ class TransitionPolicyTest {
         val start = seatRejected(snap(QUEUE, seat = seatFacts(memberSeat("planner"))), Trigger.User.START, "planner start")
         assertEquals(ErrorDetail.SeatForbidden(id, "planner", "start", listOf("builder"), runId), start.error.detail)
         assertTrue(start.error.message.contains("start") && start.error.message.contains(id.toString()), start.error.message)
-        assertTrue(start.error.message.contains(runId.toString()), "the message names the run whose token may send it: ${start.error.message}")
+        assertTrue(
+            start.error.message.contains(runId.toString()),
+            "the message names the run whose token may send it: ${start.error.message}"
+        )
         assertEquals(runId.toString(), start.error.fixArgs["runId"], "the fix hint names the run")
 
         // token-less agent: the seat is absent (null), not an empty string

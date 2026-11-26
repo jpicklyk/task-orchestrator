@@ -377,7 +377,8 @@ class EnvelopeEncoderTest {
             ErrorCode.CYCLE_DETECTED to obj("""{"path":["$i1","$i2","$i1"]}"""),
             ErrorCode.CLAIM_HELD to obj("""{"itemId":"$i1","expiresAt":"2026-10-07T12:00:00Z","retryAfterMs":5000}"""),
             ErrorCode.NOT_CLAIM_HOLDER to obj("""{"itemId":"$i1"}"""),
-            ErrorCode.SEAT_FORBIDDEN to obj("""{"itemId":"$i1","seat":"reviewer","action":"write","allowedSeats":["planner"],"runId":"$i2"}"""),
+            ErrorCode.SEAT_FORBIDDEN to
+                obj("""{"itemId":"$i1","seat":"reviewer","action":"write","allowedSeats":["planner"],"runId":"$i2"}"""),
             ErrorCode.NOTE_OWNED_BY_OTHER to obj("""{"itemId":"$i1","key":"task-scope"}"""),
             ErrorCode.NOTE_TOO_LONG to obj("""{"key":"task-scope","max":100,"actual":101}"""),
             ErrorCode.RESOURCE_UNAVAILABLE to obj("""{"itemId":"$i1","resources":[{"name":"gradle","mode":"exclusive"}]}"""),

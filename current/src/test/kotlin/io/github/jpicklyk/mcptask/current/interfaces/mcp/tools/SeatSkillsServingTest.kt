@@ -78,7 +78,8 @@ class SeatSkillsServingTest {
             notes: []
         """.trimIndent() + "\n"
 
-    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
+    private val expectedFeatures =
+        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
 
     private fun world(block: suspend (SeatWorld) -> Unit) =
         runBlocking {
