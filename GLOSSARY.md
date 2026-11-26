@@ -93,7 +93,7 @@ In code: the work-summary and director skills render it today. Its reads are `ru
 
 ### Director mode
 
-The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying reads that return body text, edits and every Task Orchestrator write except decision ops and run control, and allowing any skill, read-only scripts and background dispatch. The director offloads research to background agents and answers from their concise result.
+The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying reads that return body text, edits and every Task Orchestrator write except decision ops and run control, and allowing any skill, skill and plugin files, a plugin's scripts (which it does not inspect, so the director runs one only to route or decide) and background dispatch. The director offloads research to background agents and answers from their concise result.
 
 Distinct from: director profile, which is a server endpoint. The bare word "director" names the layer, this mode and the profile, so where the context does not settle it, say which.
 Example: a background agent dispatched by a director session is not in director mode.

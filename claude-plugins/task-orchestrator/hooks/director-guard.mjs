@@ -13,7 +13,9 @@
 // 2. Altitude rule. While the marker exists, the director session may not open files, run
 //    foreground work or drive work: advance, items_write, notes_write, deps_write and docs_write are denied,
 //    runs_write is allowed only when every op is in DIRECTOR_RUNS_WRITE_OPS (decision ops and run control),
-//    Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
+//    Read is allowed only for a skill's or a plugin's own files (isSkillFile, isPluginFile: instructions and
+//    deterministic helpers, not work content), a Bash segment may also be `node` on an installed plugin's script,
+//    Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
 //    denied outright, notes_read and docs_read on any task-orchestrator server run only their metadata selects
 //    (DIRECTOR_NOTES_READ_SELECTS, DIRECTOR_DOCS_READ_SELECTS; `get` returns a body and is denied), items_read
 //    is allowed only for DIRECTOR_ITEMS_READ_SELECTS, `search` with `snippet: false` and `schema` without
@@ -41,8 +43,8 @@
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
 // sets `onFailure: block` for a crash or timeout). Without the marker the hook is fail-open (`{}`).
 
-import { rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { rmSync, existsSync, realpathSync } from 'node:fs';
+import { resolve, sep, dirname, join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readHookInput } from './lib/stdin.mjs';
 import { emit, denyOutput } from './lib/emit.mjs';
@@ -144,12 +146,19 @@ export function isDirectorSkillCall(input) {
  * `git branch` each later token has every `'` and `"` deleted (R2) and must then pass that
  * command's flag allow-list (R3, R4, R5).
  */
-export function bashAllowed(command) {
+export function bashAllowed(command, { pluginFile = isPluginFile } = {}) {
   if (typeof command !== 'string') return false;
   if (/[`<>\r${}*?[\]\\]/.test(command)) return false;
   const segments = command.split(/&&|\|\||;|\||&|\n/);
   return segments.every((raw) => {
     const seg = raw.trim();
+    // `node <script>`: a plugin's own script gives the director deterministic routing and decisions.
+    const nodeCall = /^node\s+(\S+)/.exec(seg);
+    // The path must be absolute: the hook resolves a relative one against its own working directory, not the shell's.
+    if (nodeCall) {
+      const script = stripQuotes(nodeCall[1]);
+      return isAbsolute(script) && pluginFile(script);
+    }
     const entry = DIRECTOR_BASH_ALLOW.find((e) => seg === e || (seg.startsWith(e) && /^\s/.test(seg.slice(e.length))));
     if (entry === undefined) return false;
     const rest = seg.slice(entry.length).trim();
@@ -285,6 +294,60 @@ export function isAsyncAgentHost(env) {
   return typeof entry === 'string' && ASYNC_AGENT_ENTRYPOINTS.includes(entry);
 }
 
+/**
+ * The real path of an existing `filePath` (links and junctions resolved), or null for a missing file, a path with a
+ * `..` segment, or an error. Both file checks walk the real path, so a link inside a skill or plugin folder cannot
+ * reach a file outside it.
+ */
+function realFile(filePath, real) {
+  if (typeof filePath !== 'string' || filePath === '') return null;
+  if (filePath.replace(/\\/g, '/').split('/').includes('..')) return null;
+  return real(resolve(filePath));
+}
+
+/**
+ * True when `filePath` is a file inside a skill: under a `skills` folder, in a sub-folder that holds a `SKILL.md`
+ * (that skill's own files, references and scripts). Skill files are instructions, not work content, so a director
+ * may read them. Any other path, a `..` segment, a missing file or an error is false (the caller then denies).
+ */
+export function isSkillFile(filePath, { exists = existsSync, real = realpathSync } = {}) {
+  try {
+    const abs = realFile(filePath, real);
+    if (abs === null) return false;
+    const segs = abs.split(sep);
+    for (let k = segs.length - 3; k >= 0; k--) {
+      if (segs[k] !== 'skills') continue;
+      if (exists([...segs.slice(0, k + 2), 'SKILL.md'].join(sep))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `filePath` is a file inside an installed plugin: an ancestor folder holds `.claude-plugin/plugin.json`
+ * (the desktop copy, the marketplace cache, a synced copy or a `--plugin-dir` checkout). A plugin's scripts are its
+ * deterministic routing and decision helpers, so a director may read and run them. A path with `..`, a missing
+ * file or an error is false.
+ */
+export function isPluginFile(filePath, { exists = existsSync, real = realpathSync } = {}) {
+  try {
+    const abs = realFile(filePath, real);
+    if (abs === null) return false;
+    let dir = dirname(abs);
+    for (let i = 0; i < 32; i++) {
+      if (exists(join(dir, '.claude-plugin', 'plugin.json'))) return true;
+      const up = dirname(dir);
+      if (up === dir) return false;
+      dir = up;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function denyReason(tool, detail) {
   return `${REASON_PREFIX} a director session does not call \`${tool}\` (${detail}). ${REMEDY}`;
 }
@@ -307,12 +370,16 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   // Skill only loads instructions; every tool a skill then calls is checked here on its own call.
   if (tool === 'Skill') return null;
   if (CONTENT_TOOL_SET.has(tool)) return denyReason(tool, 'a tool that returns or publishes page, file, task-output or language-server content');
-  if (FILE_TOOLS.has(tool)) return denyReason(tool, 'the director never opens a file');
-  if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
+  if (tool === 'Read') {
+    const fp = toolInputOf(input).file_path;
+    if (isSkillFile(fp) || isPluginFile(fp)) return null;
+  }
+  if (FILE_TOOLS.has(tool)) return denyReason(tool, "the director never opens a file other than a skill's or a plugin's own files");
+  if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with an allow-listed command runs');
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
-    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
+    return denyReason('Bash', `every command segment must start with ${allowed}, or be \`node\` on a script inside an installed plugin; no redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;
@@ -360,7 +427,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     if (metaSelects !== null) {
       const ti = toolInputOf(input);
       if (ti.describe === true || (typeof ti.select === 'string' && metaSelects.includes(ti.select))) return null;
-      return denyReason(tool, `a body read; only the metadata selects ${metaSelects.map((e) => `\`${e}\``).join(', ')} run (a background agent reads a body and returns a short summary)`);
+      return denyReason(tool, `a body read; only the metadata selects ${metaSelects.map((e) => `\`${e}\``).join(', ')} run; a background agent reads a body and returns a short summary`);
     }
     return denyReason(tool, 'a read that can return a note or document body');
   }

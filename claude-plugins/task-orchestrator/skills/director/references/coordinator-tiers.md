@@ -1,5 +1,13 @@
 # Orchestrator placements and launch profiles
 
+- [Tier 1: desktop session](#tier-1-desktop-session)
+- [Tier 2: one Workflow call, everything else in an orchestrator](#tier-2-one-workflow-call-everything-else-in-an-orchestrator)
+- [Tier 2b: Code Mode orchestrator subagent](#tier-2b-code-mode-orchestrator-subagent)
+- [Tier 3: headless claude -p](#tier-3-headless-claude--p)
+- [Orchestrator reports](#orchestrator-reports)
+- [Limits](#limits)
+- [Tier 4: inline, with a warning](#tier-4-inline-with-a-warning)
+
 A director session never runs a wave itself. An orchestrator does: it plans the run, makes or
 receives the run's seat calls, and runs post-run, then reports a short summary. The tier says where
 that orchestrator lives. `scripts/coordinator-tiers.mjs` holds the rule and the profiles:
@@ -13,8 +21,8 @@ that orchestrator lives. `scripts/coordinator-tiers.mjs` holds the rule and the 
   Workflow not present) selects tier `2b`, a string id: tiers 1, 2, 3 and 4 stay numbers.
 - `launchProfile(tier, opts)` returns the launch profile below.
 - `node scripts/coordinator-tiers.mjs profile --tier N|2b [--budget-usd X] [--scope S] [--target T] [--model M] [--effort E] [--prompt-file F]`
-  prints it as JSON (`--tier 2b` needs `--scope`; `--target` defaults to the first 8 hex of the scope id). An orchestrator or background agent runs this, never the director session (the
-  guard denies `node` there).
+  prints it as JSON (`--tier 2b` needs `--scope`; `--target` defaults to the first 8 hex of the scope id). The director may run it (the guard allows `node` on a plugin's own script), as may an orchestrator or
+  background agent.
 
 The director probes its own tool list with the same rule, once per entry, without a call.
 In Code Mode the probe reads the tools a script can call (Workflow, Agent, SendMessage and the
@@ -44,13 +52,19 @@ set cross-session inbound messages to accept in the desktop settings, and check 
 `get_settings`. If it is not `accept`, warn the user: under bypass, held messages are dropped after
 five minutes, so an orchestrator's report can be lost.
 
+**Your address.** Before `start_session`, call `ListAgents`: its first line names this session
+(`This session is <name> [<ref>]`; when that line is missing, ask the user for the session name). Put that name in the brief's `<director address>`. A tier-1
+orchestrator is a separate session: it has no `"main"` to report to, and without your address its
+reports reach no one, so you see only the app's short turn notes. The `planned` report then carries
+the run id you read the run by.
+
 The desktop session tools are undocumented and may change. Re-probe the tool list on every entry
 rather than relying on a remembered shape.
 
 ## Tier 2: one Workflow call, everything else in an orchestrator
 
-A director session cannot run run-wave itself: the guard denies the `node` helper, and the
-snapshot reads note bodies. So the work splits into five steps:
+A director session does not run run-wave itself: driving a run is an orchestrator's job (its writes
+are denied to the director), and the snapshot reads note bodies. So the work splits into five steps:
 
 1. The director dispatches one named background orchestrator agent (`run_in_background: true`,
    `model` set, Agent `description` `coordinator:<target-short>`, see the post-run.md Label rule) for run-wave Steps 0-5a with `--altitude-safe --method A`. The orchestrator records
@@ -86,7 +100,7 @@ results reach the orchestrator, not the director. When both 2 and 2b are availab
 Method A run and 2b when Method B suits: the plan exits 3 on `--method A` because `maxActiveSeats` is
 below the schema-seat count, or the director wants no `Workflow` call in its context.
 
-The director cannot run `node` and the guard denies it a `Read` of this file, so it composes the one
+The director composes the one
 `Agent` call from line 1 of the 2b brief alone (model and effort from the `coordinator` class,
 `subagent_type` `general-purpose`, description `coordinator:<target-short>`, prompt the line `Run
 /task-orchestrator:run-wave <scope> --method B as a tier-2b orchestrator.`): the orchestrator's run-wave
@@ -151,7 +165,7 @@ decision only from a manual refresh.
   `run:`, `decisions:`, `items:`, `stopped:`, `close:` and `needs:` lines) of ids cut to 8 hex,
   counts and reasons cut to 120 characters. Never hand-write it, and never send note text, diffs,
   seat prose or a token.
-- **To whom.** Tier 1: `SendMessage` to the director session name the brief gives (reply with the
+- **To whom.** Tier 1: `SendMessage` to the director session name the brief gives, never `"main"` (reply with the
   `from` of its message). A background orchestrator or relay agent (tiers 2, 2b, 3 and 4): `SendMessage` with
   `to: "main"` while it runs, and its final return for the event that ends its turn. With no
   director (a user session runs run-wave), show the block to the user.
@@ -161,13 +175,13 @@ decision only from a manual refresh.
 
 ### Orchestrator brief
 
-The `prompt` of `start_session` or the background `Agent`, verbatim at tiers 1, 2 and 4 (tier 2b has its own brief above). At tier 3 the
+The `prompt` of `start_session` or the background `Agent`, verbatim at tiers 2 and 4; tier 1 uses the copy in the director skill, which carries the same rules without the budget and provenance lines (tier 2b has its own brief above). At tier 3 the
 brief goes to the background agent that starts the process, not to the process: the process prompt
 carries only the plan's args.
 
 ```
 Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method A).
-Report to <director address> with SendMessage, only the output of the report helper
+Report to <director address> (tier 1: the director's session name; tiers 2, 3 and 4: "main") with SendMessage, only the output of the report helper
 (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Budget: <X>. Stop on a director close and report closed.
 Never ask the user anything: put what you need (a decision, a permission) on the report's `needs:` line.
@@ -200,7 +214,7 @@ re-plan.
 - A tier-2 Workflow resume is not the director's call: the guard denies `Workflow` with a `scriptPath` or
   `resumeFromRunId`, so it falls to the orchestrator, a background agent that may lack `Workflow`
   (run-wave post-run re-probes it for that reason). A resume may then have no one able to make it.
-- The director cannot plan: it reads no files or notes. New work is planned in orchestration mode before
+- The director cannot plan: it reads no work files or note bodies, only skill and plugin files. New work is planned in orchestration mode before
   entering director mode.
 
 ## Tier 4: inline, with a warning

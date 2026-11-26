@@ -4,11 +4,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseToCallBlocks, checkToCall, RETIRED_3X_TOOLS } from '../../scripts/lib/contract-checks.mjs';
 
-const rd = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf-8');
+const rdPath = (rel) => fileURLToPath(new URL(rel, import.meta.url));
+const rd = (rel) => readFileSync(rdPath(rel), 'utf-8');
 const SKILL = rd('../../skills/director/SKILL.md');
 const AGENT = rd('../../agents/director.md');
 const README = rd('../README.md');
@@ -37,9 +39,38 @@ test('S12 O1: skill frontmatter', () => {
   assert.match(fm, /^argument-hint:.*\boff\b/m);
 });
 
-test('S12 O2: skill body size cap', () => {
-  const n = Buffer.byteLength(SKILL, 'utf8');
-  assert.ok(n <= 18000, 'skill is ' + n + ' bytes, cap 18000');
+// Anthropic's Agent Skills best practices (platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices):
+// keep the SKILL.md body under 500 lines; keep references one level deep from SKILL.md; give a reference file over
+// 100 lines a table of contents; frontmatter name at most 64 characters (lowercase letters, digits, hyphens),
+// description at most 1024 characters.
+test('S12 O2: the skill follows the Agent Skills size and structure guidance', () => {
+  const lines = SKILL.split(/\r?\n/);
+  const fmEnd = lines.indexOf('---', 1);
+  assert.ok(lines[0] === '---' && fmEnd > 0, 'frontmatter block');
+  const body = lines.slice(fmEnd + 1);
+  assert.ok(body.length < 500, 'SKILL.md body is ' + body.length + ' lines; the guidance is under 500');
+  const fm = frontmatter(SKILL);
+  const name = (fm.match(/^name:\s*(.+?)\s*$/m) || [])[1];
+  assert.ok(name && name.length <= 64 && /^[a-z0-9-]+$/.test(name), 'name: ' + name);
+  // A folded or literal scalar (`description: >` or `|`) continues on the indented lines below it.
+  const fmLines = fm.split(/\r?\n/);
+  const at = fmLines.findIndex((l) => l.startsWith('description:'));
+  let desc = at < 0 ? '' : fmLines[at].slice('description:'.length).trim();
+  if (/^[>|][-+]?$/.test(desc)) {
+    const cont = [];
+    for (let i = at + 1; i < fmLines.length && /^\s+\S/.test(fmLines[i]); i++) cont.push(fmLines[i].trim());
+    desc = cont.join(' ');
+  }
+  desc = desc.replace(/^"|"$/g, '');
+  assert.ok(desc.length > 1 && desc.length <= 1024, 'description is ' + desc.length + ' characters');
+  const refDir = rdPath('../../skills/director/references');
+  const refs = readdirSync(refDir).filter((x) => x.endsWith('.md'));
+  for (const f of refs) {
+    // One level deep: every reference is reachable straight from SKILL.md, so none is found only through another.
+    assert.ok(SKILL.includes('references/' + f), 'SKILL.md links ' + f + ' directly (one level deep)');
+    const ref = readFileSync(join(refDir, f), 'utf8').split(/\r?\n/);
+    if (ref.length > 100) assert.ok(ref.slice(0, 20).some((l) => /^\s*- \[[^\]]+\]\(#/.test(l)), f + ' is over 100 lines and needs a table of contents at the top');
+  }
 });
 
 test('S12 O3: to-call blocks parse, use the director profile and validate', () => {
@@ -119,7 +150,7 @@ test('S12 O12: guard-coverage reference exists, is ASCII, holds the moved text, 
   const flat = (t) => t.replace(/\s+/g, ' ');
   const R = flat(REF);
   for (const s of [
-    'in a skill-entered session it denies the file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies',
+    'in a skill-entered session it denies the file and shell tools, foreground `Agent`, `Bash` outside its allow-list, the `config` tool (every op, `push`, `rollback` and `reset` included), the reads that return note or document bodies',
     'and every Task Orchestrator write that drives work: `advance`, `items_write`, `notes_write`, `deps_write`, `docs_write`, and `runs_write` unless every op of the call is',
     '`Skill` is never denied: loading a skill only adds instructions, and each tool the skill calls is checked on its own call. Only the hardened entry enforces the whole budget, through its tool list.',
     'The limit: the guard recognises the orchestration connection by `task-orchestrator` in its server key',

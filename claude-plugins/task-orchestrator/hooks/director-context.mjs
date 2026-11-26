@@ -14,7 +14,7 @@ import { isDirectorSession, isHeadlessIteration, isSubagentInvocation } from './
 
 /** The rule re-injected after compaction in a director session. Two sentences. */
 export const DIRECTOR_RULE_TEXT =
-  'Director mode is on for this session: the director never opens a file or reads a note body, except a decision request or a run rollup. Delegate every read through a background agent or SendMessage, and re-invoke `/task-orchestrator:director` for the dashboard.';
+  'Director mode is on for this session: the director opens only skill and plugin files, runs only plugin scripts, reads no note body except a decision request or a run rollup, and never drives work. Delegate every other read through a background agent or SendMessage, and re-invoke `/task-orchestrator:director` for the dashboard.';
 
 /** Hook output for one parsed input. */
 export function run(input, env = process.env) {

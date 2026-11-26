@@ -61,7 +61,9 @@ function exec(fx, stdin, extraEnv = {}) {
 test('S11: DIRECTOR_RULE_TEXT is two sentences carrying the rule', () => {
   assert.equal(typeof DIRECTOR_RULE_TEXT, 'string');
   assert.equal(DIRECTOR_RULE_TEXT.trim().split(/(?<=[.!?])\s+/).length, 2);
-  assert.ok(DIRECTOR_RULE_TEXT.includes('never opens a file or reads a note body'));
+  assert.ok(DIRECTOR_RULE_TEXT.includes('opens only skill and plugin files'));
+  assert.ok(DIRECTOR_RULE_TEXT.includes('reads no note body except a decision request or a run rollup'));
+  assert.ok(DIRECTOR_RULE_TEXT.includes('never drives work'));
   assert.ok(DIRECTOR_RULE_TEXT.includes('/task-orchestrator:director'));
 });
 
