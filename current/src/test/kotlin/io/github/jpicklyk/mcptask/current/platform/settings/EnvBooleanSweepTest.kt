@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  *
  * Oracle provenance: every expected value traces to the `test-plan` note frozen at queue phase
  * (algorithm: shared `true/1/yes` / `false/0/no` vocabulary; [ApiAuthConfigLoader] KDoc fail-fast
- * contract for `require`; CLAUDE.md's env-var table for documented defaults). Nothing here was
+ * contract for `require`; the Environment Variable Reference table in current/docs/fleet-deployment.md (formerly in CLAUDE.md) for documented defaults). Nothing here was
  * read off the call sites' implementations to decide correctness.
  *
  * Covers test-plan scenarios S1 (USE_FLYWAY no longer parsed; rewritten for the Flyway-only switch), S4 (failure:

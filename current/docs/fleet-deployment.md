@@ -150,7 +150,7 @@ log no WARN; if one appears, the dropped rows survive only in the pre-upgrade ba
 
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
-`/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
+`/tmp/mcp-task-orchestrator.ready`; see the [Environment Variable Reference](#environment-variable-reference)). The marker is cleared on
 graceful shutdown, and also as the very first step of startup (before DB init), so a container
 restarted after SIGKILL/OOM does not report healthy from a stale marker during migration or a failed
 start. If the stale marker cannot be removed, startup fails as `READINESS_MARKER`. This is transport-agnostic — **both `stdio` and `http` transports write and
@@ -910,7 +910,7 @@ out of scope; this is a known, accepted forensic gap for anything written before
    it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
    and retried on the next boot). It completes before the readiness marker is written and before
    the server starts serving. Set `DB_COMPACT_ON_UPGRADE=false` to opt out (e.g. to run the offline
-   runbook manually on your own schedule instead); see the environment variable table below. **This
+   runbook manually on your own schedule instead); see the [Environment Variable Reference](#environment-variable-reference). **This
    is not the same check as step 3's `PRAGMA integrity_check`** — the automatic path runs only the
    FTS5 `integrity-check` special command against each of the six FTS5 tables in [FTS_TABLES],
    not a whole-database `PRAGMA integrity_check`; it is not a full substitute for step 3's offline
