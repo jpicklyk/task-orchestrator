@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
+import io.github.jpicklyk.mcptask.current.report.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.config.ConfigStore
 import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.SqliteReportQueries
+import io.github.jpicklyk.mcptask.current.report.ReportStores
 import io.github.jpicklyk.mcptask.current.item.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.item.internal.sqlite.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.knowledge.DocumentStore
@@ -64,7 +64,7 @@ class DefaultRepositoryProvider(
     private val runStoreInstance by lazy { RunStores.runs(databaseManager) }
     private val runSeatStoreInstance by lazy { RunStores.seats(databaseManager, clock) }
     private val decisionRequestStoreInstance by lazy { RunStores.decisions(databaseManager) }
-    private val reportQueriesInstance by lazy { SqliteReportQueries(databaseManager) }
+    private val reportQueriesInstance by lazy { ReportStores.queries(databaseManager) }
     private val usageDailyStoreInstance by lazy { SqliteUsageDailyStore(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo

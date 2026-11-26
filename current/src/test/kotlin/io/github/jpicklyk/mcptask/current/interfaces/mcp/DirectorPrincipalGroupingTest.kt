@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.report.ReportFixture
-import io.github.jpicklyk.mcptask.current.application.report.ReportKit
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFixture
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportKit
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs

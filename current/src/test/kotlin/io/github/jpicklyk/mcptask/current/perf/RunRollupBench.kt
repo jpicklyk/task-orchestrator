@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.perf
 
-import io.github.jpicklyk.mcptask.current.application.report.ReportFixture
-import io.github.jpicklyk.mcptask.current.application.report.ReportKit
-import io.github.jpicklyk.mcptask.current.application.report.ReportRollupRequest
-import io.github.jpicklyk.mcptask.current.application.report.ReportRunRollupSnapshot
-import io.github.jpicklyk.mcptask.current.application.report.RollupRaw
-import io.github.jpicklyk.mcptask.current.application.report.RunKit
-import io.github.jpicklyk.mcptask.current.application.report.blocked
-import io.github.jpicklyk.mcptask.current.application.report.seat
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportFixture
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportKit
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportRollupRequest
+import io.github.jpicklyk.mcptask.current.report.ReportRunRollupSnapshot
+import io.github.jpicklyk.mcptask.current.report.internal.app.RollupRaw
+import io.github.jpicklyk.mcptask.current.report.internal.app.RunKit
+import io.github.jpicklyk.mcptask.current.report.internal.app.blocked
+import io.github.jpicklyk.mcptask.current.report.internal.app.seat
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent

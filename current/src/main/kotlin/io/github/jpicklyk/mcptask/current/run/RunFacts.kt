@@ -63,7 +63,7 @@ data class RunFactsSnapshot(
  * assembler and the query side) and the run side (W5, which owns run membership and every run-only fact).
  *
  * Every method answers null when the fact is not tracked, and the rollup then omits the section it feeds.
- * [io.github.jpicklyk.mcptask.current.application.report.NotTrackedRunFacts] answers null everywhere; R28's
+ * `NotTrackedRunFacts` answers null everywhere; R28's
  * [io.github.jpicklyk.mcptask.current.run.StoreRunFacts] implements this port over the W5 tables. An
  * implementation joins the caller's read unit.
  */

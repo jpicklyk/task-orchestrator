@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.telemetry.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.report.ReportKit
+import io.github.jpicklyk.mcptask.current.report.internal.app.ReportKit
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.telemetry.UsageDailyStore
 import io.github.jpicklyk.mcptask.current.telemetry.UsageFoldWatermark

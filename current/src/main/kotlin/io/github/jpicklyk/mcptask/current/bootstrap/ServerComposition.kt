@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.report.ReportRunRollupSnapshot
+import io.github.jpicklyk.mcptask.current.report.ReportRunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep

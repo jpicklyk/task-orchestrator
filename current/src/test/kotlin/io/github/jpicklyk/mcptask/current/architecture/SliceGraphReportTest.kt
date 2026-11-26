@@ -335,23 +335,18 @@ class SliceGraphReportTest {
                 "application/api/BatchRunner.kt" to "server",
                 "application/api/ToolExecutionContext.kt" to "server",
                 // other application packages
-                "application/report/" to "report",
                 "application/upgrade/" to "upgrade",
                 // application/port
                 "application/port/RepositoryProvider.kt" to "server",
                 "application/port/DataStepStore.kt" to "upgrade",
-                "application/port/ReportQueries.kt" to "report",
-                "application/port/ReportStoreProvider.kt" to "report",
                 // infrastructure
                 "platform/" to PLATFORM,
-                "infrastructure/sqlite/report/" to "report",
                 "infrastructure/sqlite/upgrade/" to "upgrade",
                 "infrastructure/sqlite/repository/SqliteDataStepStore.kt" to "upgrade",
                 "infrastructure/sqlite/repository/DefaultRepositoryProvider.kt" to "server",
                 // interfaces
                 "interfaces/" to "server",
                 "interfaces/shared/tools/items/ItemsReadTool.kt" to "server",
-                "interfaces/shared/tools/report/" to "report",
             )
     }
 }
