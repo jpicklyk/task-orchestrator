@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, sep, relative, isAbsolute } from 'node:path';
 
 import { directorMarkerPath } from '../execution-mode.mjs';
 import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
@@ -524,4 +524,24 @@ test('K5: a link inside a skill folder cannot reach a file outside it', (t) => {
   }
   assert.equal(isSkillFile(join(link, 'guide.md')), false);
   denies(call('Read', { file_path: join(link, 'guide.md') }));
+});
+
+// O13: a `..` that resolves back INTO a skill or plugin is still refused, so only the `..` check denies these.
+// O18: a relative script path is refused, since the hook would resolve it against its own working directory.
+test('K6/P5: a literal .. that lands inside a skill or plugin is denied; a relative node script path is denied', () => {
+  const { skills } = skillTree();
+  const { plugin, fwd } = pluginTree();
+  const intoSkill = [skills, 'alpha', 'references', '..', 'SKILL.md'];
+  for (const p of [intoSkill.join('/'), intoSkill.join(sep)]) {
+    assert.equal(isSkillFile(p), false, p);
+    denies(call('Read', { file_path: p }), p);
+  }
+  const intoPlugin = fwd(plugin) + '/scripts/lib/../route.mjs';
+  assert.equal(isPluginFile(intoPlugin), false, intoPlugin);
+  denies(call('Bash', { command: `node ${intoPlugin}` }), intoPlugin);
+  // A relative path to a real plugin script (this plugin's, from the repo root the suite runs in).
+  const rel = relative(process.cwd(), fileURLToPath(new URL('../../scripts/coordinator-tiers.mjs', import.meta.url))).split(sep).join('/');
+  assert.equal(isAbsolute(rel), false, 'the suite runs from the same drive as the plugin');
+  assert.equal(isPluginFile(rel), true, 'the file itself is a plugin file');
+  denies(call('Bash', { command: `node ${rel}` }), rel);
 });

@@ -44,7 +44,7 @@
 // sets `onFailure: block` for a crash or timeout). Without the marker the hook is fail-open (`{}`).
 
 import { rmSync, existsSync, realpathSync } from 'node:fs';
-import { resolve, sep, dirname, join } from 'node:path';
+import { resolve, sep, dirname, join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readHookInput } from './lib/stdin.mjs';
 import { emit, denyOutput } from './lib/emit.mjs';
@@ -154,7 +154,11 @@ export function bashAllowed(command, { pluginFile = isPluginFile } = {}) {
     const seg = raw.trim();
     // `node <script>`: a plugin's own script gives the director deterministic routing and decisions.
     const nodeCall = /^node\s+(\S+)/.exec(seg);
-    if (nodeCall) return pluginFile(stripQuotes(nodeCall[1]));
+    // The path must be absolute: the hook resolves a relative one against its own working directory, not the shell's.
+    if (nodeCall) {
+      const script = stripQuotes(nodeCall[1]);
+      return isAbsolute(script) && pluginFile(script);
+    }
     const entry = DIRECTOR_BASH_ALLOW.find((e) => seg === e || (seg.startsWith(e) && /^\s/.test(seg.slice(e.length))));
     if (entry === undefined) return false;
     const rest = seg.slice(entry.length).trim();

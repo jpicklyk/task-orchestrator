@@ -17,7 +17,9 @@ Only the hardened entry enforces the whole budget, through its tool list.
 The file reads it allows are `Read` of a skill's files (any file in a folder that holds a `SKILL.md`,
 `isSkillFile`) and of any file inside an installed plugin (an ancestor folder holds `.claude-plugin/plugin.json`,
 `isPluginFile`); `Bash` also runs `node` on a plugin's script. Both checks resolve links first and refuse a `..`
-segment. Skill and plugin files are instructions and deterministic helpers, not work content.
+segment, and a script runs only by its absolute path. Skill and plugin files are instructions and deterministic helpers, not
+work content. The guard does not check what a plugin script does: some write files or drive work (the `gen-*` generators,
+`resolve-changelog --out`, `ralph-loop`), so for scripts the never-drives rule rests on the director's conduct (record 0014).
 
 ## How it tells servers apart
 
