@@ -504,7 +504,11 @@ class SeatConfigParseTest {
                       - { name: a, phase: review, writes: "yes" }
                 """.trimIndent()
             )
-        val seat = parsed.workItemSchemas.getValue("bug-fix").seats.single()
+        val seat =
+            parsed.workItemSchemas
+                .getValue("bug-fix")
+                .seats
+                .single()
         assertNull(seat.writes)
         assertFalse(seat.effectiveWrites)
         assertTrue(
