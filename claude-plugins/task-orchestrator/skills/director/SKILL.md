@@ -258,20 +258,20 @@ Poll pair.
 At tier 4, warn the user once: the altitude holds only while each delegated agent reports a
 summary, not raw file content, so ask each agent for a short summary.
 
-How to launch an orchestrator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
+How to launch an orchestrator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md);
+at tier 1 the brief carries your own address from `ListAgents`, or no report reaches you.
 `scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; an
 orchestrator or background agent runs it, not you. A run of one or two items needs no
 separate orchestrator: dispatch one background agent.
 
 ## Waking up
 
-On any wake-up (a `SendMessage` from an orchestrator, a task notification, or the user returning
-after idle), read the run that woke you. A message starting `TO report:` is an orchestrator report
-(events `planned`, `decision`, `paused`, `closed`): act on the ids it names only, after the board
-read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
-user's approval (missing allow rules: coordinator-tiers.md step 2); then call `Workflow` with the returned `args` and `SendMessage` the orchestrator
-`launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim, or the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval, then `SendMessage` the orchestrator `approved` or `stop`.
+A message starting `TO report:` is an orchestrator report (events `planned`, `decision`, `paused`,
+`closed`): read the run it names by its id (the `planned` report gives it; never search the board for
+your run), then act on the ids it names only, then Answering. A wake with no `TO report:` (a linked
+session ended a turn, an idle return) needs no board read: note it in one line and wait. Tier-2
+hand-off steps (`needs: approve launch`, `launched`, the result relay): coordinator-tiers.md.
+Tier 2b: on that `planned`, get the approval, then `SendMessage` the orchestrator `approved` or `stop`.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}
@@ -282,7 +282,8 @@ retrospective: the plugin's hooks tell you. A `Decision waiting:` directive mean
 `PushNotification` once for the ids it names. A retrospective directive comes one per completed
 scope (per closed run at boundary `run` or without REST) and is always the dispatch form in a
 director session, whatever `retrospective.mode` says (`off` still sends none): dispatch the one
-background agent it names. Never run `/session-retrospective` in this session; it reads note
+background agent it names. At tiers 1 and 2b the orchestrator closes the run, so its session gets the
+directive and runs the retrospective: dispatch none for that run. Never run `/session-retrospective` in this session; it reads note
 bodies. Each fires once per decision, scope or run per session.
 
 ## Hardened entry

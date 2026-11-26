@@ -58,7 +58,7 @@ Who runs gradle, and when: rule `test-author` section 5 points 10-11; the table 
 
 | Check | When | Who |
 |---|---|---|
-| Pinned self-check (`ktlintFormat` + compile, `run-profile.json` `compile-self-check`), once before committing | every writer seat | seat, through the helper |
+| Pinned self-check (compile only, `run-profile.json` `compile-self-check`), once before committing | every writer seat | seat, through the helper |
 | Own test classes, red then green (`-TestFiles`) | while writing them | test author |
 | Changed packages' test classes (`-TestFiles`), at most once | before committing | implementer |
 | Orchestrator `verify` entries (front door "Verification command") | once, after the last writer commits, before the reviewer | orchestrator |

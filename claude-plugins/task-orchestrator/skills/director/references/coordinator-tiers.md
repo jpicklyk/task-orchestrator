@@ -44,6 +44,12 @@ set cross-session inbound messages to accept in the desktop settings, and check 
 `get_settings`. If it is not `accept`, warn the user: under bypass, held messages are dropped after
 five minutes, so an orchestrator's report can be lost.
 
+**Your address.** Before `start_session`, call `ListAgents`: its first line names this session
+(`This session is <name> [<ref>]`). Put that name in the brief's `<director address>`. A tier-1
+orchestrator is a separate session: it has no `"main"` to report to, and without your address its
+reports reach no one, so you see only the app's short turn notes. The `planned` report then carries
+the run id you read the run by.
+
 The desktop session tools are undocumented and may change. Re-probe the tool list on every entry
 rather than relying on a remembered shape.
 
@@ -151,7 +157,7 @@ decision only from a manual refresh.
   `run:`, `decisions:`, `items:`, `stopped:`, `close:` and `needs:` lines) of ids cut to 8 hex,
   counts and reasons cut to 120 characters. Never hand-write it, and never send note text, diffs,
   seat prose or a token.
-- **To whom.** Tier 1: `SendMessage` to the director session name the brief gives (reply with the
+- **To whom.** Tier 1: `SendMessage` to the director session name the brief gives, never `"main"` (reply with the
   `from` of its message). A background orchestrator or relay agent (tiers 2, 2b, 3 and 4): `SendMessage` with
   `to: "main"` while it runs, and its final return for the event that ends its turn. With no
   director (a user session runs run-wave), show the block to the user.
@@ -167,7 +173,7 @@ carries only the plan's args.
 
 ```
 Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method A).
-Report to <director address> with SendMessage, only the output of the report helper
+Report to <director address> (tier 1: the director's session name; tiers 2 and 4: "main") with SendMessage, only the output of the report helper
 (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Budget: <X>. Stop on a director close and report closed.
 Never ask the user anything: put what you need (a decision, a permission) on the report's `needs:` line.

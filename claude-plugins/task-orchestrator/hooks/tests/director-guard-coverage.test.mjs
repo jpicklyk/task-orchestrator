@@ -400,3 +400,22 @@ test('probe: PowerShell and Monitor with a missing or non-string command still d
     denies(call(tool, { command: 5 }));
   }
 });
+
+// ---- M: denial wording (item d98e684b, F5) ------------------------------------------------------
+
+test('M1: the Bash denial does not claim a chain is refused, since a chain of allow-listed commands runs', () => {
+  const r = decide(call('Bash', { command: 'cat f' }));
+  assert.ok(r.startsWith(REASON_PREFIX));
+  assert.ok(!r.includes('unchained'), r);
+  assert.ok(r.includes('every command segment must start with'), r);
+  assert.equal(decide(call('Bash', { command: 'git status -s && git log --oneline -n 1' })), null);
+});
+
+test('M2: the note and document body-read denial has no nested brackets and names the delegate', () => {
+  for (const tool of [NOTES_READ, DOCS_READ]) {
+    const r = decide(call(tool, { select: 'get' }));
+    const detail = r.slice(r.indexOf('(') + 1, r.indexOf(')'));
+    assert.ok(!detail.includes('('), `${tool}: ${r}`);
+    assert.ok(r.includes('a background agent reads a body and returns a short summary'), r);
+  }
+});

@@ -67,7 +67,8 @@ test('validate: the repo run-profile.json passes validateSnapshot in full and sc
   const r = validateSnapshot(snapshot(profile))
   assert.equal(r.ok, true, JSON.stringify(r.errors))
   const byName = Object.fromEntries(profile.verify.map((v) => [v.name, v]))
-  for (const n of ['compile-self-check', 'owned-tests', 'wave-build']) assert.deepEqual(byName[n].appliesTo, ['current/**'])
+  // Gradle runs only for build inputs: a docs-only change under current/docs needs no compile or suite (item d98e684b).
+  for (const n of ['compile-self-check', 'owned-tests', 'wave-build']) assert.deepEqual(byName[n].appliesTo, ['current/src/**', 'current/build.gradle.kts'])
   for (const n of ['plugin-node-tests', 'plugin-node-owned-tests']) assert.deepEqual(byName[n].appliesTo, ['claude-plugins/**'])
   assert.ok(Array.isArray(profile.knownRed))
 })

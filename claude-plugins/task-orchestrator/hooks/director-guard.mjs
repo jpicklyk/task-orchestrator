@@ -308,7 +308,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
-    return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
+    return denyReason('Bash', `every command segment must start with ${allowed}; no redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;
@@ -356,7 +356,7 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     if (metaSelects !== null) {
       const ti = toolInputOf(input);
       if (ti.describe === true || (typeof ti.select === 'string' && metaSelects.includes(ti.select))) return null;
-      return denyReason(tool, `a body read; only the metadata selects ${metaSelects.map((e) => `\`${e}\``).join(', ')} run (a background agent reads a body and returns a short summary)`);
+      return denyReason(tool, `a body read; only the metadata selects ${metaSelects.map((e) => `\`${e}\``).join(', ')} run; a background agent reads a body and returns a short summary`);
     }
     return denyReason(tool, 'a read that can return a note or document body');
   }

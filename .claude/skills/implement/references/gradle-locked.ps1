@@ -15,7 +15,7 @@
 #     dependency or Gradle upgrade, never a routine verification.
 #
 # Usage (seat, compile self-check):
-#   & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
+#   & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:compileKotlin",":current:compileTestKotlin"
 # Usage (seat, scoped run of its own test classes; paths under src/test/kotlin map to --tests FQCNs):
 #   & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -TestFiles "current/src/test/kotlin/.../FooTest.kt current/src/test/kotlin/.../BarTest.kt"
 param(

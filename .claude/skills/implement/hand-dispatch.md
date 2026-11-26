@@ -44,7 +44,7 @@ Agent(
 
 **Why the prompt points at slots instead of carrying the commands.** The pinned self-check is fast
 and catches type and signature errors that gradle's incremental cache can mask until the
-orchestrator's later run, and its `ktlintFormat` step prevents lint fix-up commits. But the
+orchestrator's later run; lint is left to the orchestrator's `wave-build`, so no seat reformats files another seat owns. But the
 invocation's exact argument form, the foreign-file early exit and the retry bound only work if
 every agent gets them identically: a re-typed nested invocation flattens a `[string[]]` argument,
 and agents without the early exit burn their retries against another agent's mid-refactor file. A

@@ -116,13 +116,13 @@ for the full rule. Inline here only what the rule cannot supply — the wave-spe
 Run ONCE, via the lock helper, before committing:
 
 ```
-& "<feature worktree>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
+& "<feature worktree>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:compileKotlin",":current:compileTestKotlin"
 ```
 
 - Run it from the PowerShell tool with the call operator (`&`) exactly as written above — one
   process, `-Tasks` as a comma-separated ARRAY LITERAL of quoted strings. Do NOT wrap it in a
   nested `powershell -File ...`: the child process flattens the `[string[]]` parameter into one
-  string (gradle reports `project 'ktlintFormat,' not found`) and the run is lost.
+  string (gradle reports `project 'compileKotlin,' not found`) and the run is lost.
 - **Where `EXIT` comes from:** the lock helper prints `EXIT=<n>` as its final line and exits with
   that same code, so the value is read off the helper's own output — nothing else to capture.
   Never pipe the helper (or any gradle invocation) through `tail`/`head`: the pipeline reports the
@@ -136,7 +136,7 @@ Run ONCE, via the lock helper, before committing:
   retry: the file belongs to another agent mid-flight and will change under you.
 - `EXIT≠0` with at least one error in a file you own → fix and re-run, **max 3 invocations
   total**. Still red on your own files: commit nothing, report the error verbatim, return.
-- `:current:ktlintFormat` may reformat files you do not own. Never stage those.
+- Lint is not yours: the orchestrator's `wave-build` runs `ktlintCheck` once for the wave and fixes what it finds.
 - **Report the classification you just made**, in the return line's `compile:` field: `EXIT=0`, or
   `EXIT=<n> (foreign-only)`, or `EXIT=<n> (own-file-errors: <files>)`. A bare `EXIT=1` reads as
   routine foreign noise to the orchestrator; an own-file failure reported that way surfaces only
