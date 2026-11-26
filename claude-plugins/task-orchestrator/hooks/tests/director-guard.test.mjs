@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { directorMarkerPath, codeModeMarkerPath } from '../execution-mode.mjs';
-import { DIRECTOR_SKILL_NAMES, DIRECTOR_BASH_ALLOW, REASON_PREFIX, isDirectorSkillCall, bashAllowed, guardDecision } from '../director-guard.mjs';
+import { DIRECTOR_SKILL_NAMES, DIRECTOR_BASH_ALLOW, REASON_PREFIX, isDirectorSkillCall, bashAllowed, guardDecision, isAsyncAgentHost, ASYNC_AGENT_ENTRYPOINTS } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
 const HOOKS_CONFIG = fileURLToPath(new URL('../hooks-config.json', import.meta.url));
@@ -65,7 +65,7 @@ function listFiles(dir) {
 
 function exec(fx, stdin, extraEnv = {}) {
   const r = spawnSync(process.execPath, [HOOK], {
-    env: { ...process.env, TASK_ORCHESTRATOR_MODE: '', TEMP: fx.tmpDir, TMP: fx.tmpDir, TMPDIR: fx.tmpDir, ...extraEnv },
+    env: { ...process.env, TASK_ORCHESTRATOR_MODE: '', CLAUDE_CODE_ENTRYPOINT: '', TEMP: fx.tmpDir, TMP: fx.tmpDir, TMPDIR: fx.tmpDir, ...extraEnv },
     encoding: 'utf-8',
     cwd: fx.dir,
     input: typeof stdin === 'string' ? stdin : JSON.stringify(stdin),
@@ -192,11 +192,11 @@ test('S6: bashAllowed unit', () => {
 });
 
 // S7
-test('S7: Agent run_in_background true (or the string a field-less host passes, see BG1); nothing else', () => {
+test('S7: Agent run_in_background strictly boolean true (no desktop entrypoint)', () => {
   const fx = fixture();
   plant(fx, 's');
   assert.deepEqual(exec(fx, call('Agent', { run_in_background: true })), {});
-  for (const v of [undefined, false, 'false', 1]) {
+  for (const v of [undefined, false, 'true', 'false', 1]) {
     const input = v === undefined ? {} : { run_in_background: v };
     assert.ok(reasonOf(exec(fx, call('Agent', input))).startsWith(REASON_PREFIX), String(v));
   }
@@ -310,10 +310,10 @@ const codeModePath = (fx, sid) => withTmp(fx, () => codeModeMarkerPath(sid));
 const repl = (extra) => call('REPL', { code: 'await Agent({})' }, extra);
 
 test('CM1: guardDecision Agent {} in director: allowed with codeMode true, denied with codeMode false', () => {
-  assert.equal(guardDecision(call('Agent', {}), { director: true, codeMode: true }), null);
-  assert.ok(guardDecision(call('Agent', {}), { director: true, codeMode: false }).startsWith(REASON_PREFIX));
-  assert.equal(guardDecision(call('Agent', {}), { director: true, codeMode: () => true }), null);
-  assert.ok(guardDecision(call('Agent', {}), { director: true, codeMode: () => false }).includes('a foreground dispatch'));
+  assert.equal(guardDecision(call('Agent', {}), { env: {}, director: true, codeMode: true }), null);
+  assert.ok(guardDecision(call('Agent', {}), { env: {}, director: true, codeMode: false }).startsWith(REASON_PREFIX));
+  assert.equal(guardDecision(call('Agent', {}), { env: {}, director: true, codeMode: () => true }), null);
+  assert.ok(guardDecision(call('Agent', {}), { env: {}, director: true, codeMode: () => false }).includes('a foreground dispatch'));
 });
 
 test('CM2: director marker + main REPL call writes the code-mode marker, then Agent {prompt} is allowed', () => {
@@ -358,22 +358,45 @@ test('CM6: REPL before director entry, then director Skill, then Agent {} -> all
   assert.deepEqual(exec(fx, call('Agent', {})), {});
 });
 
-// Item b79df6f5: the desktop app's Agent schema has no run_in_background, so the host passes the field the model
-// sends through as the string 'true'. Only exactly true or 'true' allows; any other value is still a foreground dispatch.
-test('BG1: director Agent with run_in_background "true" (string) is allowed; other values stay denied', () => {
-  assert.equal(guardDecision(call('Agent', { prompt: 'x', run_in_background: 'true' }), { director: true, codeMode: false }), null);
-  assert.equal(guardDecision(call('Agent', { prompt: 'x', run_in_background: true }), { director: true, codeMode: false }), null);
-  for (const v of ['false', 'TRUE', ' true', '1', 1, false, null, {}]) {
-    const r = guardDecision(call('Agent', { prompt: 'x', run_in_background: v }), { director: true, codeMode: false });
-    assert.ok(typeof r === 'string' && r.includes('a foreground dispatch'), `value ${JSON.stringify(v)}`);
+// Item b79df6f5: the desktop app's Agent schema has no run_in_background (every subagent runs in the background),
+// and the host drops the field before PreToolUse, so the input never shows it (live check 2026-11-26). The entrypoint
+// CLAUDE_CODE_ENTRYPOINT=claude-desktop is the signal; elsewhere only a boolean true allows.
+const DESKTOP = { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' };
+
+test('BG1: under the desktop entrypoint every director Agent call is allowed, with or without the field', () => {
+  for (const ti of [{ prompt: 'x' }, { prompt: 'x', run_in_background: false }, { prompt: 'x', run_in_background: true }]) {
+    assert.equal(guardDecision(call('Agent', ti), { env: DESKTOP, director: true, codeMode: false }), null, JSON.stringify(ti));
+  }
+  assert.equal(isAsyncAgentHost(DESKTOP), true);
+  assert.deepEqual([...ASYNC_AGENT_ENTRYPOINTS], ['claude-desktop']);
+  assert.ok(Object.isFrozen(ASYNC_AGENT_ENTRYPOINTS));
+});
+
+test('BG2: any other entrypoint, or none, allows only a boolean true; the string "true" is a foreground dispatch', () => {
+  for (const env of [{}, { CLAUDE_CODE_ENTRYPOINT: 'cli' }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }, { CLAUDE_CODE_ENTRYPOINT: 'Claude-Desktop' },
+    { CLAUDE_CODE_ENTRYPOINT: ' claude-desktop' }, { CLAUDE_CODE_ENTRYPOINT: '' }]) {
+    assert.equal(isAsyncAgentHost(env), false, JSON.stringify(env));
+    assert.equal(guardDecision(call('Agent', { prompt: 'x', run_in_background: true }), { env, director: true, codeMode: false }), null);
+    for (const v of [undefined, 'true', false, 1]) {
+      const ti = v === undefined ? { prompt: 'x' } : { prompt: 'x', run_in_background: v };
+      const r = guardDecision(call('Agent', ti), { env, director: true, codeMode: false });
+      assert.ok(typeof r === 'string' && r.includes('a foreground dispatch'), `${JSON.stringify(env)} ${JSON.stringify(v)}`);
+    }
   }
 });
 
-test('BG2: subprocess, director marker, Agent with run_in_background "true" -> {}', () => {
+test('BG3: subprocess, director marker: the desktop entrypoint allows Agent {}; without it Agent {} denies', () => {
   const fx = fixture();
   plant(fx, 's');
-  assert.deepEqual(exec(fx, call('Agent', { prompt: 'x', run_in_background: 'true' })), {});
-  assert.ok(reasonOf(exec(fx, call('Agent', { prompt: 'x', run_in_background: 'false' }))).startsWith(REASON_PREFIX));
+  assert.deepEqual(exec(fx, call('Agent', { prompt: 'x' }), DESKTOP), {});
+  assert.ok(reasonOf(exec(fx, call('Agent', { prompt: 'x' }))).startsWith(REASON_PREFIX));
+});
+
+test('BG4: the desktop entrypoint loosens only Agent: Read and Bash cat still deny', () => {
+  const fx = fixture();
+  plant(fx, 's');
+  assert.ok(reasonOf(exec(fx, call('Read', {}), DESKTOP)).startsWith(REASON_PREFIX));
+  assert.ok(reasonOf(exec(fx, bash('cat f'), DESKTOP)).startsWith(REASON_PREFIX));
 });
 
 test('CM7: the code-mode marker does not loosen Read or Bash cat', () => {

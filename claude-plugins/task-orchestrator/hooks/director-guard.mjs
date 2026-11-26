@@ -26,8 +26,10 @@
 //    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
-//    (so no patch, diff or file output), and Agent is denied unless `run_in_background` is `true` (or the string `'true'`, as a host whose Agent schema lacks the field passes it) or the session is in
-//    Code Mode (job 3: Code Mode's Agent has no such field and always launches in the background). SendMessage and ListAgents are never denied, a call carrying
+//    (so no patch, diff or file output), and Agent is denied unless `run_in_background` is `true`, the host's every Agent call runs in the
+//    background (CLAUDE_CODE_ENTRYPOINT in ASYNC_AGENT_ENTRYPOINTS: the desktop app, whose Agent has no such field and
+//    whose host drops it before this hook runs), or the session is in Code Mode (job 3: Code Mode's Agent has no such
+//    field and always launches in the background). SendMessage and ListAgents are never denied, a call carrying
 //    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
 //
 // 3. Code Mode marker. A REPL call from the main session (non-empty `session_id`, no `agent_id`, not headless)
@@ -270,6 +272,15 @@ function ghPrTokensAllowed(tokens, isList) {
   return true;
 }
 
+/** Entrypoints whose Agent tool only launches in the background, so no Agent call there can be a foreground dispatch. */
+export const ASYNC_AGENT_ENTRYPOINTS = Object.freeze(['claude-desktop']);
+
+/** True when CLAUDE_CODE_ENTRYPOINT names a host whose every Agent call runs in the background. */
+export function isAsyncAgentHost(env) {
+  const entry = env?.CLAUDE_CODE_ENTRYPOINT;
+  return typeof entry === 'string' && ASYNC_AGENT_ENTRYPOINTS.includes(entry);
+}
+
 function denyReason(tool, detail) {
   return `${REASON_PREFIX} a director session does not call \`${tool}\` (${detail}). ${REMEDY}`;
 }
@@ -300,9 +311,10 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
     return denyReason('Bash', `only ${allowed} run, unchained and without redirection or substitution, with only listing flags on \`git log\`, \`git status\` and \`git branch\``);
   }
   if (tool === 'Agent') {
-    // A host whose Agent schema has no such field (the desktop app's async-only Agent) passes it through as the string 'true'.
-    const bg = toolInputOf(input).run_in_background;
-    if (bg === true || bg === 'true') return null;
+    if (toolInputOf(input).run_in_background === true) return null;
+    // The desktop app's Agent has no run_in_background field (every subagent runs in the background), and the host
+    // drops the field before this hook runs, so the input cannot show it; the entrypoint can.
+    if (isAsyncAgentHost(env)) return null;
     const inCodeMode =
       typeof codeMode === 'boolean' ? codeMode : typeof codeMode === 'function' ? codeMode(input) === true : isCodeModeSession(input);
     if (inCodeMode) return null;
