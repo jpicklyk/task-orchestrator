@@ -75,7 +75,7 @@ principal. Stdio needs no opt-in. Render the loopback SECURITY caveat below and 
 Both keys are required together — `API_AUTH_MODE=none` alone
 still fails startup; `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored.
 
-**Bearer (token file):**
+**Bearer (token file)** (file format: [`fleet-deployment.md`, Bearer token secret file](../../../../../current/docs/fleet-deployment.md#bearer-token-secret-file)):
 ```
 -e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml \
 -v <host-path-to-api-tokens.yaml>:/run/secrets/api-tokens.yaml:ro

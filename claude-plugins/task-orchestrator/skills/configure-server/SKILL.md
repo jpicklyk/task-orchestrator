@@ -307,7 +307,7 @@ also uses the guard.
 
 In bearer mode the director entry gets its own token-file entry, so its calls carry their own identity and audit trail. Two token properties matter for decisions on a run: `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision class (a non-human credential cannot), and `profile: director` confines a token to the director path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`). Both are set in the token file ([fleet deployment](../../../../current/docs/fleet-deployment.md)). A token-file token has proof `issued`, so bearer with `kind: human` is enough; jwks is not required.
 
-Render a two-entry token file (placeholders only; the user generates the digests; never write a token or a real digest):
+Render a two-entry token file (placeholders only; the user generates the digests; never write a token or a real digest; format and digest command: [fleet deployment, Bearer token secret file](../../../../current/docs/fleet-deployment.md#bearer-token-secret-file)):
 
 ```yaml
 version: 1

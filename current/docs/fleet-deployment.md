@@ -494,6 +494,40 @@ API_ALLOW_UNAUTHENTICATED=true
 
 ### Bearer token secret file
 
+**Token file format (version 1):**
+
+```yaml
+version: 1
+tokens:
+  - id: dashboard-reader
+    description: "Read-only dashboard token"
+    token_sha256: "e3b0c44298fc1c149afbf4c8996fb924..."  # 64 lowercase hex chars
+    capabilities:
+      - read
+    scope:
+      root_ids:
+        - "550e8400-e29b-41d4-a716-446655440000"
+    expires_at: "2027-01-01T00:00:00Z"   # optional ISO-8601
+  - id: admin-token
+    token_sha256: "..."
+    capabilities:
+      - admin
+```
+
+**Generating `token_sha256`** — the digest must cover the token's exact bytes with **no trailing newline**:
+
+```bash
+# macOS / Linux / Git Bash
+printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
+```
+```powershell
+# Windows PowerShell
+([System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash(
+  [System.Text.Encoding]::UTF8.GetBytes($token))) -replace '-','').ToLower()
+```
+
+> Do **not** use `openssl dgst -sha256 <<< "$TOKEN"` or `echo "$TOKEN" | …` — `<<<` and `echo` append a newline, so the digest won't match the token sent in requests (every call returns `401`). See the [quick-start REST API walkthrough](quick-start.md) for the full token-generation flow.
+
 Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
