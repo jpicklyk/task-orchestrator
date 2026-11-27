@@ -294,7 +294,11 @@ class ItemsReadNextRankTest {
 
             assertEquals(true, first["claimed"]?.jsonPrimitive?.content?.toBoolean(), "$first")
             assertEquals("rank10", rig.title(first.getValue("itemId").jsonPrimitive.content), "$first")
-            assertEquals("rank20", rig.title(second.getValue("itemId").jsonPrimitive.content), "the next claim continues the order: $second")
+            assertEquals(
+                "rank20",
+                rig.title(second.getValue("itemId").jsonPrimitive.content),
+                "the next claim continues the order: $second"
+            )
         }
 
     @Test
@@ -322,7 +326,7 @@ class ItemsReadNextRankTest {
 
     // ------------------------------------------------------------------ S13 features (AC9)
 
-    private val DECLARED_TYPE_YAML = "work_item_schemas:\n  test-item:\n    notes: []\n"
+    private val declaredTypeYaml = "work_item_schemas:\n  test-item:\n    notes: []\n"
 
     private val expectedTail = listOf("profileSets", "rank", "createTreeExistingDeps")
 
@@ -334,7 +338,7 @@ class ItemsReadNextRankTest {
     @Test
     fun `S13 items_read schema and GET info advertise rank and createTreeExistingDeps in that order`(): Unit =
         // A declared type, so the schema answer is not the schema-free one (which carries no features).
-        irApp(db.db, dir, yaml = DECLARED_TYPE_YAML) { rig ->
+        irApp(db.db, dir, yaml = declaredTypeYaml) { rig ->
             val item = rig.rk("anchor")
 
             val schema = select("""{"select":"schema","itemId":"${item.id}"}""")

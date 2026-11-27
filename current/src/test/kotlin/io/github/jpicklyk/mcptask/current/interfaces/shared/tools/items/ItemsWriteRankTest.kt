@@ -176,16 +176,16 @@ class ItemsWriteRankTest {
     }
 
     @Test
-    fun `S9 create with a string rank is refused and writes nothing`() = rankRefusedOnCreate(JsonPrimitive("ten"), "string")
+    fun `S9 create with a string rank is refused and writes nothing`(): Unit = rankRefusedOnCreate(JsonPrimitive("ten"), "string")
 
     @Test
-    fun `S9 create with a boolean rank is refused and writes nothing`() = rankRefusedOnCreate(JsonPrimitive(true), "boolean")
+    fun `S9 create with a boolean rank is refused and writes nothing`(): Unit = rankRefusedOnCreate(JsonPrimitive(true), "boolean")
 
     @Test
-    fun `S9 create with a fractional rank is refused and writes nothing`() = rankRefusedOnCreate(JsonPrimitive(1.5), "fraction")
+    fun `S9 create with a fractional rank is refused and writes nothing`(): Unit = rankRefusedOnCreate(JsonPrimitive(1.5), "fraction")
 
     @Test
-    fun `S9 create with a rank one past the 32-bit maximum is refused and writes nothing`() =
+    fun `S9 create with a rank one past the 32-bit maximum is refused and writes nothing`(): Unit =
         rankRefusedOnCreate(JsonPrimitive(2147483648L), "int-max-plus-one")
 
     @Test
@@ -193,8 +193,17 @@ class ItemsWriteRankTest {
         irApp(db.db, dir, yaml = RANK_YAML) { rig ->
             val body = rig.itemsWrite(createOp("Quoted", null, TEST_ITEM_TYPE, "rank" to JsonPrimitive("10")))
 
-            val accepted = body["error"] == null && body["data"]?.jsonObject?.get("results")?.jsonArray?.firstOrNull()
-                ?.jsonObject?.get("ok")?.jsonPrimitive?.content == "true"
+            val accepted =
+                body["error"] == null &&
+                    body["data"]
+                        ?.jsonObject
+                        ?.get("results")
+                        ?.jsonArray
+                        ?.firstOrNull()
+                        ?.jsonObject
+                        ?.get("ok")
+                        ?.jsonPrimitive
+                        ?.content == "true"
             if (accepted) {
                 assertEquals(10, rig.stored(body.okId()).rank, "accepted: the stored rank is the number")
             } else {
@@ -402,7 +411,12 @@ class ItemsWriteRankTest {
             assertEquals(1, updated.size, "one item.updated row: ${rows.map { it.type }}")
             assertEquals(
                 listOf("rank"),
-                updated.single().payload().getValue("changedFields").jsonArray.map { it.jsonPrimitive.content },
+                updated
+                    .single()
+                    .payload()
+                    .getValue("changedFields")
+                    .jsonArray
+                    .map { it.jsonPrimitive.content },
                 "exactly rank changed"
             )
             assertEquals(v0 + 1, rig.stored(id).version)
@@ -417,9 +431,21 @@ class ItemsWriteRankTest {
             val (_, clearRows) = rig.written { rig.itemsWrite(updateOp(id, "clear" to strings("rank"))).okResult() }
 
             val titleFields =
-                titleRows.single { it.type == "item.updated" }.payload().getValue("changedFields").jsonArray.map { it.jsonPrimitive.content }
+                titleRows
+                    .single { it.type == "item.updated" }
+                    .payload()
+                    .getValue(
+                        "changedFields"
+                    ).jsonArray
+                    .map { it.jsonPrimitive.content }
             val clearFields =
-                clearRows.single { it.type == "item.updated" }.payload().getValue("changedFields").jsonArray.map { it.jsonPrimitive.content }
+                clearRows
+                    .single { it.type == "item.updated" }
+                    .payload()
+                    .getValue(
+                        "changedFields"
+                    ).jsonArray
+                    .map { it.jsonPrimitive.content }
             assertEquals(listOf("title"), titleFields)
             assertEquals(listOf("rank"), clearFields, "clearing a rank is a rank change")
         }
@@ -436,6 +462,10 @@ class ItemsWriteRankTest {
 
             assertEquals(1, rig.stored(page).rank, "the lifecycle-free item stores its rank")
             assertEquals("1", getItem(page).getValue("rank").jsonPrimitive.content)
-            assertEquals(listOf("Work"), r.items.map { it.getValue("title").jsonPrimitive.content }, "control: the lifecycle item is listed")
+            assertEquals(
+                listOf("Work"),
+                r.items.map { it.getValue("title").jsonPrimitive.content },
+                "control: the lifecycle item is listed"
+            )
         }
 }
