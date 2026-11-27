@@ -38,7 +38,7 @@ const PLUGIN_DOCS_READ = 'mcp__plugin_x_task-orchestrator__docs_read';
 const IMPLEMENT_WAVE = 'task-orchestrator:implement-wave';
 
 const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|Artifact|ArtifactData|ArtifactComments|TaskOutput|LSP|REPL';
-const GROUP2_TOOLS = ['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write'];
+const GROUP2_TOOLS = ['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write', 'decisions_write'];
 const GROUP2_MATCHER = orchestratorToolMatcher(GROUP2_TOOLS);
 
 const tracked = [];
@@ -599,4 +599,22 @@ test('K6/P5: a literal .. that lands inside a skill or plugin is denied; a relat
   }
   assert.equal(isPluginFile(rel), true, 'the file itself is a plugin file');
   denies(call('Bash', { command: `node ${rel}` }), rel);
+});
+
+test('G1: decisions_write raise denies under the marker, on both connections', () => {
+  for (const tool of [TO('decisions_write'), TO_DIR('decisions_write')]) denies(call(tool, { ops: [{ op: 'raise' }] }), tool);
+});
+
+test('G2: the five decisions_write ops, a batch and describe are allowed; decisions_read list is allowed', () => {
+  for (const tool of [TO('decisions_write'), TO_DIR('decisions_write')]) {
+    for (const op of ['ack', 'answer', 'delegate', 'escalate', 'withdraw']) allows(call(tool, { ops: [{ op }] }), `${tool} ${op}`);
+    allows(call(tool, { ops: [{ op: 'ack' }, { op: 'answer' }] }), `${tool} batch`);
+    allows(call(tool, { describe: true }), `${tool} describe`);
+  }
+  allows(call(TO('decisions_read'), { select: 'list' }), 'decisions_read list');
+});
+
+test('G3: a decisions_write batch mixing raise with an allowed op, or an empty one, denies', () => {
+  denies(call(TO('decisions_write'), { ops: [{ op: 'answer' }, { op: 'raise' }] }), 'raise+answer');
+  for (const ti of [{}, { ops: [] }, { ops: [null] }]) denies(call(TO('decisions_write'), ti), JSON.stringify(ti));
 });

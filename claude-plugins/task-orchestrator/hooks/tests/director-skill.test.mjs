@@ -83,7 +83,7 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
     assert.deepEqual(checkToCall(b.value, CATALOG), [], 'block at line ' + b.line + ' catalog check');
     pairs.add(b.value.tool + ' ' + (b.value.select || b.value.op));
   }
-  for (const p of ['runs_read list', 'runs_read frontier', 'runs_read decisions', 'report rollup', 'items_read blocked', 'items_read overview', 'runs_write answer', 'runs_write withdraw']) {
+  for (const p of ['runs_read list', 'runs_read frontier', 'decisions_read list', 'report rollup', 'items_read blocked', 'items_read overview', 'decisions_write answer', 'decisions_write withdraw']) {
     assert.ok(pairs.has(p), 'missing to-call block: ' + p);
   }
   const list = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'list');
@@ -91,7 +91,7 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
   assert.equal(list.value.args.status, 'open');
   const statuses = blocks.filter((b) => b.value.tool === 'runs_read' && b.value.select === 'list').map((b) => b.value.args.status);
   assert.ok(statuses.includes('open') && statuses.includes('paused'), 'list blocks for open and paused: ' + statuses);
-  const dec = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'decisions');
+  const dec = blocks.find((b) => b.value.tool === 'decisions_read' && b.value.select === 'list' && b.value.args.rootId);
   assert.ok(dec && dec.value.args.rootId, 'decisions read is root-wide (rootId)');
   assert.equal(dec.value.args.runId, undefined, 'decisions read is not per run');
 });
@@ -169,7 +169,7 @@ test('S13: agent file frontmatter and allow-list', () => {
   assert.ok(line, 'tools line');
   const tools = line.slice('tools:'.length).split(',').map((t) => t.trim());
   for (const t of ['Agent', 'Skill', 'SendMessage', 'ListAgents', 'PushNotification']) assert.ok(tools.includes(t), 'tools missing: ' + t);
-  for (const t of ['runs_read', 'runs_write', 'report', 'items_read', 'deps_read']) {
+  for (const t of ['runs_read', 'runs_write', 'decisions_read', 'decisions_write', 'report', 'items_read', 'deps_read']) {
     assert.ok(tools.includes('mcp__mcp-task-orchestrator-director__' + t), 'tools missing director MCP tool: ' + t);
   }
   for (const t of ['Read', 'Edit', 'Write', 'Bash', 'NotebookEdit', 'Glob', 'Grep', 'WebFetch']) assert.ok(!tools.includes(t), 'tools must not include: ' + t);

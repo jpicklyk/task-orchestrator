@@ -6,6 +6,8 @@ exists in config), **see** (the board shows it), **answer** (a director or human
 orchestrator side (the orchestration connection). The director side is in
 `/task-orchestrator:director`.
 
+Where the server does not advertise `decisionTools` (`items_read` `schema` features), use `runs_write` `raise` and `withdraw` and `runs_read` `decision` with the same arguments.
+
 ## 1. Who does what
 
 | Actor | Does |
@@ -28,7 +30,7 @@ the request alone, without reading the notes. The protocol rules and `orchestrat
 hold the duty.
 
 ```to-call
-{"tool": "runs_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "c04baf7c:implementer:dev-1", "question": "The planned approach fails because X. Proceed with Y?", "options": [{"key": "proceed", "label": "Use Y", "consequence": "Y replaces the planned approach"}, {"key": "keep", "label": "Keep the plan", "consequence": "The plan stands and X is worked around"}], "recommended": "proceed", "context": "X fails on the fixture in the task-scope test plan (step 3); Y passes it and keeps the public signature.", "links": [{"kind": "note", "ref": "item:c04baf7c#task-scope"}], "itemId": "c04baf7c"}}
+{"tool": "decisions_write", "op": "raise", "args": {"class": "deviation", "block": true, "dedupeKey": "c04baf7c:implementer:dev-1", "question": "The planned approach fails because X. Proceed with Y?", "options": [{"key": "proceed", "label": "Use Y", "consequence": "Y replaces the planned approach"}, {"key": "keep", "label": "Keep the plan", "consequence": "The plan stands and X is worked around"}], "recommended": "proceed", "context": "X fails on the fixture in the task-scope test plan (step 3); Y passes it and keeps the public signature.", "links": [{"kind": "note", "ref": "item:c04baf7c#task-scope"}], "itemId": "c04baf7c"}}
 ```
 
 - `dedupeKey` convention: `<short-id>:<raiser>:<kind>-<n>`. Re-raising the same key returns the
@@ -73,7 +75,7 @@ Reasons `manual` and `resource` are not decisions; see `/dependency-manager`.
 The agent that raised is gone; the ruling must reach the next one. After the resume, upsert an
 orchestrator-owned `fix-decisions-<n>` note on the item (role = the `newRole` the resume answered).
 Put in it the decision id, the chosen option key (from `context` `decisions[]`), and the label, text
-and rationale when a director-profile connection can read `runs_read` `decision`. A withdrawn decision means
+and rationale when a director-profile connection can read `decisions_read` `list` (`decisionIds`). A withdrawn decision means
 "proceed per the queue notes". Then re-dispatch the phase owner. `agents/implementer.md` already
 treats `fix-decisions-*` as binding.
 

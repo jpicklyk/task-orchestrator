@@ -29,12 +29,12 @@ Calling the skill again refreshes the marker and the dashboard.
   scripts, this skill's included) and any file inside an installed plugin (not a plugin's source in the repository
   you work in: that is work content). `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has an allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
-- Never read a note body, a diff or test output, with two exceptions: a decision request (`runs_read` `decision`) and a
+- Never read a note body, a diff or test output, with two exceptions: a decision request (`decisions_read` `list` with `decisionIds`) and a
   run rollup (`report` `rollup`). A decision carries its evidence in `context`; if not, a background
   agent reads the notes and returns ids, a verdict and one line.
 - One board read per wake; act on its ids and do not re-read.
 - Never drive work. `advance`, `items_write`, `notes_write`, `deps_write` and `docs_write` are denied;
-  `runs_write` runs only `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` and `reissue`.
+  `decisions_write` runs only `ack`, `answer`, `delegate`, `escalate` and `withdraw`; `runs_write` runs only `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` and `reissue`.
 - `Skill` is open: each call a loaded skill makes is checked on its own.
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
@@ -63,8 +63,10 @@ The whole tool budget of a director session:
 
 | Tool | Use |
 |------|-----|
-| `runs_read` | Runs, frontier, decisions, one decision request |
-| `runs_write` | `answer` and `ack` on decisions; `withdraw` only a decision this principal raised without a seat; `pause`, `resume` and `close` on a run (below) |
+| `runs_read` | Runs and frontier |
+| `decisions_read` | `list`: decisions, and one decision request by `decisionIds` |
+| `decisions_write` | `answer` and `ack` on decisions; `withdraw` only a decision this principal raised without a seat |
+| `runs_write` | `pause`, `resume` and `close` on a run (below) |
 | `report` | `rollup` per run; `usage`, `gates`, `contention`, `waste` on request |
 | `items_read` | `blocked` under the project root, for blocked work; `overview` for counts |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
@@ -73,7 +75,7 @@ The whole tool budget of a director session:
 | `Skill` | Any skill (`task-orchestrator:model-effort`, entry skills); each call it makes is guarded |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
-The five MCP tools come from the director profile. Anything else (notes, items writes,
+The MCP tools come from the director profile. Anything else (notes, items writes,
 `advance`, config) is an orchestrator's job. `runs_write` `open` is denied: a session that opens a run
 holds its token and is its orchestrator.
 
@@ -92,15 +94,16 @@ seat is still active, and a close leaves open decisions open (its snapshot's `op
 the orchestration one. Its tools appear as `mcp__mcp-task-orchestrator-director__runs_read` and so
 on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 
+This skill uses `decisions_read` and `decisions_write` when the director connection lists `decisions_read`. When it does not (an older server), use the equivalents with the same arguments: `runs_read` `decisions` (no status filter: keep `open` and `acknowledged` yourself) and `decision`; `runs_write` `answer`, `ack` and `withdraw`.
+
 That connection uses the server's director profile (`/mcp/director` over HTTP, or
 `MCP_TOOL_PROFILE=director` on stdio), which has no body read, so the server enforces the rule there.
 On the orchestration connection the guard enforces the same read rule (the altitude rule above),
 telling the two apart by the server key. Use the hardened entry (below) when enforcement matters.
 
 If the director profile's tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
-then the director-only members are unavailable on the orchestration connection: `runs_read`
-`decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
-tool. Decisions cannot be shown or answered until init runs.
+then the director-only members are unavailable on the orchestration connection (`hooks/lib/tool-catalog.json`
+lists each tool's profiles). Decisions cannot be answered until init runs.
 
 ## Dashboard
 
@@ -128,13 +131,10 @@ with `stalled`):
 ```
 
 3. Decisions under the project root, in one read: it returns run and run-less decisions together, newest first
-(follow `page.next`). The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`
-and drop the others yourself. Group them by `runId`, with a "no run" group. `overdue: true` narrows to the late ones. A summary carries `class`,
-`effectiveSeverity`, `overdue` and the `question` (cut to 120 characters), never the options: those
-come from the `decision` read when you answer.
+(follow `page.next`). Group them by `runId`, with a "no run" group. `overdue: true` narrows to the late ones.
 
 ```to-call
-{"tool": "runs_read", "select": "decisions", "args": {"rootId": "ce064d2c", "limit": 50}, "profile": "director"}
+{"tool": "decisions_read", "select": "list", "args": {"rootId": "ce064d2c", "status": ["open", "acknowledged"], "limit": 50}, "profile": "director"}
 ```
 
 4. The rollup per open or paused run (counts, stalls). This is one of the two bodies you may read:
@@ -189,7 +189,7 @@ Then ask the user which decision to take, or stop if none is open.
 Read the one decision request in full (the other body you may read):
 
 ```to-call
-{"tool": "runs_read", "select": "decision", "args": {"decisionId": "3f2a9c1e"}, "profile": "director"}
+{"tool": "decisions_read", "select": "list", "args": {"decisionIds": ["3f2a9c1e"], "includeContext": true}, "profile": "director"}
 ```
 
 Show the question, the options and any context it carries, and ask the user. Never answer on the
@@ -197,7 +197,7 @@ user's behalf unless they told you how to answer this class of decision. Then an
 user's rationale:
 
 ```to-call
-{"tool": "runs_write", "op": "answer", "args": {"decisionId": "3f2a9c1e", "option": "approve", "rationale": "Migration reviewed; table recreation is safe."}, "profile": "director"}
+{"tool": "decisions_write", "op": "answer", "args": {"decisionId": "3f2a9c1e", "option": "approve", "rationale": "Migration reviewed; table recreation is safe."}, "profile": "director"}
 ```
 
 An attempt-cap decision is answered with these options:
@@ -217,13 +217,12 @@ On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
   capability.
 - `scope: "principal_kind"`, `required: "human"`: a `human-only` decision; it needs a credential
   of kind `human`.
-- `scope: "principal_kind"`, `required: "director,human"`: the call did not arrive through the
-  director profile without a seat token (wrong connection, or a `seatToken` on the call).
+- `scope: "principal_kind"`, `required: "director,human"`: the call carried a `seatToken`, or its credential does not grant `decide` (`run/internal/app/DecisionPermissions.kt:29`).
 
 Withdraw a decision the run no longer needs (for example the user cancelled that work):
 
 ```to-call
-{"tool": "runs_write", "op": "withdraw", "args": {"decisionId": "3f2a9c1e"}, "profile": "director"}
+{"tool": "decisions_write", "op": "withdraw", "args": {"decisionId": "3f2a9c1e"}, "profile": "director"}
 ```
 
 Withdraw succeeds only for a decision this principal raised without a seat, or under the run

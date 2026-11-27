@@ -340,7 +340,7 @@ test('S9: hooks-config registers three director-guard groups, one hook each, tim
   const group1 = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|' + CONTENT_TOOL_NAMES.join('|') + '|REPL';
   assert.deepEqual(groups.map((g) => g.matcher).sort(), [
     group1,
-    orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write']),
+    orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read', 'advance', 'items_write', 'notes_write', 'deps_write', 'docs_write', 'runs_write', 'decisions_write']),
     hostToolMatcher(),
   ].sort());
 });

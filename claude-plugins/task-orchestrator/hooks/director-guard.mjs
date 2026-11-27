@@ -2,7 +2,7 @@
 // Director Guard Hook - PreToolUse, three registrations. Group 1: the exact tool names Skill, Read, Edit, Write, Bash,
 // PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool,
 // ReadMcpResourceDirTool, Artifact, ArtifactData, ArtifactComments, TaskOutput, LSP and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
-// tools and the write tools advance, items_write, notes_write, deps_write, docs_write and runs_write. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
+// tools and the write tools advance, items_write, notes_write, deps_write, docs_write, runs_write and decisions_write. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
 // Three jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
@@ -104,10 +104,13 @@ const ALTITUDE_SAFE_WORKFLOW = 'task-orchestrator:implement-wave';
  */
 export const DIRECTOR_RUNS_WRITE_OPS = Object.freeze(['answer', 'ack', 'withdraw', 'pause', 'resume', 'close', 'reissue']);
 
+/** The decisions_write ops a director session may send. raise (a run's own decision) is an orchestrator's job. */
+export const DIRECTOR_DECISIONS_WRITE_OPS = Object.freeze(['ack', 'answer', 'delegate', 'escalate', 'withdraw']);
+
 /** Task Orchestrator write tools a director session never calls: they drive work. runs_write is checked per op. */
 export const DIRECTOR_DENIED_WRITE_TOOLS = Object.freeze(['advance', 'items_write', 'notes_write', 'deps_write', 'docs_write']);
 
-const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write)$/;
+const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write|decisions_write)$/;
 const HOST_TOKEN = 'task-orchestrator';
 
 const REMEDY =
@@ -464,6 +467,13 @@ export function guardDecision(input, { env = process.env, director, codeMode } =
       const ops = Array.isArray(ti.ops) ? ti.ops : [];
       if (ops.length > 0 && ops.every((o) => isPlainObject(o) && DIRECTOR_RUNS_WRITE_OPS.includes(o.op))) return null;
       return denyReason(tool, `only the ${DIRECTOR_RUNS_WRITE_OPS.map((e) => `\`${e}\``).join(', ')} ops run (decision ops and run control); every op of the call must be one of them`);
+    }
+    if (mcp[1] === 'decisions_write') {
+      const ti = toolInputOf(input);
+      if (ti.describe === true) return null;
+      const ops = Array.isArray(ti.ops) ? ti.ops : [];
+      if (ops.length > 0 && ops.every((o) => isPlainObject(o) && DIRECTOR_DECISIONS_WRITE_OPS.includes(o.op))) return null;
+      return denyReason(tool, `only the ${DIRECTOR_DECISIONS_WRITE_OPS.map((e) => `\`${e}\``).join(', ')} ops run (decision ops); every op of the call must be one of them`);
     }
     if (mcp[1] === 'runs_read') {
       const ti = toolInputOf(input);

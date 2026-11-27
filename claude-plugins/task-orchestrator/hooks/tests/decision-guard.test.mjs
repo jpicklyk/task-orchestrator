@@ -104,17 +104,49 @@ test('S15 (contract item 5): exactly one PreToolUse group runs decision-guard.mj
   const groups = HOOKS_CONFIG.hooks.PreToolUse.filter((g) => g.hooks.some((h) => h.command.includes('decision-guard.mjs')));
   assert.equal(groups.length, 1);
   const [g] = groups;
-  assert.equal(g.matcher, orchestratorToolMatcher(['runs_write']));
+  assert.equal(g.matcher, orchestratorToolMatcher(['runs_write', 'decisions_write']));
   assert.equal(g.hooks.length, 1);
   assert.notEqual(g.hooks[0].onFailure, 'block');
   assert.equal(g.hooks[0].type, 'command');
   const total = (JSON.stringify(HOOKS_CONFIG).match(/decision-guard\.mjs/g) || []).length;
   assert.equal(total, 1, 'registered once across every event');
   const re = new RegExp(g.matcher);
-  for (const name of [TOOL, DIRECTOR_TOOL, 'mcp__plugin_task-orchestrator_task-orchestrator__runs_write']) {
+  for (const name of [TOOL, DIRECTOR_TOOL, 'mcp__plugin_task-orchestrator_task-orchestrator__runs_write', 'mcp__mcp-task-orchestrator__decisions_write', 'mcp__mcp-task-orchestrator-director__decisions_write']) {
     assert.ok(re.test(name), `expected ${name} to match`);
   }
-  for (const name of ['mcp__other__runs_write', 'mcp__mcp-task-orchestrator__runs_read', 'mcp__mcp-task-orchestrator__runs_write_x']) {
+  for (const name of ['mcp__other__runs_write', 'mcp__mcp-task-orchestrator__decisions_read', 'mcp__mcp-task-orchestrator__runs_read', 'mcp__mcp-task-orchestrator__runs_write_x']) {
     assert.ok(!re.test(name), `expected ${name} to be rejected`);
   }
+});
+
+const DMSG =
+  'A subagent never answers, acknowledges, delegates or escalates a decision. Raise it (decisions_write raise) or report it in your return; the director or the user answers.';
+const DDENY = denyOutput(DMSG);
+const DTOOL = 'mcp__mcp-task-orchestrator__decisions_write';
+const DDIRECTOR_TOOL = 'mcp__mcp-task-orchestrator-director__decisions_write';
+const dcall = (names, extra = {}) => call(ops(...names), { tool_name: DTOOL, ...extra });
+
+test('S16 (decisions_write): a subagent ack, answer, delegate or escalate is denied with the decisions message, on both entry names', () => {
+  for (const tool_name of [DTOOL, DDIRECTOR_TOOL]) {
+    for (const op of ['ack', 'answer', 'delegate', 'escalate']) {
+      assert.deepEqual(exec(call(ops(op), { tool_name })).out, DDENY, `${tool_name} ${op}`);
+    }
+  }
+});
+
+test('S17 (decisions_write): raise, withdraw and raise+withdraw give {}', () => {
+  for (const names of [['raise'], ['withdraw'], ['raise', 'withdraw']]) assert.deepEqual(exec(dcall(names)).out, {}, names.join('+'));
+});
+
+test('S18 (decisions_write): raise mixed with a denied op is denied', () => {
+  assert.deepEqual(exec(dcall(['raise', 'answer'])).out, DDENY);
+  assert.deepEqual(exec(dcall(['withdraw', 'escalate', 'raise'])).out, DDENY);
+});
+
+test('S19 (decisions_write): without agent_id the result is {}; the runs_write-only ops are not denied on decisions_write', () => {
+  for (const op of ['ack', 'answer', 'delegate', 'escalate']) {
+    assert.deepEqual(exec({ tool_name: DTOOL, tool_input: { ops: ops(op) } }).out, {}, op);
+    assert.deepEqual(exec(dcall([op], { agent_id: '' })).out, {}, `empty ${op}`);
+  }
+  for (const op of ['pause', 'resume', 'reissue']) assert.deepEqual(exec(dcall([op])).out, {}, op);
 });

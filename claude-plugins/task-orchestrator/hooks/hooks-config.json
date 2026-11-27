@@ -81,7 +81,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__runs_write$",
+        "matcher": "^mcp__.*task-orchestrator.*__(runs_write|decisions_write)$",
         "hooks": [
           {
             "type": "command",
@@ -113,7 +113,7 @@
       }
 ,
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write)$",
+        "matcher": "^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read|advance|items_write|notes_write|deps_write|docs_write|runs_write|decisions_write)$",
         "hooks": [
           {
             "type": "command",
@@ -162,7 +162,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__runs_read$",
+        "matcher": "^mcp__.*task-orchestrator.*__(runs_read|decisions_read)$",
         "hooks": [
           {
             "type": "command",

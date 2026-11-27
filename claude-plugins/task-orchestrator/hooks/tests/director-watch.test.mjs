@@ -294,10 +294,47 @@ test('registration: hooks-config wires director-watch on PostToolUse for runs_re
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf8'))
   const groups = cfg.hooks.PostToolUse.filter((g) => g.hooks.some((h) => h.command.includes('director-watch.mjs')))
   assert.equal(groups.length, 1)
-  assert.equal(groups[0].matcher, '^mcp__.*task-orchestrator.*__runs_read$')
+  assert.equal(groups[0].matcher, '^mcp__.*task-orchestrator.*__(runs_read|decisions_read)$')
   const hook = groups[0].hooks.find((h) => h.command.includes('director-watch.mjs'))
   assert.ok(hook.command.includes('node'), hook.command)
   assert.ok(hook.command.includes('${CLAUDE_PLUGIN_ROOT}/hooks/director-watch.mjs'), hook.command)
   assert.equal(hook.timeout, 5)
   assert.equal((JSON.stringify(cfg).match(/director-watch\.mjs/g) || []).length, 1)
+})
+// ---- decisions_read (W1-W4) ----
+
+const DECISIONS_READ = 'mcp__mcp-task-orchestrator__decisions_read'
+function listInput(session, items, extra = {}) {
+  return { tool_name: DECISIONS_READ, tool_input: { select: 'list' }, tool_response: wrap(okEnvelope({ items })), session_id: session, ...extra }
+}
+
+test('W1: a decisions_read list result with an open decision pushes, naming decisions_write (answer)', async () => {
+  const text = ctxOf(await run(listInput(sid('w1'), [d('dec-w1')]), {}, opts()))
+  assert.ok(text.startsWith('Decision waiting:'), text)
+  assert.ok(text.includes('dec-w1'), text)
+  assert.ok(text.includes('decisions_write (answer)'), text)
+})
+
+test('W2: an id pushed through one tool is not pushed again through the other', async () => {
+  const o = opts()
+  const s = sid('w2')
+  assert.ok(ctxOf(await run(listInput(s, [d('dec-w2')]), {}, o)).includes('dec-w2'))
+  assert.deepEqual(await run(decisionsInput(s, [d('dec-w2')]), {}, o), {})
+  const o2 = opts()
+  const s2 = sid('w2b')
+  assert.ok(ctxOf(await run(decisionsInput(s2, [d('dec-w2b')]), {}, o2)).includes('dec-w2b'))
+  assert.deepEqual(await run(listInput(s2, [d('dec-w2b')]), {}, o2), {})
+})
+
+test('W3: decisions_read with another select gives {}', async () => {
+  const input = listInput(sid('w3'), [d('dec-w3')])
+  input.tool_input = { select: 'get' }
+  assert.deepEqual(await run(input, {}, opts()), {})
+})
+
+test('W4: a runs_read decisions result still names runs_write (answer)', async () => {
+  const text = ctxOf(await run(decisionsInput(sid('w4'), [d('dec-w4')]), {}, opts()))
+  assert.ok(text.includes('runs_write (answer)'), text)
+  assert.ok(buildPush(['x']).includes('runs_write (answer)'))
+  assert.ok(buildPush(['x'], 'decisions_write').includes('decisions_write (answer)'))
 })

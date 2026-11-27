@@ -34,7 +34,7 @@ function raiseBlocks() {
       } catch {
         continue; // contract-doc-shape owns block validity
       }
-      if (call.tool === 'runs_write' && call.op === 'raise') blocks.push({ file: relative(PLUGIN, file), call });
+      if ((call.tool === 'runs_write' || call.tool === 'decisions_write') && call.op === 'raise') blocks.push({ file: relative(PLUGIN, file), call });
     }
   }
   return blocks;
@@ -43,11 +43,11 @@ function raiseBlocks() {
 test('E1: the plugin shows at least the two known raise examples', () => {
   const files = raiseBlocks().map((b) => b.file.replace(/\\/g, '/'));
   for (const f of ['agents/implementer.md', 'skills/status-progression/references/decisions.md']) {
-    assert.ok(files.includes(f), `a runs_write raise to-call block in ${f}`);
+    assert.ok(files.includes(f), `a raise to-call block in ${f}`);
   }
 });
 
-test('E2: every runs_write raise example fills context and at least one link', () => {
+test('E2: every raise example fills context and at least one link', () => {
   for (const { file, call } of raiseBlocks()) {
     const args = call.args ?? {};
     assert.equal(typeof args.context, 'string', `${file}: context is a string`);

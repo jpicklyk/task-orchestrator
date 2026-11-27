@@ -28,7 +28,7 @@ const EXPECTED = {
   'retro-trigger.mjs': ['runs_write'],
   'phase-guard-record.mjs': ['advance', 'items_read'],
   'dispatch-hint.mjs': ['advance'],
-  'decision-guard.mjs': ['runs_write'],
+  'decision-guard.mjs': ['runs_write', 'decisions_write'],
   'seat-skill-hint.mjs': ['advance', 'items_read'],
 };
 
