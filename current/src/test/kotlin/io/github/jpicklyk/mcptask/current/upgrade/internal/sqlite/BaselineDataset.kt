@@ -843,7 +843,8 @@ object BaselineDataset {
             "ack_at" to null,
             "answered_at" to null,
             "after_expiry" to 0,
-            "version" to 2
+            "version" to 2,
+            "waiting_on" to "director"
         )
         insert(
             conn,
@@ -873,7 +874,9 @@ object BaselineDataset {
             "ack_by_kind" to "human",
             "ack_at" to TS_PLUS_2,
             "after_expiry" to 0,
-            "version" to 1
+            "version" to 1,
+            "waiting_on" to "user",
+            "waiting_reason" to "Baseline waiting reason"
         )
         insert(
             conn,
@@ -909,10 +912,15 @@ object BaselineDataset {
             "answered_session_id" to "baseline-session",
             "answered_run_id" to id("run:paused"),
             "answered_seat" to "coordinator",
-            "answered_profile" to "director",
+            "answered_profile" to "rest",
             "answered_at" to TS_PLUS_3,
             "after_expiry" to 1,
-            "version" to 3
+            "version" to 3,
+            "answer_decided_by" to "director",
+            "answer_basis" to "delegation",
+            "answer_relayed" to 0,
+            "answer_within_autonomy" to 1,
+            "answer_links" to "[{\"kind\":\"url\",\"ref\":\"https://example.test/baseline-evidence\"}]"
         )
         insert(
             conn,

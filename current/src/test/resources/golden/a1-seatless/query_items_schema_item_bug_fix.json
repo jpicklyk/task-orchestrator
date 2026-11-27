@@ -99,7 +99,8 @@
             "seatSkills",
             "seatWrites",
             "orchestratorNotes",
-            "resumeGate"
+            "resumeGate",
+            "answerProvenance"
         ]
     },
     "metadata": {
