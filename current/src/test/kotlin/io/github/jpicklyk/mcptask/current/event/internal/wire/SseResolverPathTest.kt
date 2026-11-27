@@ -64,9 +64,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * pipeline became one [io.github.jpicklyk.mcptask.current.identity.CredentialResolver] (scenarios S8, S6 on the
  * SSE path, S11 on the SSE path and the S4 and S3 probes that reach `/events`).
  *
- * Oracles: `api-rest.md` section 1 failure table (missing or non-Bearer header: 401 `invalid_request`; bad or expired token: 401
+ * Oracles: the REST failure table (missing or non-Bearer header: 401 `invalid_request`; bad or expired token: 401
  * `invalid_token`; valid token without the required capability: 403 `forbidden` with `detail {scope: "capability", required}`),
- * section 21 (the stream needs `read`, the `?token=` query form is an opt-in), the R10 plan paragraph and task-scope item 7 (a
+ * the SSE route (the stream needs `read`, the `?token=` query form is an opt-in), the R10 plan paragraph and task-scope item 7 (a
  * credential with `profile: director` is `forbidden{scope: capability, required: "director"}` on any path other than
  * `/api/v1/ops/director/{tool}`, SSE included, whatever its capabilities), task-scope items 4 and 5 and decision D2 (an unknown or
  * non-string `to_kind` rejects the JWT; the JWT path is the same resolver as the bearer path). Expected values are literals.

@@ -2,8 +2,7 @@
 
 The canonical description of a Task Orchestrator config document: which keys exist, who owns them, what the server
 rejects, and how the server reports a rejection. The structure itself is published as a JSON Schema (draft 2020-12):
-[`config.schema.json`](../src/main/resources/config/config.schema.json), served by `GET /api/v1/config/schema`
-(see [REST API Reference](api-rest.md)).
+[`config.schema.json`](../src/main/resources/config/config.schema.json), served by `GET /api/v1/config/schema`.
 
 A config document is YAML. It reaches the server two ways: the server-wide file `.taskorchestrator/config.yaml`
 (imported into the database at every boot from `AGENT_CONFIG_DIR`, see [Fleet Deployment](fleet-deployment.md)), and a
@@ -456,6 +455,5 @@ item's current pin.
 
 - [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md): the
   schema-authoring guide (note entries, traits, seats, dispatch, resources) the plugin ships.
-- [REST API Reference](api-rest.md), sections "Config DTOs", "Config ETags", "Endpoints - Config JSON Schema" and "Endpoints - Ops (RPC)", for the routes.
 - [Workflow guide, Runs, Seats and Decisions](workflow-guide.md#12-runs-seats-and-decisions): how runs, seats and
   decisions use these keys.

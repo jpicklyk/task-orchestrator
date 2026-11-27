@@ -107,8 +107,7 @@ services:
       # to push each repo's config into the per-root DB store instead.
       AGENT_CONFIG_DIR: /project
       # Recommended single-developer posture: REST API on, unauthenticated, loopback-bound.
-      # See claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md
-      # and current/docs/api-rest.md §1 for the auth-mode rationale.
+      # See claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md for the auth-mode rationale.
       API_ENABLED: "true"
       API_AUTH_MODE: none
       API_ALLOW_UNAUTHENTICATED: "true"

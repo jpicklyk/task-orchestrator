@@ -2,7 +2,7 @@
 // S17-S19). Oracle: the frozen task-scope signatures and decision D4. A server is compatible iff its
 // `version` is a string whose leading integer (followed by . + - or end) is exactly 4 AND `features`
 // is an array containing the exact string 'seats'; every other object doc yields one warning line.
-// The well-known document shape is api-rest.md:870-886. Session-start is driven as a subprocess
+// Session-start is driven as a subprocess
 // against a node:http fake.
 
 import './hermetic-claude-config.mjs';

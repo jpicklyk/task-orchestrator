@@ -34,7 +34,7 @@ import kotlin.test.assertNull
  * (`clear: ["parentId"]`) are `forbidden{scope: root}` unless the caller is unrestricted or holds ADMIN. `required` is the sorted
  * listed root ids joined by a comma, or the empty string under a tag-only scope (D4). The old rules "a root create with a listed
  * tag is allowed" and "a listed root may clear its parentId" are deleted. `clear: ["parentId"]` on an item that already is
- * depth-0 stays a no-op (D5). A reparent is still judged on the NEW parent (api-rest.md: reparent rule unchanged, S10). Every
+ * depth-0 stays a no-op (D5). A reparent is still judged on the NEW parent (reparent rule unchanged, S10). Every
  * refusal precedes any write: the database snapshot is unchanged. Each forbidden assertion is paired with a control through the
  * same call shape that DOES write (ADMIN, unrestricted, or an in-scope parent).
  *

@@ -15,7 +15,6 @@
 
 **Reference**
 - [API Reference](api-reference.md)
-- [REST API Reference](api-rest.md)
 - [Config Reference](config-reference.md)
 - [Workflow Guide](workflow-guide.md)
 

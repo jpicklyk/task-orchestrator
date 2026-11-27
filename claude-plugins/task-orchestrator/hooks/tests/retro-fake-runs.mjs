@@ -7,7 +7,7 @@
 // and every REST scenario would degrade into a fail-open false green (see phase-guard.test.mjs:4).
 //
 // Oracle for the envelopes: current/docs/api-reference.md (runs_read list / frontier, runs_write
-// close / mark, "Response envelope", "List data") and current/docs/api-rest.md section 20a.
+// close / mark, "Response envelope", "List data").
 
 import './hermetic-claude-config.mjs';
 import { createServer } from 'node:http';
@@ -394,7 +394,7 @@ export async function startFakeRuns(init = {}) {
       const r = findRun(b.runId);
       if (!r) return send(res, 404, errEnvelope('not_found'));
       const rows = b.ended === true ? (r.seats ?? []) : [];
-      // api-rest.md section 20a: {runId, seats: [{assignmentId, itemId?, seat, attempt, status, assignedAt, endedAt?}]};
+      // {runId, seats: [{assignmentId, itemId?, seat, attempt, status, assignedAt, endedAt?}]};
       // the coordinator pseudo-seat has no itemId.
       const out = rows
         .filter((x) => b.itemId === undefined || x.itemId === b.itemId)

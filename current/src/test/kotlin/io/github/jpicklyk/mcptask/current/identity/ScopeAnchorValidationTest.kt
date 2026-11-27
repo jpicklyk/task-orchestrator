@@ -67,7 +67,7 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item 754ae3dc, run r-202610132225-754ae3dc) for anchor validation of principal scopes:
  * scenarios S11 and S12 of the frozen test-plan, plus the root test they share.
  *
- * Oracles (task-scope item 5 and decisions D1, D2; api-rest.md section 3 public text; never read from a run):
+ * Oracles (task-scope item 5 and decisions D1, D2; never read from a run):
  *  - D1 root test for an anchor: a stamped depth-0 item (`parentId == null && rootId == id`). A MISSING anchor is accepted and
  *    admits nothing (fail closed); only an EXISTING non-root anchor fails. An unstamped depth-0 row is not a stamped root.
  *  - JWT (D2): a credential whose `to_scope.root_ids` holds an existing non-root anchor resolves to null (the same 401

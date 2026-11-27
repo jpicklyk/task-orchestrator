@@ -2,7 +2,7 @@
 // frozen task-scope).
 //
 // Authored blind to the implementation. Oracles:
-//  - current/docs/api-rest.md section 21: the event types and their payload fields (`runId`, `decisionId`, `class`,
+//  - the SSE contract: the event types and their payload fields (`runId`, `decisionId`, `class`,
 //    `severity`, `rootId`), frame ids are the events seq (above 10^12), `Last-Event-ID` resume, `sync.lost` as the first
 //    frame of an unreplayable resume with the cause in `reason`, and the sentinel id to resume from.
 //  - task-scope AC4 and D6: which event kinds refresh, which only update the run summary, the per-generation string

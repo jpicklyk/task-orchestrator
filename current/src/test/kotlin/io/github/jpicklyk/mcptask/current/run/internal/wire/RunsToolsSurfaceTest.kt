@@ -52,7 +52,7 @@ import kotlin.test.assertTrue
  * director, capability READ; `runs_write` open and close in both, update in orchestration only, pause and resume in director only,
  * mark with the EMPTY set, every op capability RUNS, close the only destructive op, registered after `report`), the declared error
  * sets (open NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN / DUPLICATE; mark and get NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN; list NOT_FOUND /
- * AMBIGUOUS_ID), R5 AC5 (a member with an empty set is unknown on every MCP profile: `invalid_request` at `/ops/0/op`, nothing written; for an ops tool that is a failed ELEMENT, so the whole call is the 207 `partial_failure` of the envelope spec, resolved from api-rest.md and DirectorOpsRouteTest, not from the implementation), the frozen
+ * AMBIGUOUS_ID), R5 AC5 (a member with an empty set is unknown on every MCP profile: `invalid_request` at `/ops/0/op`, nothing written; for an ops tool that is a failed ELEMENT, so the whole call is the 207 `partial_failure` of the envelope spec, resolved from DirectorOpsRouteTest, not from the implementation), the frozen
  * per-tool ceiling of R5 AC8/AC9 (a tool entry at most 9,000 compact characters; the profile total ceilings were removed by B1
  * stage 2, owner ruling 2026-11-27) and decision D-goldens (real goldens for the four profile/tool pairs, the four deltas
  * for the members R20 does not ship, no full planned file left), D-kind (`openedByKind` is `agent` for a lifted body actor whatever

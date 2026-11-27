@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tool text names the run's orchestrator and the run token, not a coordinator.** The runs_write and runs_read descriptions, op docs, hints and stallAfterSeconds text, and the stall_after config description now use run token or the run's orchestrator. The knowledge profile's instructions and its items_write description name items, notes, dependencies and documents with their links. The create doc says a type with lifecycle: none creates a lifecycle-free item. Only description text changes; coordinatorToken, coordinatorSeenAt, coordinatorStalled, the coordinator seat value and error codes are unchanged.
 - **`next` returns work a build seat can start now.** In queue, `items_read` `next` and an `advance` `claim` by selector now return only leaf items, and only items whose type or trait does not set `builds: false`: a container, a parent feature or a question to be ruled is no longer handed out as build work. `includeParents: true` brings parents back; the new `builds` property on a schema or a trait is pinned on the item like the rest of its schema (a nullable `builds` column, migration V38). Other roles are unchanged, and a claim by `itemId` is unchanged. Upgrade: a fleet that claims parent features by selector (the hybrid pattern) passes `includeParents: true`.
 
+### Removed
+
+- **`current/docs/api-rest.md` is removed.** The REST facts are in the route code and `current/docs/api/openapi.yaml`.
+
 ### Fixed
 
 - **The `orchestration-mode` band names a paused run's real reason.** The status row read `Run paused: run-budget` in its test and README, a value the server never sends; a run's wire pause reasons now read `attempt cap` and `manual` (and `run budget` for a run stored by 4.0.0) instead of the raw token. The band reads no run usage figure.

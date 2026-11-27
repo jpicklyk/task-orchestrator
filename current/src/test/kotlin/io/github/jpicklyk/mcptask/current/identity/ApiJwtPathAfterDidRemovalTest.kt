@@ -41,7 +41,7 @@ import java.util.Date
  *
  * Oracles (never the implementation): `current/docs/fleet-deployment.md` (`API_JWKS_ALGORITHMS`
  * accepts `RS256,EdDSA`; the API JWT policy has no `jti` replay protection and no DID binding),
- * `current/docs/api-rest.md` section 1 (principal id is `sub`; `to_kind` defaults to `service`,
+ * the REST auth rules (principal id is `sub`; `to_kind` defaults to `service`,
  * except `sub == iss` starting `did:` which is `agent`), RFC 7515 4.1.4 (`kid` selects the
  * verification key), and the `JwksKeySetProvider.refreshForUnknownKid` KDoc (one forced refresh per
  * unknown kid, null when declined or failed, never throws for a fetch failure).

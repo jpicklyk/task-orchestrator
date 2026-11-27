@@ -387,7 +387,7 @@ class JwksScopeClaimFailClosedTest {
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 response.status,
-                "S9: a malformed to_scope must 401 the whole request (api-rest.md: JWT rejected -> 401 invalid_token)",
+                "S9: a malformed to_scope must 401 the whole request (JWT rejected -> 401 invalid_token)",
             )
             val wwwAuth = response.headers[HttpHeaders.WWWAuthenticate]
             assertNotNull(wwwAuth, "S9: a 401 in jwks mode must carry WWW-Authenticate")

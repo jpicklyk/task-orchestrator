@@ -1220,7 +1220,7 @@ the `claim` op: release any claim on the item and move to a different item, neve
 item against the same lock.
 
 On the REST surface, the same contention maps to `409 resource_unavailable`; the envelope carries
-`error.retryAfterMs` (and `detail.retryAfterMs`) - see [`api-rest.md`](./api-rest.md#6-error-codes) section 6 (Error Codes).
+`error.retryAfterMs` (and `detail.retryAfterMs`).
 
 An item that declares **no** `resources:` can never produce `resource_unavailable` — the check
 short-circuits before any lease-repository access, so the overwhelmingly common case (items with no
@@ -1305,7 +1305,7 @@ Every lease acquire/refresh/release/steal/force-release also writes to an append
 resource `R` at time `T`" after the fact, which the live `resource_leases` table (current holder
 only) cannot: it still has the answer once a lease has already been released, stolen by another
 item, or force-released by an operator. Query it via
-`GET /api/v1/resources/leases/history?key=&at=&limit=&cursor=` (see [`api-rest.md`](./api-rest.md) §14) —
+`GET /api/v1/resources/leases/history?key=&at=&limit=&cursor=` —
 omit `at` for a recent-activity feed (newest-first, default 50 rows, max 200, paged by `cursor`); pass `at` as an
 ISO-8601 instant to ask "who held this at exactly this moment" (an open interval is bounded by its
 own `expiresAt`, so a crashed holder's interval reads as "not held" once its TTL lapses, even though

@@ -433,7 +433,7 @@ items and documents `related` to an item. A 4.0
 envelope tool: a request is `select` plus that select's fields, and every answer is the response envelope
 (`ok`, `data` or `error`, `meta.reqId`). The same tool is served over MCP and over REST
 `POST /api/v1/ops/items_read`; `GET /items/{id}` and `GET /items/{id}/children` are thin translations to
-it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `search`, `overview`,
+it. `items_read` replaces `query_items` (`get`, `search`, `overview`,
 `schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
 (`describe: true`).
 
@@ -519,7 +519,7 @@ and `itemId`, or `rootId` without `type`, is `invalid_request`.
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
 (`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`, `resumeGate`, `answerProvenance`, `decisionTools`, `waitingOn`, `decisionAuthority`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
-on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
+on REST `GET /api/v1/info` and the `.well-known` service descriptor. `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
 the served `seats` and the `callerSeat` member of `context` and `transition`. `seatWrites` advertises the `writes` member
 every served seat carries (always present: the declared value, else true in the work phase; never enforced).
@@ -925,7 +925,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 without bodies. The first 4.0 registry tools: a request is the 4.0 envelope request (`select` plus the
 select's fields) and every answer is the response envelope (`ok`, `data` or `error`, `meta.reqId`). The
 same tool is served over MCP and over REST `POST /api/v1/ops/notes_read`; the REST note resource GETs
-are thin translations to it (see `api-rest.md` section 11). `notes_read` replaces `query_notes` `get` and
+are thin translations to it. `notes_read` replaces `query_notes` `get` and
 `list`. Each field is documented once in the tool's own schema (`describe: true`).
 
 **Selects.** `get`, `list`. Both need the `READ` capability and honor the caller's root and tag scope
@@ -1262,8 +1262,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 ### advance
 
 **Purpose.** Phase transitions and claim ownership in one write tool. It replaces the 3.x `advance_item` and `claim_item`
-tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `POST /api/v1/ops/advance` (see `api-rest.md`
-section 20a); both answer the same response envelope.
+tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `POST /api/v1/ops/advance`; both answer the same response envelope.
 
 Every `transition` is ONE transaction through the shared advance pipeline (`AdvanceService`): the item is re-read, the transition
 policy evaluates its gates in the order of `TransitionPolicy.DEFAULT_GATES` (the first failure wins), and the role change, its audit row, its event, the lease acquire or
@@ -2768,8 +2767,7 @@ whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT cla
 `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
 field is returned by any tool or REST route since the 4.0 note reads (`notes_read` and the REST note GETs return
 `verification` as `{proofStatus, verifier?, reason?}` only, `ADMIN` included; 3.x showed `verification.proof` to `ADMIN`), and the
-transition trail (`items_read` `history`) never returns them either. They are stored for forensics only. See
-[api-rest.md](api-rest.md) section 22.
+transition trail (`items_read` `history`) never returns them either. They are stored for forensics only.
 
 **Proof status values.** The wire spells a verification as a proof status, never as the stored verification status:
 
@@ -2815,7 +2813,7 @@ Verification fails closed. The `DEGRADED_MODE_POLICY` environment variable (and 
 believing a security setting is in force. Ownership-sensitive calls (`advance` `claim`, `release`, `heartbeat` and the
 ownership check of `transition`) run as the transport principal and are always enforced. A JWT whose key set is
 unavailable is answered `503 unavailable` at the transport (REST, `/mcp`, SSE `?token=`), never served under a guessed
-identity; see [api-rest.md](api-rest.md) section 1.
+identity.
 
 ### JWKS network access
 

@@ -58,7 +58,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  *
  * Oracles (frozen at queue phase, supplied verbatim in the dispatch prompt's declarations block):
  * RFC 7235 §2.1 (auth-scheme names are case-insensitive), RFC 6750 §2.1 (`1*SP` before the
- * credential) and §3.1 (`WWW-Authenticate` error codes), `current/docs/api-rest.md` :118
+ * credential) and §3.1 (`WWW-Authenticate` error codes), the REST failure table
  * (`invalid_request` for missing/empty; `invalid_token` for a non-matching credential), and the
  * frozen `diagnosis` note's D-a decision: exactly ONE `Bearer`/`bearer` prefix is ever stripped,
  * so `"Bearer bearer T"` must resolve to the literal credential `"bearer T"`, which cannot be a
@@ -258,7 +258,7 @@ class BearerSchemeParsingTest {
         }
 
     // -------------------------------------------------------------------------------------------
-    // S7 -- malformed / absent scheme -> 401 invalid_request (api-rest.md :118; RFC 6750 §3.1)
+    // S7 -- malformed / absent scheme -> 401 invalid_request (RFC 6750 §3.1)
     // -------------------------------------------------------------------------------------------
 
     @Test
@@ -282,7 +282,7 @@ class BearerSchemeParsingTest {
             assertEquals(HttpStatusCode.Unauthorized, response.status)
             assertTrue(
                 response.headers[HttpHeaders.WWWAuthenticate]?.contains("error=\"invalid_request\"") == true,
-                "S7: 'Bearer ' resolves to an empty credential -> 401 invalid_request (api-rest.md :118)",
+                "S7: 'Bearer ' resolves to an empty credential -> 401 invalid_request",
             )
             val body = response.bodyAsText()
             assertTrue(body.contains("Empty token"), "S7: expected the documented 'Empty token' error_description. Got: $body")

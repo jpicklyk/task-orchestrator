@@ -67,7 +67,7 @@ import kotlin.test.assertTrue
  * envelopes of served members are byte-equal to `/ops/{tool}`; decision D5, the refusal is tool-level only), R5 AC3 as amended by
  * the R9 merge ruling (the director set is exactly `items_read` get, list, overview and blocked, `deps_read` list and graph, and
  * `report` usage, nothing else), the frozen REST
- * fault table of `api-rest.md` (401 unauthenticated; 400 for a non-JSON `Content-Type`, an `Idempotency-Key` header, a body that
+ * fault table of the ops route (401 unauthenticated; 400 for a non-JSON `Content-Type`, an `Idempotency-Key` header, a body that
  * is not a JSON object, an unknown tool, in that order), test-plan S13 and task-scope item 9 (the provenance of a REST call is
  * `(api:<id>, kind, proofStatus, host, sessionId null, runId, seat, served profile)`; the served profile's wire name is
  * `director` on the director path and `rest` on `/ops/{tool}`; `host` is the lowercased `X-Client-Host` per Q7). Expected values

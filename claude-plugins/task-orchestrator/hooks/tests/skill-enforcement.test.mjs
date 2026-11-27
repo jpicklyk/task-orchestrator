@@ -8,7 +8,7 @@
 //
 // Wire shape (arbitration, public evidence): config is an ops[] tool, so the request body is {ops:[{op:'effective',
 // rootId?}]} and the reply is data.results[0] = {ok:true, ...effective result} (api-reference.md :74-81 batch envelope,
-// :1408-1433 config tool; api-rest.md :892-905 body = the tool arguments). task-scope AC6 abbreviates this as
+// :1408-1433 config tool; the REST body = the tool arguments). task-scope AC6 abbreviates this as
 // callOp('config', {op:'effective'}).
 //
 // Oracle: 0bbdc4cc task-scope AC6 (facts, caching, item scoping, silence on failure), AC7 (inert

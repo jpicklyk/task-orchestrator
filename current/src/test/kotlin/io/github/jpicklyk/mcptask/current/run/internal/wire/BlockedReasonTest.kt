@@ -58,7 +58,7 @@ import kotlin.test.assertTrue
  * only, true when the decision is answered, withdrawn or gone), `blockedByReason` beside `childCounts` (zero counts omitted, member
  * omitted when empty, NULL counted as manual) and the reason of a blocked member in the frontier `waiting` list.
  *
- * Self-resolved from public evidence (task-scope text, `current/docs/api-rest.md` and the existing items, seat, decision and frontier
+ * Self-resolved from public evidence (task-scope text, the existing items, seat, decision and frontier
  * tests, not from the implementation): blocked entries are located as the objects that carry a `reason` and the item's short id, so
  * the nesting of the entry is not decided by a test; `get` and `context` members are looked up by name anywhere in the result; the
  * scoped overview carries `blockedByReason` at the top level of the data and the global and anchored overviews on each entry; the

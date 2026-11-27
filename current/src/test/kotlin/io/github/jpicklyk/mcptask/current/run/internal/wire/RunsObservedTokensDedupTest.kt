@@ -28,7 +28,7 @@ import kotlin.time.Duration.Companion.hours
  * `CallLogWriter` over the production `SqliteCallLogStore` and the real run store of the `SeatWorld` rig; the database is read back
  * by SQL, and the absence of any enforcement is read through the real MCP adapter (`advance` heartbeat).
  *
- * Oracles (never read from a run): `api-rest.md` "Budgets" ("observed" is the estimate of every call-log row that carries the run)
+ * Oracles (never read from a run): the run budgets ("observed" is the estimate of every call-log row that carries the run)
  * and the `CallLogStore` contract (the insert is per row and ignores a row whose request id is already stored, and a row the
  * database refuses is not stored); the frozen task-scope D1 acceptance: the observed tokens of a run equal the sum of
  * `response_tokens_est` over its call_log rows written by the writer, a duplicate request id (same batch or a later one) and a

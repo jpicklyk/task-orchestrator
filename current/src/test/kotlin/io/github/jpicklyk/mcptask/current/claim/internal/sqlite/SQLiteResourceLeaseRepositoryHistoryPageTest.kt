@@ -27,7 +27,7 @@ import kotlin.test.assertIs
  *
  * Oracles (never the implementation): the pre-existing `ListPage` KDoc (U22: the total is the full count of ALL matching rows
  * on every page, whatever offset and limit the page asks for); w6-brief 3.4 / task-scope (order `(acquiredAt DESC, id ASC)`,
- * the page is an offset and a limit over that order, the default page is `PageRequest()` = limit 50); the api-rest.md held-at
+ * the page is an offset and a limit over that order, the default page is `PageRequest()` = limit 50); the held-at
  * rule `acquiredAt <= at < coalesce(releasedAt, expiresAt)`; and the V16 DDL (history rows carry no foreign key, ids are 16
  * big-endian bytes, so BLOB order equals canonical lowercase UUID string order).
  */

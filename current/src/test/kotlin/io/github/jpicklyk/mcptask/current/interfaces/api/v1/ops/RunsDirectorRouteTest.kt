@@ -53,8 +53,8 @@ import kotlin.test.assertTrue
  * `forbidden{scope: principal_kind, required}` fixed by the task-scope; plan 3.4c and R10 (the director is a PROFILE: `/ops/{tool}`
  * is served as `rest`, `/ops/director/{tool}` as `director`; the director path serves exactly the director members of a visible
  * tool and answers a hidden member with the dispatcher's `400 invalid_request` at `/ops/0/op`); the frozen REST fault table of
- * `api-rest.md` (401 `unauthenticated` before anything else); the envelope status table (200, 207 for a failed element, 400, 409
- * `idempotency_mismatch`); `api-rest.md` section 20a (a body `actor` is ignored on REST; idempotency keys are namespaced per
+ * the ops route (401 `unauthenticated` before anything else); the envelope status table (200, 207 for a failed element, 400, 409
+ * `idempotency_mismatch`); the ops route (a body `actor` is ignored on REST; idempotency keys are namespaced per
  * token principal); the R17 state machine (`run_paused` on an update of a paused run) and the run event types (`run.opened`,
  * `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked`). Expected values are literals.
  *

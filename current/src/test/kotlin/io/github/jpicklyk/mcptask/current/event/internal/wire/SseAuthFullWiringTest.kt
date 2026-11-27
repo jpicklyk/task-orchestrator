@@ -63,7 +63,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * connection before the SSE route's own inline auth (which understands `?token=`) ever ran. S1 and
  * S9 below are the scenarios that most directly exercise that fix under the full app-level plugin.
  *
- * Oracles: `current/docs/api-rest.md` §1 (auth modes), §6 (error codes), §21 (SSE); `docs/api/openapi.yaml`
+ * Oracles: `docs/api/openapi.yaml`
  * `/events`; the Environment Variable Reference table in `current/docs/fleet-deployment.md` (formerly in `CLAUDE.md`) (`API_ALLOW_QUERY_TOKEN_FOR_SSE` default `false`).
  *
  * Per the frozen `test-plan` note, S-ids are stable identifiers -- do not renumber.

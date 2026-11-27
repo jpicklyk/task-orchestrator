@@ -169,4 +169,3 @@ Post-mortem of a run: members, blocked reasons, decisions, seats, attempts and c
   growth estimates.
 - [Fleet deployment: Observability Gaps](fleet-deployment.md#observability-gaps) for what the server does not provide.
 - [Workflow guide](workflow-guide.md) for runs, seats and decisions, the subjects of a run rollup.
-- [REST API](api-rest.md) for the `/api/v1/ops` routes.

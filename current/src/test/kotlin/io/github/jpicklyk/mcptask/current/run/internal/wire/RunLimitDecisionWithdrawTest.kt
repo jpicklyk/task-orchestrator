@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  * Independent tests (blind test-author seat, fix round, item acb8e2cf, finding N2) for the rule that a server-raised limit
  * decision (class `run-budget` or `attempt-cap`) cannot be withdrawn by anyone.
  *
- * Oracle: the orchestrator ruling for N2 and current/docs/api-rest.md (decisions section): such a decision "cannot be withdrawn
+ * Oracle: the orchestrator ruling for N2: such a decision "cannot be withdrawn
  * by anyone (the same `forbidden`): it stays pending until it is answered or its run is closed"; the withdraw of a decision raised
  * by a seat or coordinator by its raiser keeps working.
  *

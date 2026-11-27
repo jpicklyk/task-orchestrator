@@ -13,7 +13,7 @@
 //
 // 4.0 (item 5dbd8275): the fake TO server answers items_read / deps_read as response envelopes in
 // `structuredContent` (current/docs/api-reference.md "Response envelope"), compact views carry 8-hex short ids and
-// the fixture ids are UUIDs with distinct first 8 hex; SSE frames carry `id:` lines (api-rest.md section 21) and the
+// the fixture ids are UUIDs with distinct first 8 hex; SSE frames carry `id:` lines and the
 // run.* / decision.* events of the 4.0 set (scenario S7: they drive the graphRuns and graphDecisions atoms).
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'

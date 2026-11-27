@@ -6,9 +6,7 @@ info:
     HTTP REST API for the MCP Task Orchestrator. Operates alongside the MCP transport when
     API_ENABLED=true. Base URL: /api/v1
 
-    NOTE: This file is hand-maintained and may lag edge-case behavior. The source code and
-    api-rest.md are authoritative. See api-rest.md for full semantics including
-    ETag formats, idempotency, audit model, and the SSE replay known limitation.
+    NOTE: This file is hand-maintained and may lag edge-case behavior. The source code is authoritative.
 
     Every operation also accepts the optional X-Client-Host request header
     (components/parameters/clientHost), which names the calling client in the call log.
@@ -29,7 +27,7 @@ components:
         Static bearer token (API_AUTH_MODE=bearer) or JWT (API_AUTH_MODE=jwks).
         For SSE, use Authorization header or opt-in ?token= query param.
         Optional opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true)
-        accepts requests with no Authorization header at all — loopback-only, see api-rest.md §1.
+        accepts requests with no Authorization header at all — loopback-only.
 
   parameters:
     clientHost:
@@ -40,7 +38,7 @@ components:
         Optional name of the calling client application, recorded as the host on the request's call_log
         and events rows. Precedence: this header, else the first User-Agent product token (the text before
         the first slash), else rest. Normalized: control characters dropped, trimmed, lowercased, capped at
-        64 code points; an empty result counts as absent. Accepted on every operation. See api-rest.md section 6a.
+        64 code points; an empty result counts as absent. Accepted on every operation.
       schema:
         type: string
     itemId:
@@ -1442,7 +1440,7 @@ paths:
 
         This route is exempted from the global auth plugin via publicPaths (matched against the
         request path only, not the full URI, so ?token= and other query strings still match) and
-        honors API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true (see api-rest.md §1) the same
+        honors API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true the same
         way the bearer route does — no token required when both opt-in keys are set.
 
         Browser clients cannot use native EventSource because it does not support custom headers.
@@ -1461,9 +1459,9 @@ paths:
         before the SSE stream opens; any ?root= value that is not a UUID gets 400 invalid_request (Q32:
         a mix of valid and invalid values is rejected too). Every pre-flight body is the error envelope. A
         principal with scope.tags_include set is additionally filtered per event (live and replay alike),
-        using the same ScopeGuard predicate as the tools and REST reads; see api-rest.md §21/§3. KNOWN LIMITATION:
+        using the same ScopeGuard predicate as the tools and REST reads. KNOWN LIMITATION:
         item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
-        the item is gone) -- see api-rest.md section 24.
+        the item is gone).
 
         A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
         if that is unavailable the pre-flight plugin rejects the connection with 403 forbidden

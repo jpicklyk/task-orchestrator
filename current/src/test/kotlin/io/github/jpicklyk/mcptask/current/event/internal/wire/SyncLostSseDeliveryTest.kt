@@ -62,7 +62,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * Oracles: same sentinel contract as [SyncLostReplayTest] (`event=sync.lost`, `itemId=null`,
  * `id=oldestRetained.id-1` or `idCounter.get()` when empty, never buffered, first emission before
  * replay), plus `ApiEventType.CONTROL_EVENTS` (`sync.lost`, `auth.expired` bypass both the `types=`
- * filter and the tag-scope filter) and `api-rest.md` §3/§21 (`tags_include` exact membership;
+ * filter and the tag-scope filter) and the tag-scope rules (`tags_include` exact membership;
  * replay applies the same filter as live fan-out).
  *
  * S-ids are stable identifiers frozen in `test-plan` -- do not renumber.
