@@ -137,8 +137,8 @@ test('S11: an entry outside the requested profile is an error (complete_tree is 
   const markArgs = { runId: '58facb39', key: 'planned' };
   const restOnly = checkToCall({ tool: 'runs_write', op: 'mark', args: markArgs, profile: 'orchestration' }, CATALOG);
   assert.ok(restOnly.length >= 1, 'mark is REST only: no profile has it');
-  const director = checkToCall({ tool: 'report', select: 'usage', args: {} }, CATALOG);
-  assert.ok(director.length >= 1, 'profile defaults to orchestration, where report is not available');
+  const director = checkToCall({ tool: 'runs_read', select: 'decisions', args: {} }, CATALOG);
+  assert.ok(director.length >= 1, 'profile defaults to orchestration, where the runs_read decisions select is not available');
 });
 
 test('S11: op/select selector mismatches are errors in both directions, as are unknown tool and unknown entry', () => {

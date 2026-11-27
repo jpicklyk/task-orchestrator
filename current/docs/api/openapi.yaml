@@ -327,7 +327,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn", "decisionAuthority"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn", "decisionAuthority", "profileSets"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
         configWarnings:
@@ -979,7 +979,7 @@ paths:
         Its `ops[]` elements are `get`, `history`, `validate`, `effective` and `rules` (capability `read`) and
         `push`, `rollback` and `reset` (capability `write-config`). Only `GET /config/schema` stays a route.
 
-        The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
+        The `report` tool (`/ops/report`, capability `read`; on MCP the orchestration and director profiles) serves aggregate
         reports. Its selects are `usage` (windows at most 400 days), `gates`, `notes`, `contention` and an anchor `rollup` (at
         most 31 days), `waste` (at most 7 days) and a run `rollup` (the whole run). `usage` reports call-log calls, errors,
         response bytes, token estimate, average and maximum latency, retries and replays per `groupBy` group over a
@@ -1133,8 +1133,9 @@ paths:
       description: |
         The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
         envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
-        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`, `frontier`,
-        `decisions`, `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw`;
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `report` `usage`, `gates`, `notes`,
+        `contention`, `waste`, `rollup`; `runs_read` `get`, `list`, `frontier`, `decisions`, `decision`;
+        `runs_write` `close`, `pause`, `resume`, `reissue`, `ack`, `answer`, `withdraw`;
         `decisions_read` `list`; `decisions_write` `ack`, `delegate`, `escalate`, `answer`, `withdraw`). For a
         member of that set the envelope is
         byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.

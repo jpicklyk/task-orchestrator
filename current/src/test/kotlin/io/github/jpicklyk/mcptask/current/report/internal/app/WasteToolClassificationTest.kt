@@ -80,7 +80,7 @@ class WasteToolClassificationTest {
     // ------------------------------------------------------------------ surface of the select
 
     @Test
-    fun `S16 report lists usage and waste, and waste is visible in the director profile only`() {
+    fun `S16 report lists usage and waste, and waste is visible in the orchestration and director profiles`() {
         assertEquals(
             listOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             ParityCoverage
@@ -89,8 +89,8 @@ class WasteToolClassificationTest {
                     it.first == "report"
                 }.map { it.second }
         )
-        assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "waste"))
-        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "waste"))
+        assertEquals(setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "waste"))
+        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "report", "waste"))
     }
 
     private fun operations(): Map<String, JsonObject> {

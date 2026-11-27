@@ -91,7 +91,8 @@ class SeatSkillsServingTest {
             "answerProvenance",
             "decisionTools",
             "waitingOn",
-            "decisionAuthority"
+            "decisionAuthority",
+            "profileSets"
         )
 
     private fun world(block: suspend (SeatWorld) -> Unit) =

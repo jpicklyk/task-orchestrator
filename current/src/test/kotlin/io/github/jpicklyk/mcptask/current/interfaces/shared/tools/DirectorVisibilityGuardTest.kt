@@ -45,7 +45,7 @@ import kotlin.test.assertTrue
 class DirectorVisibilityGuardTest {
     /**
      * The AC3 allow-list: tool name to member names. R9 added `report usage`, R11 `report gates` and `report contention`, and
-     * R12 `report waste` (aggregates only, no note or document body); R20 added `runs_read` get and list and `runs_write` open,
+     * R12 `report waste` (aggregates only, no note or document body); R20 added `runs_read` get and list and `runs_write`
      * close, pause and resume (the run view carries no note, document or transition-summary body, and `hints` are short
      * structured strings; plan 3.4c); R25 added `runs_read` frontier (ids, titles, roles and counts only; task-scope Build 3).
      */
@@ -55,7 +55,7 @@ class DirectorVisibilityGuardTest {
             "deps_read" to setOf("list", "graph"),
             "report" to setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             "runs_read" to setOf("get", "list", "frontier", "decisions", "decision"),
-            "runs_write" to setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            "runs_write" to setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             "decisions_read" to setOf("list"),
             "decisions_write" to setOf("ack", "delegate", "escalate", "answer", "withdraw")
         )

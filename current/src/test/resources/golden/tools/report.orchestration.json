@@ -1,0 +1,83 @@
+{
+  "name": "report",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "usage",
+          "gates",
+          "notes",
+          "contention",
+          "waste",
+          "rollup"
+        ]
+      },
+      "rootId": {
+        "type": "string",
+        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. [select: usage, gates, notes, contention, waste]"
+      },
+      "since": {
+        "type": "string",
+        "description": "Window start, inclusive, ISO 8601. Default/cap: describe."
+      },
+      "until": {
+        "type": "string",
+        "description": "Window end, exclusive, ISO 8601."
+      },
+      "groupBy": {
+        "type": "string",
+        "description": "Grouping; subset/default per select. [select: usage, gates, notes, contention]",
+        "enum": [
+          "tool",
+          "operation",
+          "host",
+          "surface",
+          "principalKind",
+          "errorCode",
+          "day",
+          "principal",
+          "noteKey",
+          "type",
+          "trait",
+          "resource",
+          "role",
+          "seat"
+        ]
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size 1-200 (default 50) [select: usage, gates, notes, contention]"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "page.next of the prior page [select: usage, gates, notes, contention]"
+      },
+      "anchorId": {
+        "type": "string",
+        "description": "Subtree incl. itself (UUID or 8-32 hex prefix). [select: notes, rollup]"
+      },
+      "runId": {
+        "type": "string",
+        "description": "Roll up this run (UUID or 8-32 hex prefix) [select: rollup]"
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Aggregate metrics to see how work is going and where it stalls. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run). Call with describe:true for parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

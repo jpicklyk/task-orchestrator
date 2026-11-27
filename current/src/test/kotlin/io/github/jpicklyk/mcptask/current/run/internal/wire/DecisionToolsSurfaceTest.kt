@@ -138,7 +138,7 @@ class DecisionToolsSurfaceTest {
     fun `profile sets and capabilities follow D9`() {
         val both = setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR)
         val list = read.selects.single()
-        assertEquals(setOf(ToolProfile.DIRECTOR), list.profiles)
+        assertEquals(both, list.profiles)
         assertEquals(ApiCapability.READ, list.capability)
 
         fun op(name: String) = write.ops.single { it.name == name }
@@ -187,17 +187,14 @@ class DecisionToolsSurfaceTest {
     }
 
     @Test
-    fun `visibility per profile - decisions_read is director only, orchestration serves raise, delegate and withdraw`() {
+    fun `visibility per profile - decisions_read is on orchestration and director, orchestration writes raise, delegate and withdraw`() {
         assertEquals(emptySet(), visible("decisions_read", ToolProfile.KNOWLEDGE))
         assertEquals(emptySet(), visible("decisions_write", ToolProfile.KNOWLEDGE))
-        assertEquals(emptySet(), visible("decisions_read", ToolProfile.ORCHESTRATION))
+        assertEquals(setOf("list"), visible("decisions_read", ToolProfile.ORCHESTRATION))
         assertEquals(setOf("list"), visible("decisions_read", ToolProfile.DIRECTOR))
         assertEquals(setOf("raise", "delegate", "withdraw"), visible("decisions_write", ToolProfile.ORCHESTRATION))
         assertEquals(setOf("ack", "delegate", "escalate", "answer", "withdraw"), visible("decisions_write", ToolProfile.DIRECTOR))
-        assertTrue(
-            McpOperationAdapter.toolFor(registry["decisions_read"]!!, ToolProfile.ORCHESTRATION) == null,
-            "decisions_read is absent from the orchestration tools/list"
-        )
+        assertNotNull(McpOperationAdapter.toolFor(registry["decisions_read"]!!, ToolProfile.ORCHESTRATION))
         assertNotNull(McpOperationAdapter.toolFor(registry["decisions_read"]!!, ToolProfile.DIRECTOR))
         assertNotNull(McpOperationAdapter.toolFor(registry["decisions_write"]!!, ToolProfile.ORCHESTRATION))
         assertNotNull(McpOperationAdapter.toolFor(registry["decisions_write"]!!, ToolProfile.DIRECTOR))
@@ -320,7 +317,7 @@ class DecisionToolsSurfaceTest {
         assertFalse(ToolTextOracle.mentions(director, "raise"), "director cannot raise: $director")
         val orchestration = profileInstructions(ToolProfile.ORCHESTRATION)
         assertTrue(ToolTextOracle.mentions(orchestration, "decisions_write"), "orchestration names decisions_write: $orchestration")
-        assertFalse(ToolTextOracle.mentions(orchestration, "decisions_read"), "orchestration does not serve decisions_read: $orchestration")
+        assertTrue(ToolTextOracle.mentions(orchestration, "decisions_read"), "orchestration names decisions_read: $orchestration")
         for (word in listOf("ack", "answer", "escalate")) {
             assertFalse(ToolTextOracle.mentions(orchestration, word), "orchestration cannot $word: $orchestration")
         }

@@ -105,7 +105,7 @@ The user's view of work across runs: open runs and their frontier, the decision 
 
 Distinct from: director mode, which changes who acts on the board, not who sees it; and from the director, which acts on the board and does not own it.
 Don't call it: the director's board.
-In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, `decisions_read` `list` and `report` `rollup`, served on the director profile only.
+In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, `decisions_read` `list` and `report` `rollup`, served on both profiles.
 
 ### Director mode
 

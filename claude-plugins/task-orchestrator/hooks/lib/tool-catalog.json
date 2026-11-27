@@ -478,13 +478,15 @@
     "decisions_read": {
       "kind": "select",
       "profiles": [
-        "director"
+        "director",
+        "orchestration"
       ],
       "entries": {
         "list": {
           "anchor": "decisions_read-list",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2824,13 +2826,15 @@
     "report": {
       "kind": "select",
       "profiles": [
-        "director"
+        "director",
+        "orchestration"
       ],
       "entries": {
         "usage": {
           "anchor": "report-usage",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2874,7 +2878,8 @@
         "gates": {
           "anchor": "report-gates",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2918,7 +2923,8 @@
         "notes": {
           "anchor": "report-notes",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2966,7 +2972,8 @@
         "contention": {
           "anchor": "report-contention",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -3010,7 +3017,8 @@
         "waste": {
           "anchor": "report-waste",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -3041,7 +3049,8 @@
         "rollup": {
           "anchor": "report-rollup",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -3284,7 +3293,6 @@
         "open": {
           "anchor": "runs_write-open",
           "profiles": [
-            "director",
             "orchestration"
           ],
           "capability": "runs",

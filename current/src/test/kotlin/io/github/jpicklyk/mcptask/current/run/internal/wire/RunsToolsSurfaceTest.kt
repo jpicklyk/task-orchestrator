@@ -49,7 +49,7 @@ import kotlin.test.assertTrue
  * MCP profile), S20 (sets, goldens, deltas, director allow-lists, token totals) and the MCP attribution rules (D-kind, D-coord).
  *
  * Oracles (never read from a run): plan 3.4c / task-scope "Members and placement" (`runs_read` get and list in orchestration and
- * director, capability READ; `runs_write` open and close in both, update in orchestration only, pause and resume in director only,
+ * director, capability READ; `runs_write` close in both, open and update in orchestration only, pause and resume in director only,
  * mark with the EMPTY set, every op capability RUNS, close the only destructive op, registered after `report`), the declared error
  * sets (open NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN / DUPLICATE; mark and get NOT_FOUND / AMBIGUOUS_ID / FORBIDDEN; list NOT_FOUND /
  * AMBIGUOUS_ID), R5 AC5 (a member with an empty set is unknown on every MCP profile: `invalid_request` at `/ops/0/op`, nothing written; for an ops tool that is a failed ELEMENT, so the whole call is the 207 `partial_failure` of the envelope spec, resolved from DirectorOpsRouteTest, not from the implementation), the frozen
@@ -130,7 +130,7 @@ class RunsToolsSurfaceTest {
         assertEquals(both, readMember("list").profiles)
         // R25 (task-scope Build 3, "profiles orchestration()+director()"): the frontier is served on both profiles
         assertEquals(both, readMember("frontier").profiles)
-        assertEquals(both, writeMember("open").profiles)
+        assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("open").profiles)
         assertEquals(both, writeMember("close").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("update").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("pause").profiles)
@@ -203,7 +203,7 @@ class RunsToolsSurfaceTest {
         )
         assertEquals(setOf("get", "list", "frontier", "decisions", "decision"), visible("runs_read", ToolProfile.DIRECTOR))
         assertEquals(
-            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             visible("runs_write", ToolProfile.DIRECTOR)
         )
         for (profile in ToolProfile.entries) {
@@ -250,7 +250,7 @@ class RunsToolsSurfaceTest {
             opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION))
         )
         assertEquals(
-            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             opEnum(rendered("runs_write", ToolProfile.DIRECTOR))
         )
         assertNull(McpOperationAdapter.toolFor(registry["runs_write"]!!, ToolProfile.KNOWLEDGE), "control: knowledge renders no runs_write")
@@ -285,7 +285,7 @@ class RunsToolsSurfaceTest {
             described(ToolProfile.ORCHESTRATION).toSet()
         )
         assertEquals(
-            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             described(ToolProfile.DIRECTOR).toSet()
         )
         val selects =

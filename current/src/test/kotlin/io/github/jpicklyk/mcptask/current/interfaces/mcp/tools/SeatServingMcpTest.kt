@@ -472,7 +472,8 @@ traits:
             "answerProvenance",
             "decisionTools",
             "waitingOn",
-            "decisionAuthority"
+            "decisionAuthority",
+            "profileSets"
         )
 
     @Test

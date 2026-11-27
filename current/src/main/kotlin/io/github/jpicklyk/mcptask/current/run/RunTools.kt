@@ -83,9 +83,9 @@ object RunTools {
     /**
      * The runs_write tool: open, update, close, pause, resume, reissue and mark runs, assign and end seats, and raise, acknowledge,
      * answer and withdraw decisions. Every op needs the runs capability except ack and answer, which need decide. mark is
-     * REST-only (it is on no MCP profile); pause, resume, reissue, ack and answer are director ops; update, assign, end_seat
-     * and raise are orchestration ops; withdraw is on both profiles. The shared description is the full (REST) form; each MCP
-     * profile gets its own, naming only the ops it serves.
+     * REST-only (it is on no MCP profile); pause, resume, reissue, ack and answer are director ops; open, update, assign,
+     * end_seat and raise are orchestration ops; close and withdraw are on both profiles. The shared description is the full (REST)
+     * form; each MCP profile gets its own, naming only the ops it serves.
      */
     fun write(): OpsToolSpec<JsonObject> =
         OpsToolSpec(
@@ -103,7 +103,7 @@ object RunTools {
                         "runs capability and a root in scope. close: run token, director or a human; update, assign: " +
                         "run token; end_seat: the seat's own token. Result: the run (close adds snapshot) or the decision.",
                     ToolProfile.DIRECTOR to
-                        "Open, close, pause, resume and reissue runs; ack, answer and withdraw decisions. Each op needs the " +
+                        "Close, pause, resume and reissue runs; ack, answer and withdraw decisions. Each op needs the " +
                         "runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; " +
                         "pause, resume and reissue: director or human only. Result: the run (close adds snapshot) or the decision."
                 ),
@@ -128,8 +128,8 @@ object RunTools {
         )
 
     /**
-     * The decisions_read tool: the decision inbox, one `list` select. Director profile only; the shared description is the
-     * full (REST) form. `runs_read decisions` and `decision` are its deprecated aliases (ADR 0005).
+     * The decisions_read tool: the decision inbox, one `list` select. Orchestration and director profiles; the shared description is
+     * the full (REST) form. `runs_read decisions` and `decision` are its deprecated aliases (ADR 0005).
      */
     fun decisionsRead(): SelectToolSpec =
         SelectToolSpec(

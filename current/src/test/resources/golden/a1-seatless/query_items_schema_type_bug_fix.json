@@ -56,7 +56,8 @@
             "answerProvenance",
             "decisionTools",
             "waitingOn",
-            "decisionAuthority"
+            "decisionAuthority",
+            "profileSets"
         ]
     },
     "metadata": {

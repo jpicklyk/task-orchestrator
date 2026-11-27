@@ -9,8 +9,8 @@ import io.github.jpicklyk.mcptask.current.report.internal.wire.reportUsageSelect
 import io.github.jpicklyk.mcptask.current.report.internal.wire.reportWasteSelect
 
 /**
- * The `report` tool (plan R9): read-only aggregate reports, one file per select. Director-only on MCP (profiles
- * {DIRECTOR}); REST serves it at `POST /api/v1/ops/report`. R9 ships `usage`, R11 `gates` and `contention`, R12 `waste`,
+ * The `report` tool (plan R9): read-only aggregate reports, one file per select. Orchestration and director on MCP (profiles
+ * {ORCHESTRATION, DIRECTOR}); REST serves it at `POST /api/v1/ops/report`. R9 ships `usage`, R11 `gates` and `contention`, R12 `waste`,
  * R16 the anchor `rollup`; R28 adds the run rollup. The report slice's tool door: callers outside the slice name this
  * object, not the selects.
  */

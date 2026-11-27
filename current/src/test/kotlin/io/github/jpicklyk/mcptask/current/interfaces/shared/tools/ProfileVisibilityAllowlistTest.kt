@@ -75,14 +75,14 @@ class ProfileVisibilityAllowlistTest {
     @Test
     fun `director members are also orchestration members and the knowledge allowlist is unchanged by director`() {
         // R5 AC2/AC3: a director member is its current set plus DIRECTOR, so the knowledge and orchestration visibility of
-        // every member is what it was before the third profile. R9's report is the one director-only tool (plan R9,
-        // profiles {DIRECTOR}): it is checked to be absent from orchestration instead.
+        // every member is what it was before the third profile. report and decisions_read are on both profiles
+        // ({ORCHESTRATION, DIRECTOR}): they have the same members in each.
         val orchestration = members(ToolProfile.ORCHESTRATION)
-        for (tool in DIRECTOR_ONLY_TOOLS) {
-            assertTrue(tool in members(ToolProfile.DIRECTOR), "$tool is a director tool")
-            assertTrue(tool !in orchestration, "$tool is director-only and must not be visible in orchestration")
+        val director = members(ToolProfile.DIRECTOR)
+        for (tool in BOTH_PROFILE_TOOLS) {
+            assertEquals(director[tool], orchestration[tool], "$tool has the same members in orchestration as in director")
         }
-        for ((tool, names) in members(ToolProfile.DIRECTOR) - DIRECTOR_ONLY_TOOLS) {
+        for ((tool, names) in director) {
             // R20 (plan 3.4c): runs_write pause and resume are director-only MEMBERS of a tool the orchestration profile also serves
             val expected = names - DIRECTOR_ONLY_MEMBERS[tool].orEmpty()
             assertTrue(
@@ -102,7 +102,7 @@ class ProfileVisibilityAllowlistTest {
     private companion object {
         /**
          * R5 AC3: exactly the items_read reads and the deps_read reads, plus R9 report usage, R11 report gates and contention,
-         * R12 report waste (aggregates only) and R20's runs get, list, open, close, pause and resume, and R25's runs frontier (task-scope Build 3). Nothing that can carry a
+         * R12 report waste (aggregates only) and R20's runs get, list, close, pause and resume, and R25's runs frontier (task-scope Build 3). Nothing that can carry a
          * note, document or transition body.
          */
         val DIRECTOR_ALLOWLIST: Map<String, Set<String>> =
@@ -111,7 +111,7 @@ class ProfileVisibilityAllowlistTest {
                 "deps_read" to setOf("list", "graph"),
                 "report" to setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
                 "runs_read" to setOf("get", "list", "frontier", "decisions", "decision"),
-                "runs_write" to setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+                "runs_write" to setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
                 "decisions_read" to setOf("list"),
                 "decisions_write" to setOf("ack", "delegate", "escalate", "answer", "withdraw")
             )
@@ -124,8 +124,8 @@ class ProfileVisibilityAllowlistTest {
                 "decisions_write" to setOf("ack", "answer", "escalate")
             )
 
-        /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */
-        val DIRECTOR_ONLY_TOOLS: Set<String> = setOf("report", "decisions_read")
+        /** Tools on the orchestration and director profiles alike, with the same members on each. */
+        val BOTH_PROFILE_TOOLS: Set<String> = setOf("report", "decisions_read")
 
         /** Tools plan section 2 hides entirely from knowledge. */
         val HIDDEN_WHOLE_TOOLS = setOf("advance", "config")

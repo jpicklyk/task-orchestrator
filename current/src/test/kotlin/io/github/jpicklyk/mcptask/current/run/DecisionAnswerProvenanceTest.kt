@@ -16,16 +16,20 @@ import io.github.jpicklyk.mcptask.current.platform.call.AnswerProvenance
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.SettableClock
+import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite.BaselineDataset
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -275,6 +279,47 @@ decision_classes:
             f.svc.delegate(delegated.id, director).ok()
             f.svc.answer(delegated.id, DecisionAnswerCommand(option = "a"), director).ok()
             assertEquals(listOf<Any?>("director", "delegation", 0L, 1L), provenance(delegated.id))
+        }
+
+    @Test
+    fun `decisions_read list on the orchestration profile names the autonomy of each decision class`(): Unit =
+        runBlocking {
+            val f = fixture()
+
+            val body =
+                f.rig.ctx.callTool(
+                    "decisions_read",
+                    buildJsonObject {
+                        put("select", "list")
+                        put("rootId", f.root.id.toString())
+                    },
+                    profile = ToolProfile.ORCHESTRATION
+                )
+
+            val classes =
+                body
+                    .getValue("data")
+                    .jsonObject
+                    .getValue("classes")
+                    .jsonObject
+                    .getValue(f.root.id.toString())
+                    .jsonObject
+            assertEquals(
+                "answer",
+                classes
+                    .getValue("routine")
+                    .jsonObject
+                    .getValue("autonomy")
+                    .jsonPrimitive.content
+            )
+            assertEquals(
+                "ask",
+                classes
+                    .getValue("question")
+                    .jsonObject
+                    .getValue("autonomy")
+                    .jsonPrimitive.content
+            )
         }
 
     @Test

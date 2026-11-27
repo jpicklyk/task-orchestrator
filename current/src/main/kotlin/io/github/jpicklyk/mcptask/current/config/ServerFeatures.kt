@@ -21,7 +21,8 @@ package io.github.jpicklyk.mcptask.current.config
  * `waitingReason`), set by `delegate` and `escalate`. `"decisionTools"` advertises the `decisions_read` and
  * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases. `"decisionAuthority"`
  * advertises that director-or-human admits a seat-less caller whose credential grants decide on any profile, and that
- * decision classes carry an `autonomy`, recorded as `withinAutonomy`.
+ * decision classes carry an `autonomy`, recorded as `withinAutonomy`. `"profileSets"` advertises `decisions_read` and every
+ * `report` select on the orchestration profile, and `runs_write` `open` not on the director profile.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
@@ -37,6 +38,7 @@ object ServerFeatures {
             "answerProvenance",
             "decisionTools",
             "waitingOn",
-            "decisionAuthority"
+            "decisionAuthority",
+            "profileSets"
         )
 }

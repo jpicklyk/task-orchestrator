@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.NoteWriteRow
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportGroupBy
@@ -32,7 +33,7 @@ internal val reportNotesSelect =
                 "data.window gives since, until, retainedSince (the oldest note.upserted event held), basis raw and " +
                 "truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees writes on items " +
                 "that currently carry an allowed tag.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportNotesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

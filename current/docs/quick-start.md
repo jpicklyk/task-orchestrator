@@ -92,7 +92,7 @@ You should see `mcp-task-orchestrator` listed as connected, with tools including
 
 Two things to know before you read any example in this guide:
 
-- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (everything except the director-only `report` tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
+- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (every tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
 - **`describe: true`.** Any tool answers `{"describe": true}` with its own contract: every select or op in your profile, each field with its type and description, and the error codes. Ask the tool when you are unsure of a field name.
 
 Every example below is the JSON request body of one tool call. A read tool takes a `select`, a write tool takes an `ops` array whose elements name an `op`, and every tool answers the same `{ok, data | error, meta}` envelope ([Calling the tools](./workflow-guide.md#calling-the-tools) in the workflow guide).

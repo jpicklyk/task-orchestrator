@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.run.RunToolServices
 import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionsListRequest
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsSupport
@@ -44,8 +45,8 @@ internal val decisionsListSelect =
                 "decisions of it as a root), runId, rootId, decisionIds (read specific decisions), status (absent: any), " +
                 "waitingOn, class, severity (the effective one, one step up while overdue) and overdue. data.classes maps " +
                 "each root the page shows, and the root a filter names, to its decision classes: answerers, severity, " +
-                "expiresAfterSeconds, freeform and serverRaised. Decisions on roots outside the call scope are left out.",
-        profiles = director(),
+                "expiresAfterSeconds, freeform, serverRaised and autonomy (answer or ask). Decisions on roots outside the call scope are left out.",
+        profiles = orchestration() + director(),
         services = RunToolServices::class,
         request = serializer<DecisionsListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
@@ -150,7 +151,7 @@ private suspend fun listDecisions(
     }
 }
 
-/** The decision classes of each root in [roots]: `{rootId: {name: {answerers, severity, expiresAfterSeconds?, freeform, serverRaised}}}`. */
+/** The decision classes of each root in [roots]: `{rootId: {name: {answerers, severity, expiresAfterSeconds?, freeform, serverRaised, autonomy}}}`. */
 private suspend fun classesOf(
     env: RunToolServices,
     roots: Set<UUID>
@@ -169,6 +170,7 @@ private suspend fun classesOf(
                                 cls.expiresAfterSeconds?.let { put("expiresAfterSeconds", it) }
                                 put("freeform", cls.freeform)
                                 put("serverRaised", cls.serverRaised)
+                                put("autonomy", cls.autonomy.wire)
                             }
                         )
                     }

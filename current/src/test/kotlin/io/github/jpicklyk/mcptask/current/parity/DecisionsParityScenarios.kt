@@ -932,7 +932,7 @@ class DecisionsParityTest {
 
     @Test
     fun `control - the MCP leg of each member runs on the profile whose set contains it`() {
-        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "decisions_read", "list"))
+        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "decisions_read", "list"))
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "decisions_write", "raise"))
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "decisions_write", "delegate"))
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "decisions_write", "withdraw"))
@@ -940,9 +940,9 @@ class DecisionsParityTest {
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "decisions_write", "escalate"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "decisions_write", "answer"))
         assertEquals(
-            setOf(ToolProfile.DIRECTOR),
+            setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR),
             ParityCoverage.profilesOf(registry, "decisions_read", "list"),
-            "S11: decisions_read is a director tool only"
+            "S11: decisions_read is an orchestration and director tool"
         )
         assertEquals(
             setOf(ToolProfile.ORCHESTRATION),

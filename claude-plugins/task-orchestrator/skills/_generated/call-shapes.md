@@ -183,12 +183,12 @@ Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `
 
 ## `decisions_read` (select)
 
-Profiles: director.
+Profiles: director, orchestration.
 
 <a id="decisions_read-list"></a>
 ### `decisions_read` select `list`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -974,12 +974,12 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 ## `report` (select)
 
-Profiles: director.
+Profiles: director, orchestration.
 
 <a id="report-usage"></a>
 ### `report` select `usage`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -995,7 +995,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-gates"></a>
 ### `report` select `gates`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1011,7 +1011,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-notes"></a>
 ### `report` select `notes`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1028,7 +1028,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-contention"></a>
 ### `report` select `contention`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1044,7 +1044,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-waste"></a>
 ### `report` select `waste`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1057,7 +1057,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 <a id="report-rollup"></a>
 ### `report` select `rollup`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1157,7 +1157,7 @@ Profiles: director, orchestration.
 <a id="runs_write-open"></a>
 ### `runs_write` op `open`
 
-Profiles: director, orchestration; capability `runs`.
+Profiles: orchestration; capability `runs`.
 
 | Field | Type | Required |
 | --- | --- | --- |

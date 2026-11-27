@@ -296,12 +296,13 @@ class RunsDirectorRouteTest {
     // ------------------------------------------------------------------ director route member set
 
     @Test
-    fun `the director route serves its members and answers update and mark as hidden members`(): Unit =
+    fun `the director route serves its members and answers update, mark and open as hidden members`(): Unit =
         withApp {
             val runId = client.open()
             for ((label, body) in listOf(
                 "update" to ops.ops(ops.update(runId, ""","hints":{"x":"y"}""")),
-                "mark" to ops.ops(ops.mark(runId, "retro"))
+                "mark" to ops.ops(ops.mark(runId, "retro")),
+                "open" to ops.ops(ops.open(ops.r2))
             )) {
                 val response = client.director(body)
                 assertEquals(207, response.status.value, "$label: ${response.text()}")
@@ -323,7 +324,7 @@ class RunsDirectorRouteTest {
 
             assertEquals(200, client.director(ops.get(runId), reader, "runs_read").status.value, "get on the director route")
             assertEquals(200, client.director(ops.list(), reader, "runs_read").status.value, "list on the director route")
-            val opened = client.director(ops.ops(ops.open(ops.r2)), other)
+            val opened = client.plain(ops.ops(ops.open(ops.r2)), other)
             assertEquals(200, opened.status.value, opened.text())
             assertTrue("\"openedBy\":\"api:rw-other\"" in opened.text(), opened.text())
         }
