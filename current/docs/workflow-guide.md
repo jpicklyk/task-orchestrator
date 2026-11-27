@@ -404,7 +404,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
 }
 ```
 
-(Abridged: the response also carries the other members listed in the [API Reference](./api-reference.md#items_read).) A type with no schema answers `{ "schemaFree": true }`, which is not an error.
+(Abridged: the response and each note entry also carry the other members listed in the [API Reference](./api-reference.md#items_read).) A type with no schema answers `{ "schemaFree": true }`, which is not an error.
 
 **Step 2: Fill queue-phase notes**
 
