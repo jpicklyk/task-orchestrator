@@ -475,7 +475,8 @@ traits:
             "decisionAuthority",
             "profileSets",
             "rank",
-            "createTreeExistingDeps"
+            "createTreeExistingDeps",
+            "declaredTypes"
         )
 
     @Test

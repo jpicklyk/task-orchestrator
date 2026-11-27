@@ -59,7 +59,8 @@
             "decisionAuthority",
             "profileSets",
             "rank",
-            "createTreeExistingDeps"
+            "createTreeExistingDeps",
+            "declaredTypes"
         ]
     },
     "metadata": {

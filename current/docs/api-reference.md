@@ -758,7 +758,7 @@ a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool items_read -->
-Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail).
+Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item, or the declared types), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail).
 
 **`items_read` select `get`** (knowledge, orchestration and director profiles; capability `read`): One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.
 
@@ -797,13 +797,13 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `schema`** (knowledge and orchestration profiles; capability `read`): The note schema of a type or of an item; schemaFree when none matches; guidance only with fields.
+**`items_read` select `schema`** (knowledge and orchestration profiles; capability `read`): The note schema of a type or of an item, or with neither the declared types and their lifecycle; schemaFree when no schema matches; guidance only with fields.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | string | no | list: only items of this type. schema: the type whose schema to return. |
 | `itemId` | string | no | Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. |
-| `rootId` | string | no | With type: the project root whose config resolves it (UUID or 8-32 hex). |
+| `rootId` | string | no | With type, or with neither type nor itemId: the project root whose config resolves it (UUID or 8-32 hex). |
 | `fields` | array of string | no | Extra members. get: createdAt, modifiedAt, roleChangedAt, ancestors. list: the same plus summary. schema: guidance. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`

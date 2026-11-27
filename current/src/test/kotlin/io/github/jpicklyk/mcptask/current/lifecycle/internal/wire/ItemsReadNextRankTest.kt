@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
  * Oracles: decision 0013 Decision (an integer rank orders `next` among items of equal priority, smaller first, unranked last,
  * ties allowed, never changes eligibility) and task-scope D1, D4 and D7 (priority, then rank ascending with unranked last,
  * then complexity ascending with nulls last, then `createdAt` ascending, then `id` ascending; `oldest` and `newest` ignore
- * rank; claim by selector takes the item `next` lists first; `features` ends `profileSets`, `rank`, `createTreeExistingDeps`).
+ * rank; claim by selector takes the item `next` lists first; `features` carries `profileSets`, `rank`, `createTreeExistingDeps` in that order).
  * Every expected order below is written from those clauses, one key at a time, and never copied from an answer.
  *
  * Ambiguities: none left open. The plan's S6 phrase "blocked lists r1 as unranked" is read as: the `blocked` select still lists
@@ -331,7 +331,9 @@ class ItemsReadNextRankTest {
     private val expectedTail = listOf("profileSets", "rank", "createTreeExistingDeps")
 
     private fun List<String>.assertAdvertisesRank(where: String) {
-        assertEquals(expectedTail, takeLast(3), "$where ends profileSets, rank, createTreeExistingDeps: $this")
+        val at = indexOf("profileSets")
+        assertTrue(at >= 0 && at + 3 <= size, "$where carries profileSets: $this")
+        assertEquals(expectedTail, subList(at, at + 3), "$where carries profileSets, rank, createTreeExistingDeps in order: $this")
         assertEquals(size, distinct().size, "$where has no duplicate feature: $this")
     }
 

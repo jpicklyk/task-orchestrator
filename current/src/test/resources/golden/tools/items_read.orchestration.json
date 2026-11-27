@@ -151,7 +151,7 @@
       },
       "rootId": {
         "type": "string",
-        "description": "With type: the project root whose config resolves it (UUID or 8-32 hex). [select: schema]"
+        "description": "With type, or with neither type nor itemId: the project root whose config resolves it (UUID or 8-32 hex). [select: schema]"
       },
       "query": {
         "type": "string",
@@ -244,7 +244,7 @@
     },
     "type": "object"
   },
-  "description": "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail). Call with describe:true for parameters and errors.",
+  "description": "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item, or the declared types), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail). Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

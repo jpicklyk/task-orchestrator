@@ -24,7 +24,8 @@ package io.github.jpicklyk.mcptask.current.config
  * decision classes carry an `autonomy`, recorded as `withinAutonomy`. `"profileSets"` advertises `decisions_read` and every
  * `report` select on the orchestration profile, and `runs_write` `open` not on the director profile. `"rank"` advertises the
  * item field `rank` and its place in `next`'s default order. `"createTreeExistingDeps"` advertises that `create_tree` `deps`
- * ends `fromId` and `toId` may name existing items.
+ * ends `fromId` and `toId` may name existing items. `"declaredTypes"` advertises `items_read` `schema` with neither `type`
+ * nor `itemId`: the declared type names and their lifecycle.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
@@ -43,6 +44,7 @@ object ServerFeatures {
             "decisionAuthority",
             "profileSets",
             "rank",
-            "createTreeExistingDeps"
+            "createTreeExistingDeps",
+            "declaredTypes"
         )
 }
