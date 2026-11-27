@@ -1846,7 +1846,7 @@ test('a877f204 T4: orchestration-only registration, role-bearing config -> the o
 
 const KNOWLEDGE_MECHANICS_BULLETS = [
   '- Delete an item, a note or a page (`items_write` op `delete`, `notes_write` op `delete`, `docs_write` op `delete`) only after the user\'s explicit yes to that deletion. To prune, prefer archiving: `docs_write` op `archive` for a page, and for an item a tag added with `items_write` op `update`, sending the item\'s current tags plus that tag: the maturity rule\'s archive tag when the root has one, else a tag the user names.',
-  '- Once per session, before you retrieve or prune, read the root\'s maturity rule with `docs_read` select `get` (`kind: "rule"`, `slug: "maturity"`); `not_found` means the root has none. When it exists, leave items carrying one of its hidden tags (`items_read` select `list` with `tags` finds them) out of what you show unless the user asks for them, and apply its archive tag instead of a delete.',
+  '- Once per session, before you retrieve or prune, read the root\'s maturity rule with `docs_read` select `get` (`kind: "rule"`, `slug: "maturity"`); `not_found` means the root has none, and so does a rule that carries `archivedAt`. When it exists, leave items carrying one of its hidden tags (`items_read` select `list` with `tags` finds them) out of what you show unless the user asks for them, and apply its archive tag instead of a delete.',
   '- Before writing up what an item covers, read its schema (`items_read` select `schema` with `itemId` and `fields: ["guidance"]`): when a note entry\'s guidance makes it the note for that write-up, write it there beside the page, and when the entry names a `skill`, invoke that skill before you write the note.',
 ];
 const KNOWLEDGE_FULL_PREFIX = '## Task Orchestrator — Session Context\n\n'
@@ -1875,6 +1875,8 @@ test('1c25ff10 S2: knowledge registration, user state -> B4-B6 present', () => {
   const ctx = parse(runHook(dir, { toHome })).hookSpecificOutput.additionalContext;
   assertKnowledgeGuidance(ctx);
   assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
+  assert.ok(ctx.indexOf('## Personal Scope') > KNOWLEDGE_FULL_PREFIX.length, ctx);
+  assert.ok(!ctx.includes('## Setup Status'), ctx);
 });
 
 test('1c25ff10 S2: knowledge registration, no config -> B4-B6 then Setup Status', () => {
@@ -1884,6 +1886,8 @@ test('1c25ff10 S2: knowledge registration, no config -> B4-B6 then Setup Status'
   assertKnowledgeGuidance(ctx);
   assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
   assert.ok(ctx.indexOf('## Setup Status') > KNOWLEDGE_FULL_PREFIX.length, ctx);
+  assert.ok(ctx.includes('No Task Orchestrator config was found'), ctx);
+  assert.ok(!ctx.includes('not project-scoped'), ctx);
 });
 
 test('1c25ff10 S2: knowledge registration, project block without rootId -> B4-B6 then Setup Status', () => {
@@ -1894,6 +1898,8 @@ test('1c25ff10 S2: knowledge registration, project block without rootId -> B4-B6
   assertKnowledgeGuidance(ctx);
   assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
   assert.ok(ctx.indexOf('## Setup Status') > KNOWLEDGE_FULL_PREFIX.length, ctx);
+  assert.ok(ctx.includes('This workspace is not project-scoped'), ctx);
+  assert.ok(!ctx.includes('No Task Orchestrator config was found'), ctx);
 });
 
 test('1c25ff10 S3: lifecycle-free config with an orchestration registration -> B4-B6 present', () => {
