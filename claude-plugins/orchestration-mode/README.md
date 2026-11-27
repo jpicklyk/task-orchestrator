@@ -41,11 +41,7 @@ It needs the `task-orchestrator` plugin, whose `director-guard` hook keeps the m
 
 ## Settings
 
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `band` | `true` | Draw the band above the prompt; this is the default for every session. `/to-band` hides or shows the band for this session (the choice survives a reload); a fresh session starts from `band` again. The footer label is not affected. |
-| `backdrop` | `true` | Tint the desktop app's backdrop while director mode is on or the session holds an open run. |
-| `apiUrl` | `http://localhost:3003` | Base URL of the server's REST API; the band reads `POST <apiUrl>/api/v1/ops/director/<tool>` (the REST twin of the director profile's `runs_read` and `items_read`). Leave it empty to read over the `mcp-task-orchestrator-director` MCP connection instead (a stdio server has no REST API). |
+The settings are `band`, `backdrop` and `apiUrl`; their defaults and meanings are the `userConfig` in `.claude-plugin/plugin.json`. Leave `apiUrl` empty to read over the `mcp-task-orchestrator-director` MCP connection instead (a stdio server has no REST API).
 
 The band goes over REST by default because the reads are the mod's own, on a timer and at turn end, not the model's: the desktop app's auto permission mode has no request to evaluate such a call against and refuses a plugin-originated `$.mcp.call` outright, while `$.http.fetch` goes through the host with no permission step. Both paths use the director profile, which has no note-body read, so the band can never breach the altitude rule. The director profile has every read the band needs (`items_read` `get`, `overview` and `blocked`, and `runs_read`).
 

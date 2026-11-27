@@ -38,202 +38,6 @@ The system rests on three substrates. **Schemas** drive data collection (gate-en
 
 ---
 
-## Foundation: Schema-Driven Data Collection
-
-Before any of the loops can work, the data they consume must be collected reliably. Self-improvement is only as good as its inputs — and the inputs come from gate-enforced notes. A few specific note types do the load-bearing work:
-
-### `session-tracking` — the per-item outcome record
-
-Every implementation schema (`feature-implementation`, `feature-task`, `bug-fix`, `plugin-change`, `quick-fix`, and the catch-all `default`) requires a `session-tracking` note at work phase. The gate blocks the item from advancing to terminal until it is filled.
-
-```yaml
-work_item_schemas:
-  feature-task:
-    notes:
-      - key: session-tracking
-        role: work
-        required: true
-        description: "Session context — what was done, how it went, and anything the retrospective should know."
-        guidance: |
-          Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order:
-          `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase);
-          `Commits: <sha or range>` (one line; never a file list, the commits name their files);
-          `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them);
-          `Deviations: <what differed from the plan and why> | none`;
-          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion; a server or plugin defect as `defect: <tool>, <op>, <code>, <message>`);
-          `Observations: <process signal worth a trend>` (omit when none);
-          `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here).
-          Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are.
-          A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal.
-```
-
-The note is the **single source of truth** for what happened on each item. The retrospective reads these notes with `notes_read` `list` (`role: "work"`, `keys: ["session-tracking"]`) per item rather than re-deriving from the transcript. Gate enforcement guarantees the data exists.
-
-> **Why on every implementation schema, not just one:** The retrospective aggregates across the full feature tree. Putting `session-tracking` on `feature-task`, `bug-fix`, `plugin-change`, etc. (rather than only the parent feature) lets distributed sub-agents each record their own outcomes without contention. The catch-all `default` schema picks up items whose type has no schema of its own, so nothing escapes tracking.
-
-### `agent-observation` — the tool-side issue log
-
-Standalone MCP items (no `parentId`) of type `agent-observation`, tagged `agent-observation` plus exactly one type tag. Each carries a single queue-phase note describing the issue:
-
-```yaml
-work_item_schemas:
-  agent-observation:
-    lifecycle: auto
-    notes:
-      - key: observation-detail
-        role: queue
-        required: true
-        description: "Expected vs actual behavior and suggested improvement."
-        guidance: |
-          Describe what you observed (tool call, parameters, result).
-          State what you expected instead.
-          Suggest a concrete improvement — API change, error message improvement, or new capability.
-          Tag the observation type:
-          - **optimization** (works but could be better)
-          - **friction** (workflow impediment)
-          - **bug** (incorrect behavior)
-          - **missing-capability** (needed feature that doesn't exist)
-```
-
-Default `priority: low` keeps observations from competing with implementation items in `items_read` `next`. Add `action-item` as a secondary tag for observations that block current work.
-
-### `session-retrospective` — the aggregate artifact
-
-A schema for the retrospective items the skill produces. Three queue-phase notes capture quantitative metrics, qualitative evaluation, and forward-looking signals:
-
-```yaml
-work_item_schemas:
-  session-retrospective:
-    lifecycle: auto
-    notes:
-      - key: session-metrics
-        role: queue
-        required: true
-        description: "Quantitative session data — items, agents, schemas, token efficiency."
-      - key: workflow-evaluation
-        role: queue
-        required: true
-        description: "Qualitative workflow assessment across all evaluation dimensions."
-      - key: improvement-signals
-        role: queue
-        required: true
-        description: "Trends, proposals, and extension promotions."
-```
-
-### `delegation-metadata` (optional) — model alignment data
-
-When the orchestrator dispatches a subagent, it can record the model used and isolation mode as a `delegation-metadata` note on the work item. Projects that want this consistently can define a `delegated` trait (see the `/manage-schemas` reference) and apply it to delegated items:
-
-```
-notes_write(ops=[{
-  op: "upsert",
-  itemId: "<task-uuid>",
-  key: "delegation-metadata",
-  role: "work",
-  body: "model: sonnet | isolation: worktree | rationale: implementation work, file edits required"
-}])
-```
-
-The retrospective uses these notes to score delegation alignment (haiku for bulk MCP, sonnet for implementation, opus for architecture). Optional — when absent, the delegation-alignment dimension is skipped rather than failed.
-
----
-
-## Loop 1: Inline Analysis & Observation Logging
-
-The first loop runs in real time as the agent uses MCP tools. It surfaces issues immediately in response output and persists tool-side issues to MCP.
-
-### What Gets Watched
-
-**Token waste patterns:**
-
-| Pattern | Detection signal | Preferred alternative |
-|---------|-----------------|----------------------|
-| Over-fetching | `items_read(get)` for a status check | `items_read(overview)` or the compact `list` view — item summaries without note bodies |
-| Missing batch | 3+ individual `items_write`/`deps_write`/`advance` calls in one turn | Put the operations in one call's `ops[]` array (`atomic: true` makes the batch all-or-nothing) |
-| Note body waste | `notes_read(get)` on every note when only keys/roles are needed | `notes_read(list)` returns an item's notes without bodies — `get` only the note whose body is needed |
-| Redundant queries | Same entity queried twice in a turn | Cache the first result or combine into one call |
-| Unfiltered search | `items_read(search)` with no filters | Add `role`, `tags`, `ancestorId`, or `kinds` to narrow |
-| Multi-status role query | Listing specific statuses when a role would suffice | Use `role="work"` to list every item in the work phase with one filter |
-| Full notes for partial read | `notes_read(get)` for all notes when one is needed | Scope with `notes_read(list, role=..., keys=[...])` |
-
-**Friction patterns:**
-
-| Category | What to watch |
-|----------|--------------|
-| Tool failures | MCP calls that return errors or unexpected empty results |
-| Excessive round-trips | Workflows requiring 3+ sequential calls where 1-2 should suffice |
-| Workarounds | Cases where the agent must work around a missing capability |
-| API confusion | Parameter naming inconsistencies, unclear error messages |
-| Tool misuse | Wrong op or select chosen, missing required params, skipping `advance` |
-| Silent failures | Operations that succeed but produce no useful effect |
-
-**Return-payload waste** (often the biggest token drain in delegated runs):
-
-| Pattern | Detection signal | Suggestion |
-|---------|-----------------|------------|
-| Verbose subagent returns | Subagent returns full MCP JSON when only UUIDs/status were needed | Specify exact return format: "Return only: [fields]" |
-| Unrequested context | Subagent returns file contents or exploration findings beyond scope | Tighten prompt: "Do not include [X], only report [Y]" |
-| Echo-back waste | Subagent restates the full task before answering | Add: "Do not restate the task — begin with results" |
-| Full JSON dumps | Raw MCP response objects instead of extracted values | Request structured summaries: "Return a markdown table of [columns]" |
-| Team message bloat | Routine status DMs exceed 3-4 lines | Set norms in team prompt: "Status messages: 1-2 lines max" |
-| Broadcast overuse | `broadcast` used for information relevant to 1-2 teammates | Use targeted `message`; reserve `broadcast` for blocking issues |
-
-**Tier-classification monitoring** — flag when process is mismatched to the work:
-
-| Pattern | Signal | Correction |
-|---------|--------|------------|
-| Over-process on small work | Plan mode + subagent + separate review for a 1-2 file known fix | Should be Direct tier — implement inline, skip plan mode |
-| Under-process on complex work | No planning, no review, no worktree for 10+ files with deps | Should be Parallel tier — use plan mode, worktree agents, separate review |
-| Missing session-tracking | Item reaches terminal without a `session-tracking` note | Fill before advancing — the retrospective depends on it |
-
-### The Logging Protocol
-
-When the agent detects an issue worth persisting, it follows a three-step protocol:
-
-**Step 1 — Dedup check.** Search for existing observations to avoid duplicates:
-
-```
-items_read(select="search", query="<topic keyword>", tags=["agent-observation"])
-```
-
-**Step 2 — Create (only if no match found):**
-
-```
-items_write(ops=[{
-  op: "create",
-  title: "[optimization] Use overview instead of get for status dashboards",
-  summary: "Detected items_read(get) used for a status check. items_read(overview) returns item summaries without note bodies — sufficient for dashboards and far cheaper.",
-  type: "agent-observation",
-  tags: ["agent-observation", "optimization"],
-  priority: "low"
-}])
-```
-
-**Step 3 — Fill the observation note:**
-
-```
-notes_write(ops=[{
-  op: "upsert",
-  itemId: "<new-item-uuid>",
-  key: "observation-detail",
-  role: "queue",
-  body: "**Observed:** ...\n**Expected:** ...\n**Suggestion:** ..."
-}])
-```
-
-### Tagging Convention
-
-Every observation gets `agent-observation` plus exactly one type tag:
-
-| Type tag | When |
-|----------|------|
-| `optimization` | Token waste, redundant queries, missed batch opportunities |
-| `friction` | Confusing APIs, excessive round-trips, unclear errors |
-| `bug` | Actual defects in tool behavior |
-| `missing-capability` | Gaps requiring workarounds |
-
----
-
 ## Loop 2: Self-Correction via Auto-Memory
 
 When the agent detects a mistake in its own orchestration behavior — not a tool issue, but an agent discipline issue — it writes a correction to persistent memory rather than to MCP.
@@ -373,67 +177,6 @@ Performs all evaluation steps and renders the report but skips persistence — n
 
 ---
 
-## Analysis Reporting
-
-Loops 1 and 2 observe continuously but report at boundaries, under the same timing rules as the retrospective. An analysis footer on every response that touched MCP turns into noise quickly: in a session with background agents, every subagent return and task notification would carry one, and so would plain questions answered in passing.
-
-### What Counts as an MCP Call
-
-Only Task Orchestrator tools (`mcp__mcp-task-orchestrator__*`, and the director profile's tools). Other MCP servers in the session (the Claude Code desktop app's own tools, browser panes, log viewers) are invisible to the analysis layer: never counted, never reported on.
-
-### Per Response: Inline Lines Only, and Only for a Finding
-
-When the agent detects a concrete issue (an over-fetch, a missed batch, a logged observation, a self-correction), it writes one `↳ [analysis]` line in the response body where it happens:
-
-```
-↳ [analysis] Over-fetch: used get+notes where overview suffices for the dashboard
-↳ [analysis] Logged: [optimization] `a1b2c3d4` — batch dependency creation for linear chains
-↳ [self-correction] Updated memory: pass model on every Agent dispatch
-```
-
-A clean response gets nothing: no line, no footer, no "clean" marker.
-
-### At a Boundary: One Workflow Analysis Block
-
-The full block appears once per boundary and covers everything since the previous block:
-
-- a worktree's work is finalized: its PR is opened or merged, or the worktree is wrapped up without a PR
-- a run closes (`runs_write` `close`), in the same response that dispatches or surfaces the retrospective
-- a feature or multi-item effort driven outside a run reaches terminal
-- the user asks for it
-
-Like a retrospective directive, the block is held while background tasks or subagents from the same work are still running, emitted after the last of them completes, and boundaries that accumulate while holding merge into one block. It never appears twice for one boundary. A session that ends between boundaries emits nothing; the inline lines and logged observations already carry the signal into `/session-retrospective`.
-
-```
----
-### ◆ Workflow Analysis
-
-**MCP Call Efficiency**
-↳ 12 calls, 2 batched, no redundant queries
-
-**Return Payload Efficiency**
-↳ Subagents dispatched: 2 | Returns reviewed: 2
-↳ Clean — both returns matched requested format
-
-**Friction Points** (0 since the last block)
-↳ None detected
-
-**Observations Logged** (1 new, 0 existing matched)
-↳ [optimization] `a1b2c3d4` — batch dependency creation for linear chains
-
-**Suggestions**
-↳ Consider using items_read(overview) for the work-summary dashboard
-```
-
-Sections with nothing to say are dropped. If the whole span was clean, one line replaces the block:
-
-```
----
-◆ **Analysis** — 14 MCP calls since last block | clean
-```
-
----
-
 ## Setup
 
 Three implementation depths. Each builds on the previous — start at the depth that fits your need.
@@ -442,7 +185,7 @@ Three implementation depths. Each builds on the previous — start at the depth 
 
 The lightest path: persistent tracking of tool issues, no analysis reporting, no retrospectives.
 
-**1.** Add the `agent-observation` schema to `.taskorchestrator/config.yaml` (see [Foundation](#foundation-schema-driven-data-collection) for the exact YAML).
+**1.** Add the `agent-observation` schema to `.taskorchestrator/config.yaml` (the schema is in the [example schemas](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/example-schemas.md#agent-observation--process-global-schema-global-floor-not-per-project)).
 
 **2.** Add a short prompt in `CLAUDE.md` instructing the agent to log observations:
 
@@ -482,7 +225,7 @@ boundary: a worktree's PR opened or merged, a run closed, a feature reaching ter
 Hold it while background agents from that work are still running, and never emit it twice for one boundary.
 ```
 
-This buys you continuous monitoring without changing how you operate. Most of Loop 1 + all of Loop 2.
+This buys you continuous monitoring without changing how you operate. Inline analysis, observation logging and all of Loop 2.
 
 ### Option C: Full Pipeline (personal output style + retrospective)
 
@@ -492,7 +235,7 @@ The complete setup — all three loops including session-level aggregation and t
 
 **1.** Complete Option A (observation schema).
 
-**2.** Add the `session-tracking` note to every implementation schema in your config. The exact YAML is in [Foundation](#foundation-schema-driven-data-collection); apply it to:
+**2.** Add the `session-tracking` note to every implementation schema in your config. It arrives through the `session-tracked` trait, shown under [Traits Example](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/example-schemas.md#traits-example); apply it to:
 
 - `feature-implementation`
 - `feature-task`
@@ -503,12 +246,12 @@ The complete setup — all three loops including session-level aggregation and t
 
 This is the load-bearing change — without distributed `session-tracking` notes, the retrospective has nothing to aggregate.
 
-**3.** Add the `session-retrospective` schema (three queue-phase notes — see [Foundation](#foundation-schema-driven-data-collection)).
+**3.** Add the `session-retrospective` schema (three queue-phase notes; it ships in the server's global config, see the [example schemas](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/example-schemas.md#agent-observation--process-global-schema-global-floor-not-per-project)).
 
 **4.** Create a personal output style with two zones. The plugin already delivers the orchestration core (delegation rules, tier classification, phase transitions) through its SessionStart hook, so the style holds no Zone 1 and mirrors nothing from the plugin:
 
 - **Zone 2 — Extended orchestration:** enhancements specific to your setup (parallel dispatch rules, retrospective nudge, etc.)
-- **Zone 3 — Workflow analysis layer:** detection patterns from [Loop 1](#loop-1-inline-analysis--observation-logging), self-correction protocol from [Loop 2](#loop-2-self-correction-via-auto-memory), analysis reporting format
+- **Zone 3 — Workflow analysis layer:** detection of friction and tier mismatches, self-correction protocol from [Loop 2](#loop-2-self-correction-via-auto-memory), analysis reporting format
 
 Place the file in `~/.claude/output-styles/` (a personal style is still a valid Claude Code feature) and activate via `.claude/settings.local.json`:
 
@@ -605,7 +348,7 @@ Memory update: "Always set model parameter explicitly on Agent dispatch —
 haiku for MCP bulk ops, sonnet for implementation, opus for architecture."
 ```
 
-It also logs an `agent-observation` MCP item (Loop 1) tagged `optimization`. The implementation item's `session-tracking` note records the friction entry: `friction: api-confusion — model param defaulted unexpectedly`.
+It also logs an `agent-observation` MCP item tagged `optimization`. The implementation item's `session-tracking` note records the friction entry: `friction: api-confusion — model param defaulted unexpectedly`.
 
 `/session-retrospective` runs at end of session. A new trend item is created, with this summary:
 

@@ -6,23 +6,6 @@ MCP Task Orchestrator is an open-source MCP server that gives AI agents persiste
 
 ---
 
-## What's New in 4.0
-
-- A compact tool surface: `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `advance`, `docs_read`, `docs_write`, `config`, `runs_read`, `runs_write`, `decisions_read`, `decisions_write` and `report`, each a `select` (reads) or an `ops[]` batch (writes), every one answering one response envelope. `describe: true` on any call returns the tool's schema. See the [API Reference](api-reference.md).
-- Three tool profiles: `orchestration` (every tool), `knowledge` (a smaller read/write subset at `/mcp/knowledge`) and `director` (item and dependency reads, `report` and the run controls, at `/mcp/director`)
-- Unified WorkItem model: one entity type nesting to any depth. Lifecycle-free items (`lifecycle: none` types) hold reference material that never enters the phase workflow
-- Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`) through `advance`; cascade rules live in the [`advance` reference](api-reference.md#advance)
-- Note schemas gate phase transitions, per `type` (an item must carry a declared `type`), with composable traits that layer note requirements, guidance, skill routing, dispatch and resource leases onto base schemas
-- Config is versioned per project root (`config` ops `push`, `validate`, `history`, `rollback`, `reset`) and items stay pinned to the schema they were created under until `repin`
-- Dependency patterns: `linear`, `fan_out`, `fan_in` with `blocks` and `relates_to` edges
-- Versioned documents (`docs_read`, `docs_write`), `[[...]]` links with backlinks, and `related` search across items, notes and documents
-- Opaque-cursor paging on every list, `fields` and `ifVersion` on reads, and 8-hex-character short ids
-- Multi-agent claims (the `advance` tool's `claim`, `release` and `heartbeat` ops) with TTL-based ownership, a selector for serialized find-and-claim, and ancestor-claim sub-tree protection; see [Fleet Deployment](fleet-deployment.md) for topology patterns
-- Runs, seats and decisions for budgeted multi-agent passes ([Workflow Guide section 12](workflow-guide.md#12-runs-seats-and-decisions)) and aggregate figures through `report` ([Reporting](reporting.md))
-- Upgrading from 3.x: read "Upgrading from 3.x" in the [Changelog](https://github.com/jpicklyk/task-orchestrator/blob/main/CHANGELOG.md) first
-
----
-
 ## Quick Install
 
 If you work across multiple projects, the recommended setup is a persistent local server with the
@@ -93,6 +76,7 @@ After running, restart Claude Code and run `/mcp` to verify the connection. You 
 | [API Reference](api-reference.md) | Every MCP tool — parameters, response shapes, and examples |
 | [Workflow Guide](workflow-guide.md) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior, runs, seats and decisions |
 | [Fleet Deployment](fleet-deployment.md) | Multi-agent fleet operators: identity policy, SQLite tuning, capacity planning, claim disclosure, observability |
+| [Upgrading from 3.x](fleet-deployment.md#upgrading-from-3x) | The procedure for moving a 3.x deployment and its data volume to 4.x |
 | [Reporting](reporting.md) | The `report` tool: which select answers which question, how to read its bases, and what retention changes in an answer |
 | [Integration Guides](integration-guides/index.md) | Progressive tiers from bare MCP tools to self-improving orchestration |
 

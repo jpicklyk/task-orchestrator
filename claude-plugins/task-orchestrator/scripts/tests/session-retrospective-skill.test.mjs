@@ -277,7 +277,6 @@ test('W2-AC9: the defect form is taught at every Friction-form site', () => {
   const form = 'defect: <tool>, <op>, <code>, <message>'
   const sites = [
     ['..', '..', '.taskorchestrator', 'config.yaml'],
-    ['..', '..', 'current', 'docs', 'integration-guides', 'self-improving-workflow.md'],
     ['skills', 'manage-schemas', 'references', 'example-schemas.md'],
     ['skills', 'manage-schemas', 'references', 'create-workflow.md'],
     ['skills', 'manage-schemas', 'references', 'edit-workflow.md'],

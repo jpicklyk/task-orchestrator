@@ -6,8 +6,6 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 **Companion docs:**
 - [API Reference — `advance`](api-reference.md#advance) — tool spec: ops, claim semantics, error codes
-- [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
-- [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) — agent-side model: exclusive vs advisory, contention/retry, guarantees vs non-guarantees
 - This guide — operator-side: identity policy, capacity, disclosure, observability, resource-lease TTL/runbook
 
 ---
@@ -186,171 +184,22 @@ cost grows with the indexed text (measured about 2.6 s at 100 000 notes). On a l
 
 ## Logging
 
-Logs are structured JSON, one object per line, written to **stderr only** — stdout is reserved
+Logs are structured JSON, one object per line, written to **stderr only** - stdout is reserved
 exclusively for MCP JSON-RPC messages on the stdio transport, so nothing may ever be pointed at it.
 Level is controlled by `LOG_LEVEL` (default `INFO`); there is no separate stderr threshold.
-
-Each JSON line carries:
-
-| Field | Description |
-|-------|--------------|
-| `timestamp` | ISO-8601, UTC, e.g. `2026-09-25T12:00:00.123Z` — always 3 fractional digits |
-| `level`, `loggerName`, `threadName`, `formattedMessage` | Standard SLF4J/Logback fields |
-| `mdc` | Correlation fields for the request/call in flight (see below) |
-| `throwable` | Stack trace details when an exception was logged; `null` otherwise (the field is always present) |
-
-**MDC correlation fields**, propagated via `kotlinx-coroutines-slf4j`'s `MDCContext` so they
-survive coroutine dispatcher hops:
-
-- MCP tool calls (`McpOperationAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, `reqId`
-  (the call's 8-character correlation id, lowercase Crockford base32, 40 random bits; the MCP SDK handler
-  has no JSON-RPC request id to reuse, see "Call log and `reqId`" below), and `actorId` (the audited id of the
-  call's principal: `api:<id>`, or `local`). `actorId` is length-capped at 128 chars (`MdcValues.bounded`,
-  truncated with a `...[truncated]` marker) - the cap applies only to this MDC copy, never to what tools
-  themselves receive.
-- REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
-  `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
-  `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line). `httpPath`
-  is length-capped at 256 chars, same truncation rule as `actorId` above. `requestId` is NOT
-  length-capped: a malformed or over-long `X-Request-Id` is rejected and replaced with a fresh UUID
-  instead, since it is a correlation key and truncating it risks falsely correlating unrelated
-  requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
-  `GET /api/v1/events` SSE stream gets no `reqId`.
-
-**API JWT rejections.** Each bearer JWT the REST API, MCP HTTP and SSE endpoints reject logs one INFO line on
-the `JwksApiVerifier` logger:
-`API JWT rejected: reason=<code> verifier=api keySource=jwks_uri suppressed=<n>`. `reason` is the pipeline failure
-kind (`crypto`, `claims`, `policy` or `internal`; a token that verifies but has a malformed `to_scope` or `to_kind`
-reports `claims`). `verifier` and `keySource` name the verifier and its key source (an API JWKS URI). `suppressed`
-is how many rejections of that reason the flood limit dropped since the previous line for it. The limit is 10 lines
-per reason per 60 seconds, so a flood cannot fill the log; the count rides on the first line of the next window. A
-count with no later rejection of the same reason is never reported.
-
-That INFO line never carries the token, any claim value, the subject, the `kid` or the verifier's free-text failure
-detail (the detail is logged at DEBUG only). It is not the only line a bad token can cause: a token whose custom
-claims are defective also logs the claim-defect WARN described below, which carries a reason code and never the claim
-value. One identity WARN does name a subject: a refused `scope.root_ids` anchor logs the verified `sub`, at most once
-per subject. Verified tokens and an unavailable key set (answered 503, WARN once per request) log no rejection line.
-
-**API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom
-claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim>
-reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants:
-`to_scope` `not_object` or `malformed` (rejected), `payload` `duplicate_key` (rejected: an object key
-repeated below the top level of the verified payload; a top-level repeat fails the claims parser first and logs no such line), `to_kind` `not_string` or `unknown_value`
-(rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token
-however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT
-verification fault: reason=internal suppressed=<n>` on the same logger. Each key
-(`<claim>.<reason>`, and `internal`) is limited to 10 lines per 60 seconds, and `suppressed` rides
-on the first line of the next window, as for rejections. Neither line carries the token, a claim
-value, the `kid` or exception text; that detail stays at DEBUG. A failed forced JWKS refresh for an
-unknown `kid` logs the fetch error only, never the `kid`.
-
-### Call log and `reqId`
-
-Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
-(`meta.reqId` in every response envelope and `_meta.reqId` on every MCP tool result, errors included; the `X-Req-Id` response header on REST),
-set as the MDC `reqId` key, stamped as `req_id` on every `events` row the call writes, and is the
-primary key of that call's row in the `call_log` table (migration V21). A row records who called
-(principal id, kind, proof status, session), what (surface `mcp`/`rest`, tool or the REST route
-template `METHOD /api/v1/<route>` exactly as declared in routing (for example `GET /api/v1/items/{id}`; a `POST /api/v1/ops/{tool}` call records the registry tool name instead), `operation` (the select or op name),
-target ids and versions, boolean/`limit` request shape), the
-outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
-and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
-
-A refusal is a row too. A tool call that reaches the dispatcher on an MCP session with no bound principal fails
-closed as `unauthenticated` before anything in it is read, and its row records no principal and the error code
-`unauthenticated`. That row is the audit record of a fail-closed refusal, not a work row. A forged or evicted session
-id never gets that far: the SDK answers it `404` and no tool runs.
-
-Two columns added by migration V30 serve follow-through and rejection reports:
-
-- `hit_signals` (JSON text): for an `items_read` `related` call, the returned page hit by hit, in page order, as
-  `[{"id":"<uuid>","kind":"item"|"document","signals":[...]}]`, `signals` being the signals that found the hit
-  (`edges`, `links`, `tags`, `text`, in that order). A later call in the same `session_id` whose `target_ids` or
-  `target_versions` names one of those ids is a follow-through for those signals, provided that call is not itself a
-  `related` or `search` call: those record the hits they return as `target_versions`, so a re-surfaced hit would
-  otherwise count as followed. Filter them out with `c.operation NOT IN ('related','search')`, for example
-  `... JOIN call_log c ON c.session_id = r.session_id AND c.at > r.at AND c.operation NOT IN ('related','search')
-  AND (h.id IN (SELECT value FROM json_each(c.target_ids)) OR c.target_versions LIKE '%' || h.id || '%')`.
-  Follow-through is effectively MCP-only: REST rows carry no `session_id` (NULL), so the session join never matches a
-  REST `related` row. Ids and signal names only, never a title or any text. NULL for every other call and for an
-  empty page. At most 50 entries (about 5.3 KB in the worst case, a document hit with 4 signals at about 105 B) per row.
-- `lifecycle_free_rejections` (integer): how many rejections in the response a lifecycle-free item caused. Judged
-  from the response envelope: each failed batch element when the body has `data.results`, else the top-level
-  `error` (never both, so a non-atomic batch's `partial_failure` is not counted twice). A rejection counts when it is
-  `invalid_transition` with `detail.fromRole` `"none"` (an advance trigger, claim, heartbeat or flip refused for a
-  lifecycle-free item) or the `invalid_request` refusing a BLOCKS dependency with a lifecycle-free endpoint. NULL
-  when there were none, never 0. Both surfaces fill it (REST from `POST /api/v1/ops/{tool}` bodies; the other REST
-  routes are reads). An idempotent replay row (`replayed = 1`) repeats the stored response and so carries the same
-  count, but it is not a new rejection: `report` `waste` leaves replayed rows out of `lifecycleFreeRejections`.
-
-Rows written before V30 read NULL in both columns.
-
-Migration V31 adds one more column, `root_id`, plus indexes for the run and root reports:
-
-- `root_id` (BLOB, 16-byte UUID, same encoding as `run_id`): the single root the call read or wrote. Reads record the
-  root of the item an `items_read` select loads (`get`, `context`, `list`, `next`, `blocked`, `schema`), of a `related`
-  reference, or of a document hit (its owner item); writes record the root of every `events` row the call appends.
-  NULL when the call touched no root, or touched more than one: the latter also sets `request_shape.multiRoot` to
-  `true` (the key is absent otherwise). Hits' roots are not looked up. No foreign key: a row outlives the items it
-  names.
-- `request_shape.fields`: a sorted JSON array of the `fields` names an `items_read` select accepted; absent when none
-  were given. Like `multiRoot` it survives the 16-key cap on `request_shape`.
-- `events.run_id` and `events.seat` (existing columns) are now stamped with the call's recorded run id and seat, NULL
-  until a run is recorded; `call_log.run_id` and `seat` report the same pair.
-- Indexes: `idx_call_log_root_at` on `(root_id, at)`, and the partial `idx_call_log_run_at` on `call_log(run_id, at)`
-  and `idx_events_run_seq` on `events(run_id, seq)` (both `WHERE run_id IS NOT NULL`, empty until a run is stamped).
-
-Rows written before V31 read NULL in `root_id`. Both surfaces fill these.
-
-Each MCP tool call that was not cancelled also logs one INFO line from `McpOperationAdapter`, inside the call's MDC
-(so it carries `reqId`, `sessionId`, `tool`, `transport` and `actorId`):
-`tool call: name=<tool>, operation=<select or op, or ->, outcome=ok|error, errorCode=<code, or - on ok>,
-latencyMs=<n>, responseBytes=<n>`. It is logged whatever happens to the call-log row. The message never carries an
-argument value or body text; the MDC `actorId` is the one argument-derived field (length-capped, and already present
-on every log line before this line existed). REST requests log no per-request line.
-
-Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
-rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
-graceful shutdown (drain timeout 5 s; on timeout the write loop is cancelled and joined, and unwritten rows
-count as dropped. `stop()` returns after the drain timeout plus at most one in-flight batch write, because JDBC
-inserts are not interruptible. A cancel that lands after a batch committed may count its already-written rows
-as dropped, so `dropped` can over-count in that edge; it is a counter only, with no effect on stored data). Telemetry never blocks or fails a call. When the queue overflows the new row is
-dropped; a WARN line `Call log dropped N row(s) since the last notice` reports the count dropped since
-the previous notice (at most one per 250 ms, plus a final one at shutdown); a batch that fails is
-logged at WARN and dropped. The 8-character id has 40 bits,
-so a duplicate `req_id` is possible (about 0.45 expected collisions by a million rows); a primary-key
-duplicate is ignored, any other constraint refusal is counted as failed and logged at WARN. Cancelled
-calls write no row.
-
-Client-derived text in a row is bounded: the REST `tool` of a call that resolved a route is
-`<METHOD> <matched route template>` exactly as declared (captured from Ktor's routing event, so there is one
-value per declared route). A call that resolved no route (a 404 or 405, or a 401 on a path no route matches; a 401 on a declared route records that route's template, because the auth check does not stop routing) is
-`<METHOD> /api/v1/<first segment>` when that first segment is a top-level resource the routing tree declares
-(derived from the declared routes, not a hand-kept list), else `<METHOD> unmatched`: never more than the first
-segment, and the raw request path is never stored; `operation` is kept only when it matches `^[a-z_]{1,64}$`
-(any other supplied value is stored as `invalid`); `request_shape` keeps at most 16 flags whose key
-matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
-
-On every row, MCP and REST alike, the `principal_id` column holds the audited id of the call's transport principal:
-`api:<id>` for a credential, the bare `local` for stdio and the local modes, and never client text (a row for a call
-that had no principal holds none). `proof_status` records the proof behind that principal. `principal_kind` records the credential's principal kind (`human`, `agent` or `service`); the local principal of an unauthenticated or local-mode server records `agent`. Rows written before this fix keep `external` (the audit claim's kind) and are not backfilled, so a window spanning the upgrade shows both.
-
-The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
-the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
-the client sent no name). On REST rows it is the `X-Client-Host` request header, else the first `User-Agent` product token,
-else `rest`. The value is normalized (control characters dropped, trimmed, lowercased, capped at 64 code points). Both are self-reported by the client and unauthenticated: `host` labels telemetry only and is
-never used for authorization, scoping or identity. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
-overrides that variable must add the header itself for browser clients to send it.
-
-`call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
-(`RETENTION_CALL_LOG_DAYS`) deletes only days already folded into `usage_daily` (migration V33); see
-[Data Retention](#data-retention) below.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`
 volume in Docker); the file uses the same JSON encoding, rolls at 10MB/day (`.gz`, 30-day/100MB
 retention), and its parent directories are created automatically.
+
+### Call log and `reqId`
+
+Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
+(`meta.reqId` in every response envelope and `_meta.reqId` on every MCP tool result, errors included; the `X-Req-Id` response header on REST),
+carried in each log line's `mdc` object, stamped as `req_id` on every `events` row the call writes, and is the
+primary key of that call's row in the `call_log` table. Quote it when reporting a failed call. Its retention
+(`RETENTION_CALL_LOG_DAYS`) is in [Data Retention](#data-retention) below.
 
 ---
 
@@ -565,7 +414,7 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an A
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs `read` (config `get` and `validate`, rule listing, and the SubagentStop phase guard below), `write-config` (push) and `write-docs` (rule upserts) for its own root, not `admin`. Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
-**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files as rule documents: `docs_read` `list` (kind `rule`) reads the current rules, then `docs_write` `upsert` (kind `rule`) writes the keys that differ. On SessionStart only, it also syncs the plugin's bundled process rules under a manifest policy (a missing key is pushed, a server copy matching a known older bundled version is overwritten, any other server copy is left alone; a workspace rule with the same key wins; none for a config whose every declared type is `lifecycle: none`). For such a lifecycle-free config, once the server holds it, the bundled copies pushed there earlier are archived (`docs_write` `archive`) when their hash is one the manifest lists: they leave knowledge search but keep their body and history, `unarchive` restores them, any other copy is kept, and nothing is deleted. When the root later declares a type with a lifecycle and the server holds that config, each archived copy at a hash the manifest lists is unarchived and brought current; an archived customised copy stays archived. The rule sync is fail-open independently of the config sync: an absent `rules/` dir syncs no workspace rules (SessionStart still syncs the bundled ones), and any other error is folded into the same one-line note rather than affecting the config-sync outcome or the exit code. All requests share one deadline (8000 ms on SessionStart, 3500 ms on FileChanged), each under a 2000 ms per-request timeout, and unfinished work is reported as deferred to the next session. See [plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md#config-sync) for the full behavior.
+**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files as rule documents: `docs_read` `list` (kind `rule`) reads the current rules, then `docs_write` `upsert` (kind `rule`) writes the keys that differ. On SessionStart only, it also syncs the plugin's bundled process rules under a manifest policy (a missing key is pushed, a server copy matching a known older bundled version is overwritten, any other server copy is left alone; a workspace rule with the same key wins; none for a config whose every declared type is `lifecycle: none`). For such a lifecycle-free config, once the server holds it, the bundled copies pushed there earlier are archived (`docs_write` `archive`) when their hash is one the manifest lists: they leave knowledge search but keep their body and history, `unarchive` restores them, any other copy is kept, and nothing is deleted. When the root later declares a type with a lifecycle and the server holds that config, each archived copy at a hash the manifest lists is unarchived and brought current; an archived customised copy stays archived. The rule sync is fail-open independently of the config sync: an absent `rules/` dir syncs no workspace rules (SessionStart still syncs the bundled ones), and any other error is folded into the same one-line note rather than affecting the config-sync outcome or the exit code. All requests share one deadline (8000 ms on SessionStart, 3500 ms on FileChanged), each under a 2000 ms per-request timeout, and unfinished work is reported as deferred to the next session.
 
 **Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
 the happy path — a per-root config read failing with a transient database error is a distinct case
@@ -597,7 +446,7 @@ the same REST dependency as `config-sync.mjs` above: it needs an API URL (the en
 against a bearer/jwks server, a `TASK_ORCHESTRATOR_API_TOKEN` scoped with the `read` capability (no
 token needed against an unauthenticated server). Without a reachable API URL it fails open — no
 subagent is ever blocked. See
-[integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md) for full
+[the hooks README](../../claude-plugins/task-orchestrator/hooks/README.md) for full
 hook behavior. The hook reads each marked item's gate with `items_read` `select: context` over `POST /api/v1/ops/items_read` (`data.gateStatus`, `seats`, `guidanceKey`) once per subagent stop; any non-ok answer never blocks that item. When a block hint would name a `skillPointer` it also reads the root's rule list (`config` op `rules`, `read` capability) once per session.
 
 ---
@@ -1182,17 +1031,6 @@ The V7 migration fails at startup if the trigram FTS5 table cannot be created.
 
 ## SQLite Tuning — connection pools, `DATABASE_MAX_CONNECTIONS`, `DATABASE_BUSY_TIMEOUT_MS`
 
-SQLite is a single-writer database. The server keeps two HikariCP connection pools over the one database file:
-
-| Pool | Size | Begins | Purpose |
-|---|---|---|---|
-| `to-writer` | 1 connection | `IMMEDIATE` (writer lock taken at `BEGIN`) | every write unit |
-| `to-reader` | `DATABASE_MAX_CONNECTIONS` (default 10, clamped to 1-64) | `DEFERRED`, `PRAGMA query_only = 1` | reads outside a write unit |
-
-Both pools use WAL, `foreign_keys = ON` and a fixed 1 s `busy_timeout`. Reads no longer take the writer lock, so a long write unit does not delay reads (they see the last committed snapshot).
-
-Writes inside this process are serialized by an in-process lock, so concurrent callers queue fairly (and can be cancelled) instead of colliding in SQLite. Only OTHER processes touching the same file contend for the SQLite lock, which is why the pool `busy_timeout` is short. A unit that hits `SQLITE_BUSY` or `SQLITE_LOCKED` is retried as a whole with jittered backoff for up to 10 s (the same budget also bounds the wait for the in-process write lock), then fails with the `unavailable` error (`retryAfterMs` 1000). The 10 s is a soft bound: an attempt already running is not force-cancelled, so a unit can overrun by up to about 1.4 s (maximum backoff of 250 ms with up to 1.5x jitter, plus the 1 s pool `busy_timeout` on BEGIN, plus the attempt's own statement time). If no pool connection becomes available within 2 s the call fails at once with `unavailable` (`retryAfterMs` 2000). In-memory databases (`mode=memory`, `:memory:`) are refused at startup: two pools would open two different databases. Every store write runs inside a unit of work; a store write attempted outside one is a server bug and fails at once (`OutsideUnitWriteException`, logged and counted per operation) instead of running as its own implicit transaction.
-
 `DATABASE_BUSY_TIMEOUT_MS` (default 5000 ms) now governs only the startup paths: the Flyway migration connection and the one-time startup compaction. It no longer sets the request-path timeout.
 
 ```bash
@@ -1253,17 +1091,6 @@ extractor, say) operate inside it — the lease holds, and the sessions still co
 browser tab / compose window / rate budget underneath. Cut items at actor granularity: if two
 sessions run concurrently, give each its own item (children of a shared parent work well), let
 each claim its own item, and declare the shared resource on both so the lease serializes them.
-
-### Write Rate Estimates
-
-| Activity | Write rate estimate |
-|---|---|
-| Role transition per agent | ~1 write per transition |
-| Heartbeat per claimed item | ~1 write per TTL/2 interval (default: every 450s) |
-| Claim acquisition | ~2 writes per claim (release prior + claim new) |
-| Note upsert | ~1 write per note |
-
-At 30 agents with a steady work rate: approximately 30–60 transitions/minute + 4 heartbeat writes/minute = 34–64 total writes/minute. SQLite can sustain hundreds of writes per minute under favorable conditions, but real latency depends on disk I/O, lock contention, and the busy timeout.
 
 ### Recommended Ceiling
 
@@ -1354,9 +1181,7 @@ Resource leasing is a **separate primitive from the `advance` `claim` op**, deli
 (a staging slot, a test database, a deploy credential, a fleet-wide deployment mutex) across
 whichever items declare it. An agent can hold a work-item claim and one or more resource leases
 simultaneously — the two systems do not interact, and one released is not implicitly released
-alongside the other. See [Workflow Guide §11](workflow-guide.md#11-resource-leasing) for the
-agent-facing model (declaration modes, contention/retry discipline, the full guarantees/non-
-guarantees statement) and
+alongside the other. See
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
 for the `resources:` trait/registry YAML syntax. This section covers the operator-facing runbook.
 
@@ -1409,7 +1234,7 @@ acting principal's token id — check server logs to attribute the override afte
 token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`
 interval(s) for that key (`releaseReason: "force_released"`), so the override is attributable from
 `GET /api/v1/resources/leases/history?key=<key>` (`ADMIN` capability for actor identity) even after
-server logs have rotated — see [Workflow Guide §11, "Lease-interval history"](workflow-guide.md#11-resource-leasing). There is **no equivalent MCP tool/verb** — force-release is
+server logs have rotated. There is **no equivalent MCP tool/verb** — force-release is
 REST-only, by design (see Non-Goals in the implementation plan: no MCP acquire/release/renew verbs).
 
 **Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add

@@ -80,7 +80,7 @@ Restart your client. The server creates its SQLite database on first run. Withou
 
 ### 2. Enable workflow schemas
 
-Create `.taskorchestrator/config.yaml` in your project (see [Workflow Enforcement](#workflow-enforcement) for an example, or use the plugin's `/task-orchestrator:manage-schemas` skill) and mount that folder into the container:
+Create `.taskorchestrator/config.yaml` in your project (see [Note Schemas](current/docs/integration-guides/note-schemas.md) for an example, or use the plugin's `/task-orchestrator:manage-schemas` skill) and mount that folder into the container:
 
 ```json
 {
@@ -147,145 +147,7 @@ Prefer to run without Docker? [CONTRIBUTING.md](CONTRIBUTING.md) covers building
 
 ---
 
-## Core Capabilities
-
-### The Phase Model
-
-Every work item has a **role**: `queue` (not started), `work` (in progress), `review` (optional, opt-in per schema), `blocked` (an upstream dependency is unmet), and `terminal` (done or cancelled). Each role maps to one or more configurable statuses. Agents move items with the `advance` tool's `transition` op rather than editing status directly, and that call is where every gate is checked. Schemas attach note requirements to roles: a note declared with `role: queue` must exist before the item can leave the queue phase.
-
-Illustrated: [Phase Gates](https://jpicklyk.github.io/task-orchestrator/field-guide/phase-gates.html) draws the roles and triggers as a track and includes a gate simulator.
-
-### Workflow Enforcement
-
-Schemas define what agents must produce at each phase, and the server blocks progression until it's done. They also set a **planning floor**: when an agent enters plan mode, the schema tells it what documentation must exist before implementation can start, shaping the plan itself.
-
-```yaml
-# .taskorchestrator/config.yaml
-work_item_schemas:
-  feature-task:
-    notes:
-      - key: requirements
-        role: queue
-        required: true
-        description: "Acceptance criteria before starting"
-        guidance: "Cover: problem statement, acceptance criteria, alternatives considered, test strategy."
-        skill: "spec-quality"
-      - key: implementation-notes
-        role: work
-        required: true
-        description: "What was built and why"
-```
-
-With this schema, `advance` `transition` with `trigger: "start"` from queue requires `requirements` to be filled. The server returns a `gate_blocked` error listing exactly which notes are missing.
-
-The `guidance` field provides authoring instructions surfaced at the right moment: when an agent is about to fill that note, the response names it as `guidanceKey` (with the `skillPointer` when the note names a skill), and `items_read` `schema` returns the text. The `skill` field goes further, naming a skill the agent should invoke before filling the note so the evaluation follows a defined framework rather than freeform prose.
-
-### Composable Traits
-
-Traits add cross-cutting note requirements to any schema without duplicating definitions. Define a trait once, apply it to any item type:
-
-```yaml
-traits:
-  needs-security-review:
-    notes:
-      - key: security-assessment
-        role: review
-        required: true
-        description: "Security review of auth, data handling, and access control"
-        skill: "security-review"
-        skill_mode: method-on-diff
-
-work_item_schemas:
-  feature-task:
-    default_traits:
-      - needs-security-review
-    notes:
-      # ... base notes
-```
-
-Every `feature-task` item automatically inherits the `security-assessment` requirement. Traits can also be applied per item via the `traits` array of an `items_write` `create` or `update`, so a task touching authentication gets `needs-security-review` while a CSS cleanup doesn't.
-
-Illustrated: [Schemas and Traits](https://jpicklyk.github.io/task-orchestrator/field-guide/schemas-and-traits.html) shows how a type, its default traits and per-item traits resolve into one gate. [Seats](https://jpicklyk.github.io/task-orchestrator/field-guide/seats.html) covers splitting a phase between several agents.
-
-### Persistent Work Item Graph
-
-Everything is a **WorkItem** in a hierarchical graph. Items nest to any depth and are connected by typed dependency edges. Create an entire work breakdown atomically:
-
-```json
-{ "ops": [{
-    "op": "create_tree",
-    "root": { "title": "User Authentication", "type": "feature-task" },
-    "children": [
-      { "ref": "schema", "title": "Database schema", "type": "feature-task" },
-      { "ref": "api",    "title": "Login API",       "type": "feature-task" },
-      { "ref": "tests",  "title": "Integration tests", "type": "feature-task" }
-    ],
-    "deps": [
-      { "from": "schema", "to": "api" },
-      { "from": "api",    "to": "tests" }
-    ]
-} ] }
-```
-
-(`items_write`, orchestration profile.)
-
-When `schema` reaches terminal, `api` is automatically unblocked. When all children complete, an `auto`-lifecycle parent cascades to terminal (a parent in `review` needs an explicit advance). Dependency ordering is enforced by the server, structurally, not by convention.
-
-Illustrated: [Work Graph](https://jpicklyk.github.io/task-orchestrator/field-guide/work-graph.html) has a clickable version of this tree that shows blocking, unblocking and parent cascades.
-
-### Actor Attribution
-
-Every write is attributed to the **transport principal**: who the server knows the caller to be from how it connected, never from a field in the request. A bearer or JWT credential names its holder (`api:<id>`); stdio, and HTTP with no credential mode, run as the single `local` principal. A request body `actor` is refused as `unknown_parameter`.
-
-`notes_read` and `items_read` `history` entries carry that attribution (for callers allowed to see it): who wrote which note, who made which transition. Post-mortem debugging becomes a data query rather than conversation archaeology.
-
-To tell agents apart, give each its own credential (or, inside a run, its own seat token): enable the REST API with `API_AUTH_MODE=bearer` or `jwks` and `/mcp` authenticates with the same token. Every stdio or local-mode session is the same `local` principal, so those sessions share claims and note ownership. See [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).
-
-### Session Continuity
-
-No context rebuilding. One call recovers the full picture:
-
-```json
-{ "select": "context" }
-{ "select": "history", "since": "2026-01-15T09:00:00Z" }
-```
-
-(`items_read`.) The first returns active items, blocked items, stalled items with their missing notes and a claim summary; the second returns recent transitions with actor attribution. Add `"fields": ["ancestors"]` for the ancestor chains. A new session has the complete state in two small responses.
-
-Illustrated: [Finding Work](https://jpicklyk.github.io/task-orchestrator/field-guide/finding-work.html) maps each question a session has to the read call that answers it, and shows how the next item is ranked.
-
-### Notes as Structured Context
-
-Notes are phase-specific documentation attached to work items. An implementation agent reads a concise requirements note scoped to its task instead of scanning broader project context.
-
-Notes are keyed, role-scoped, and queryable:
-
-```json
-{ "select": "list", "itemId": "a3f28c01", "role": "work" }
-```
-
-(`notes_read`.) A list returns metadata only (`id`, `key`, `role`, `version`, `bodyLength`), so agents can check what exists without paying the token cost of every note body; `get` reads one body.
-
-### Full-Text Search
-
-Search work items and notes by keyword. Results are relevance-ranked, so an agent looking for related work or picking up after a long gap gets the best matches first.
-
-```json
-{ "select": "search", "query": "authentication login", "kinds": ["item"] }
-{ "select": "search", "query": "password validation", "kinds": ["note"] }
-```
-
-(`items_read`.)
-
-Search can be scoped to a subtree and filtered by role, tag, or priority, or run across the whole workspace.
-
-### REST API
-
-An optional HTTP layer (`API_ENABLED=true`) serves every tool over one RPC route (`POST /api/v1/ops/{tool}`), plus item and note resource GETs, lease admin, service meta and real-time SSE events, to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas.
-
-Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, tool profiles, both deployment shapes, the REST API, claims and caller identity.
-
-### Design Philosophy
+## Design Philosophy
 
 Task Orchestrator enforces workflow structure without imposing methodology. The server owns the guardrails: role transitions, dependency ordering, gate enforcement, and attribution. Agents own everything else. There are no mandatory planning ceremonies and no opinion on how agents approach implementation. Schemas, traits, and actor authentication are opt-in layers configured in `.taskorchestrator/config.yaml`. As models gain capabilities, the harness stays out of the way.
 
@@ -302,23 +164,9 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 /plugin install task-orchestrator@task-orchestrator-marketplace
 ```
 
-**What it adds:**
-
-| Layer | What it does |
-|-------|-------------|
-| **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:init`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
-| **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff and phase-gate enforcement, per-project config sync, and run-close retrospective prompts |
-| **Orchestration context** | A SessionStart hook delivers the orchestration core (with the `orchestrate` skill for tier and delegation detail): Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
-| **Director mode** | `/task-orchestrator:director` runs the session as a board of open runs, decisions and rollups, so your own session stays free and its context lean, with one decision inbox across runs and room for more parallel and longer-running work, while each run's own orchestrator, placed in another session or a background agent, drives that run; a guard hook holds it above the code and delegates every read to those orchestrators |
-| **Runs** | `/task-orchestrator:run-wave` and `/task-orchestrator:ralph` open server runs with per-seat tokens, and closing a run triggers its retrospective |
-
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
-**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows on each session which work it drives and in which mode, so several open sessions stay easy to tell apart. It adds:
-
-- **The band**, above the prompt in every mode: this session's own graph in plain words. The title row names the container, with a bar of its members on the right: done, cancelled, stuck, waiting on a decision, not started, and each member an agent works on in a blinking colour of its own. The status row puts what needs a look first (`1 agent stuck`, `1 decision for you`, `Orchestrator not responding`), then what the agents do and the members by phase (`3 planned · 2 in progress · 1 done`). Below it, one row per agent with its seat and the item's title. The graph is the runs this session or its subagents opened or acted on, never another session's; with no run, it is the feature of the item the session last wrote to, stopping below a backlog bucket such as `Bugs`. `/to-band` hides or shows it for the session.
-- **A footer label** that always names the session mode: `TO orchestrator` at rest, `TO director` in director mode, and `TO orchestrator · run <label>` while the session holds an open run (`TO director & orchestrator · run <label>` with both).
-- **A backdrop** tinted for director mode and for a session that drives a run, on desktop builds that draw plugin backdrops (turn it off with the `backdrop` setting), and **toasts** when director mode turns on or off, the session takes on a run, its run closes, or the band is hidden or shown.
+**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows on each session which work it drives and in which mode, so several open sessions stay easy to tell apart.
 
 It is a standalone plugin, installed on its own. It needs the `task-orchestrator` plugin and a 4.x server: the band reads the server's REST API (the `apiUrl` setting), or the director MCP connection when `apiUrl` is empty. It is early access because it runs on Claude Code's early-access function-hooks API.
 
@@ -327,22 +175,6 @@ It is a standalone plugin, installed on its own. It needs the `task-orchestrator
 ```
 
 Illustrated: [Runs and Decisions](https://jpicklyk.github.io/task-orchestrator/field-guide/runs-and-decisions.html) steps through a server run, its seat tokens, run limits and decisions. [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.
-
----
-
-## MCP Tools
-
-| Category | Tools | Purpose |
-|----------|-------|---------|
-| **Items** | `items_read`, `items_write` | Read, search and summarize the work item hierarchy, find the next item, gate state and transition history (`items_read` selects); create, update, delete, create whole trees, complete trees and repin (`items_write` ops) |
-| **Notes** | `notes_read`, `notes_write` | Persistent phase-scoped documentation, versioned and batch-written |
-| **Dependencies** | `deps_read`, `deps_write` | Typed edges with pattern shortcuts (linear, fan-out, fan-in) and the blocking graph |
-| **Workflow** | `advance` | Trigger-based transitions with gate enforcement and dependency validation, and claim, release and heartbeat ops for multi-agent fleets |
-| **Documents** | `docs_read`, `docs_write` | Versioned plan, rule and page documents per project root |
-| **Project config** | `config` | Push, validate, roll back and inspect per-project schema config and rule text |
-| **Runs** | `runs_read`, `runs_write` | Open, pause, close and inspect runs, seats and decisions |
-
-Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration, and a `director` profile (`/mcp/director`, or `MCP_TOOL_PROFILE=director`) exposes item and dependency reads, the `report` tool and a subset of the run controls (`runs_read`, `runs_write`). Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
 
 ---
 

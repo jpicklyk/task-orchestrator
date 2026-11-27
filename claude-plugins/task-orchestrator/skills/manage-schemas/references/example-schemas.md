@@ -135,7 +135,7 @@ traits:
         role: review
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
-        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml for REST changes."
+        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump."
 
   needs-plugin-update:
     notes:
@@ -168,6 +168,7 @@ traits:
       - key: delegation-metadata
         role: work
         required: false
+        seat: orchestrator
         description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
         guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
 

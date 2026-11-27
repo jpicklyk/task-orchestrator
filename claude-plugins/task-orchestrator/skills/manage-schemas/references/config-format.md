@@ -85,33 +85,6 @@ The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`
 
 ## Field Reference
 
-### Schema-level fields (`work_item_schemas`)
-
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `lifecycle` | no | string | `auto`, `manual`, `permanent` or `none`, lowercase. Defaults to `auto` |
-| `default_traits` | no | list | Trait names applied to every item matching this schema |
-| `seats` | no | list | Named roles within a phase; see "Seats" below. A `lifecycle: none` schema may not declare any |
-| `notes` | no | list | Note entries (below) |
-| `builds` | no | boolean | `false`: items of this type are not work that builds, so `next` and claim select skip them in `queue`. Defaults to `true` |
-
-### Note-level fields
-
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `key` | yes | string | kebab-case, unique within schema, stable after creation |
-| `role` | yes | string | `queue`, `work`, or `review` only. A missing or invalid role rejects a push |
-| `required` | no | boolean | Parser defaults to `false` if omitted - **always set explicitly**, since a note you meant to gate on silently becomes optional otherwise. `true` = blocks gate, `false` = shown but not enforced. A `lifecycle: none` schema's notes may not set `true` |
-| `description` | no | string | Parser defaults to `""` if omitted (recommended in practice). Keep under 80 chars - quick label; read with `items_read` `schema`, not in `expectedNotes` |
-| `guidance` | no | string | Project-specific authoring instructions - read with `items_read` `schema` and `fields: ["guidance"]`; `advance` and `items_read` `context` return `guidanceKey` (a reference) |
-| `skill` | no | string or list | Reusable evaluation framework - shown as `skillPointer` in `items_read` `context`. A list of distinct non-blank strings names several skills in invocation order (an empty list, a non-string or blank element, or a duplicate is an error on push (`STRICT`) and a warning only under `MIGRATION`). `items_read` `schema` serves `skills` when a note names two or more |
-| `skill_mode` | no | string | `invoke` (default) or `method-on-diff`. `method-on-diff` marks the skill as a method the reviewer applies to the item's owned diff; every review lane is given the owned-file diff, and for this mode the plugin's review-wave also tells the reviewer to keep only the findings whose file is owned. A mode without a `skill`, or any other value, is an error on push (`STRICT`) and a warning only under `MIGRATION`, and counts as `invoke`. Served as `skillMode` only when it is `method-on-diff` |
-| `lane` | no | map | Review notes only. `output`: `verdict` (default; the lane counts toward the item verdict) or `findings` (findings only, never changes the verdict). `after`: a note key or list of note keys whose lanes run first - ordering only, never halts or skips; the server checks shape, not that the key exists. `lane` on a non-review note, or an unknown key or value inside it, is an error on push (`STRICT`) and a warning only under `MIGRATION` |
-| `maxLength` | no | integer | Max note body length (chars), at least 1. Enforced on every note write path (`notes_write` `upsert`, including `body` and `bodyFromFile`, and the notes of `items_write` `create_tree`) per top-level `note_limits.mode` |
-| `seat` | no | string | Owning seat; see "Seats" |
-| `independent_of` | no | list | Seats this note's authoring must stay independent of; see "Independence (A2)" |
-| `shared` | no | boolean | Default `false`. `true` exempts the key from the note-ownership check: any caller allowed to write the item may upsert or delete it, and a shared-key write never changes the note's owner. Attribution (the principal and seat recorded on the note) is always the last writer's. Without it, a note is owned by the (principal, seat) pair that first wrote it, and any other pair's (the same principal under another seat included) `notes_write` upsert or delete is refused `note_owned_by_other`. Must be a boolean (a non-boolean rejects a push); an off-schema key is never shared. See [config-reference.md](../../../../../current/docs/config-reference.md#note-entry-shared) |
-
 ### `guidance` vs `skill` - when to use which
 
 These fields serve different purposes and work together:
@@ -219,77 +192,22 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
 
 ## Lifecycle Modes
 
-The `lifecycle` field on a schema controls automatic cascade behavior when children reach terminal:
-
-| Mode | Behavior |
-|------|----------|
-| `auto` | Default - parent cascades to terminal when all children are terminal. A parent in the `review` role never cascades: the cascade is refused (`gate_blocked`, `review-pending`), and the parent leaves review only by an explicit `advance` |
-| `manual` | Terminal cascade suppressed - parent must be explicitly completed. Reopen cascade also suppressed. |
-| `permanent` | Parent never auto-terminates and never auto-reopens - always manual lifecycle. |
-| `none` | Lifecycle-free: the item has no role at all (pages of knowledge or reference material). Notes may be declared but none required, and no seats; no trigger applies to it and it cannot be an endpoint of a `blocks` edge. See [Lifecycle-free items](../../../../../current/docs/config-reference.md#lifecycle-free-items) |
-
-`lifecycle` values are lowercase. The removed `auto-reopen` value is an error in a push.
+`lifecycle` (lowercase) sets what happens when children reach terminal: `auto` (the default) cascades the parent, `manual` and `permanent` suppress the cascade, and `none` makes the item lifecycle-free (see [Lifecycle-free items](../../../../../current/docs/config-reference.md#lifecycle-free-items)). The removed `auto-reopen` value is an error in a push.
 
 ---
 
 ## Matching Rules
 
-Schema resolution is **by type only, in one fixed order**, over the two config layers (the root's own
-config and the server config; see "Global vs Per-Project Config"):
-
-1. The root's schema for the item's exact `type`.
-2. The server's schema for that `type`.
-3. The root's schema named `default`.
-4. The server's schema named `default`.
-5. Nothing matches: the item is schema-free - no gate enforcement. An existing item with no `type` (pre-4.0) uses only steps 3 and 4.
-
-**Key points:**
-- Setting `type` on an item is how a schema is activated. Tags are never consulted.
-- A `default` is the last resort in each layer, never a catch-all for new items. A create or retype must name a type one of the two layers declares (`default` counts) whenever either declares any, or it fails `schema_violation` with `detail.availableTypes`. A depth-0 create sees only the server's types. Steps 3-4 serve items typed `default`, and existing items whose type is no longer declared, when they are pinned or repinned. A root's `default` does not override a server type. To make a root gate-free, declare each type it uses with `notes: []`.
-- Only one schema applies per item. Matching is exact and case-sensitive.
-- The schema is pinned when the item is created, and again at the other pin points. A later push
-  changes new and unpinned items only; an in-flight item keeps its pinned schema until `items_write`
-  `repin` moves it to the heads. See [Schema pins](../../../../../current/docs/config-reference.md#schema-pins).
-  If you are upgrading from 3.x, `schema_resolution` is gone and items keep the schema the 3.x
-  rule gave them until a pin point fires.
+Schema resolution is by exact `type` over the root's own config, then the server config; a `default` is the last resort in each layer, and an item no schema matches is schema-free. The schema is pinned when the item is created: see [Schema pins](../../../../../current/docs/config-reference.md#schema-pins). Tags are never consulted.
 
 ---
 
 ## Trait Merge Semantics
 
-How trait notes merge into an item's resolved schema (the one merge, `TraitResolver`):
-
-1. **Trait order.** The item's own `traits` array (set on `items_write` `create` or `update`) first,
-   then the schema's `default_traits`, deduplicated with the first position kept. Every dimension
-   (notes, seats, resources, dispatch) uses this one order.
-2. **Notes merge by key, base first.** The final list is the base schema's notes, then the surviving
-   trait notes in trait order, one entry per key. A key's content (role, description, guidance,
-   skill, `maxLength`, `seat`, `independent_of`) comes from its **first** declaration - the base
-   schema's if it has the key, else the first trait that declares it.
-3. **`required` can only tighten.** A key is required when **any** declaration of it is `required:
-   true`. A trait cannot make a base note optional, and it cannot change a base note's role.
-4. **Trait notes append after base notes.** Order is base notes, then trait notes in trait order.
-5. **A per-root trait entry replaces the server's entry as a whole.** When the root's `traits:` map
-   contains the trait's name, its notes, seats, resources and dispatch all come from that entry, and
-   a dimension the entry does not declare is empty (see "Global vs Per-Project Config"). Restate
-   everything you want to keep.
-6. A create or update naming a trait neither layer declares fails `schema_violation` (`detail.availableTraits`) whenever any trait is declared; a trait that stops being declared after the write is skipped with a server-side warning.
-
-**Example - the base role wins, `required` ORs:**
-
-```yaml
-work_item_schemas:
-  feature-task:
-    default_traits: [needs-task-review]
-    notes:
-      - {key: implementation-notes, role: work, required: false}
-
-traits:
-  needs-task-review:
-    notes:
-      - {key: implementation-notes, role: review, required: true}   # key exists: role stays "work", required becomes true
-      - {key: review-checklist, role: review, required: true}       # added
-```
+**A per-root trait entry replaces the server's entry as a whole.** When the root's `traits:` map
+contains the trait's name, its notes, seats, resources and dispatch all come from that entry, and
+a dimension the entry does not declare is empty (see "Global vs Per-Project Config"). Restate
+everything you want to keep.
 
 ---
 
@@ -299,41 +217,6 @@ A trait can declare `resources:` - a list of shared-resource requirements enforc
 a **gate at WORK entry**: any transition whose target role is `work` (`start` from queue, `resume`
 of an item blocked from work, and the start/reopen cascades). This is independent of the note-requirement dimension: a trait can
 carry notes, resources, both, or neither.
-
-### Declaration forms
-
-```yaml
-traits:
-  needs-staging-slot:
-    resources:
-      - staging-db                     # short form - bare string
-      - key: github-deploy-token       # long form - explicit fields
-        mode: advisory                 # exclusive (default) | advisory
-        ttlSeconds: 1800                # optional; overrides the registry default for this trait
-```
-
-| Field | Required | Default | Notes |
-|-------|----------|---------|-------|
-| `key` | yes | - | Resource key. Same charset as `credentialRefs`: `^[a-z0-9][a-z0-9\-_./]*$`, max 128 chars. An invalid key rejects a push. |
-| `mode` | no | `exclusive` | `exclusive` - server takes a lease at WORK entry; contention rejects the transition. `advisory` - no lease, no lock; the key is recorded into the transition's `consumedCredentials` audit trail only. Lowercase only. |
-| `ttlSeconds` | no | registry's `defaultTtlSeconds`, else `3600` | Must be a whole number; applied clamped to `[1, 86400]`. |
-
-### The top-level `resources:` registry (server file only)
-
-```yaml
-resources:
-  staging-db:
-    description: "Human-readable note - what this key protects"
-    defaultTtlSeconds: 3600    # whole number 1-86400
-    maxHolders: 1              # v1 only supports 1 - see below
-```
-
-The registry belongs to the server file: a per-root document that carries `resources:` is rejected,
-because a resource key is a server-global lock/lease namespace. It holds TTL defaults and a
-description per key. A trait's `resources[].key` must be declared in the server registry: an undeclared
-resource key is rejected by a push and by the boot import. `maxHolders` greater than `1` is an error
-(storage is semaphore-ready for a future multi-holder release, but admission is capped at exactly 1).
-Reserved budget fields (`budgetLimit`, `budgetWindowSeconds`) are errors: a push and the boot import reject them on a registry entry and on a trait's resource entry.
 
 ### Merge semantics - read this before combining traits
 
@@ -423,33 +306,6 @@ seat-only trait outranks the other overrides whatever the order, and otherwise t
 trait order wins (see "Seats", merge rule 6, and
 [Seat dispatch precedence](../../../../../current/docs/config-reference.md#seat-dispatch-precedence)).
 
-### Per-root layering
-
-A per-root trait entry replaces the server's entry of the same name **as a whole**: its `dispatch:`
-map replaces the server trait's map, and there is **no per-role fall-through**. If a per-root trait
-declares `work:` but omits `review:` and the server trait declares both, the resolved `review` profile
-is **absent** for items in that root. The same holds for `notes`, `seats` and `resources`: a dimension the
-per-root entry omits is empty, not inherited (see "Global vs Per-Project Config"). Restate every dimension
-and every phase you want to keep.
-
-### Where the profile surfaces
-
-| Surface | Shape |
-|---------|-------|
-| `advance` `transition` result | `dispatch: {agent?, model?, effort?}` for the item's **new** role; the key is omitted entirely (never `null`/`{}`) when nothing resolves |
-| `items_read` `context` (item mode) | `dispatch: {agent?, model?, effort?}` for the item's **current** role |
-| `items_read` `schema` | `dispatch: {"queue"\|"work"\|"review": {agent?, model?, effort?}}` - one entry per resolved phase |
-| `config` `effective` | each trait carries its `dispatch` (and `resources`) when declared; with a `rootId` the view is that root's config layered over the server's, without it the server's alone |
-
-### The policy underneath a profile
-
-A trait's dispatch profile is a per-trait override. When no trait supplies a field, the plugin's
-dispatch policy (`claude-plugins/task-orchestrator/dispatch-policy.json`, described by the
-`task-orchestrator:model-effort` skill) supplies it: each seat resolves to a class (planner,
-research, implementer, test author, reviewer and so on) with a default `model` and `effort`.
-A profile therefore needs to declare only a real override: a `model` or `effort` that differs
-from the class default. Repeating a class default in a trait adds nothing. A trait value of `null` for `model` or `effort` falls back to the class.
-
 ### How effort reaches a dispatch
 
 The server only reports a profile's `effort`; the dispatcher applies it. The dispatcher passes the
@@ -521,20 +377,6 @@ traits:
           extractor:   { agent: null, model: sonnet, effort: low }   # agent: null CLEARS the phase agent for this seat
 ```
 
-### Trait-level fields (`traits.<name>`)
-
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `notes` | no | list | Note entries merged into the item's schema (see "Trait Merge Semantics") |
-| `resources` | no | list | Resource requirements; see "Resources" |
-| `dispatch` | no | map | Dispatch profile; see "Dispatch" |
-| `seats` | no | list | Seat entries; see "Seats" |
-| `builds` | no | boolean | `false` makes an item carrying the trait not build, as the schema field does; false wins over `true` anywhere. Applies even when the trait has no notes or seats |
-| `description` | no | string | What the trait is for. Trimmed; blank is absent; a non-string is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Served to clients, never evaluated |
-| `applies_when` | no | string | When the trait applies, in prose. Same handling as `description`. The plugin's create-item skill infers a trait only from this text; a trait without it is never inferred. Never evaluated by the server |
-
-A per-root trait entry replaces the server's entry of the same name as a whole, `description`, `applies_when` and `builds` included (see "Trait Merge Semantics").
-
 ### Seat-entry fields (`seats[]`, schema-level or trait-level)
 
 | Field | Required | Type | Notes |
@@ -549,22 +391,9 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 | `skills` | no | list of strings | Skill names the seat should invoke, served as written. Absent: the plugin's defaults for that seat apply, from `hooks/lib/seat-skill-defaults.json`: planner `task-orchestrator:planning-standards` and `task-orchestrator:designing-modules`, implementer `task-orchestrator:implementation-standards`, reviewer `task-orchestrator:review-method`, test-author `task-orchestrator:test-authoring`. A declared list replaces the defaults and never merges with them, so a default is kept only by listing it; `[]` declares none. The plugin reads a declared list only when the server lists the `seatSkills` feature; against a server without it the defaults apply and are hinted only. Duplicates collapse. A non-list value, or a non-string or blank element, is a parser finding: an error on push (`STRICT`) and a warning only under `MIGRATION`, where a non-list value leaves the field absent (the defaults apply) and a bad element is dropped. Existence is not checked and nothing in the server enforces the list |
 | `rules` | no | list of strings | Rule keys this seat is given, on a run dispatch and in the seat hint of a hand dispatch alike. Absent: the seat's defaults from the plugin's seat rule table (`hooks/lib/seat-rules.json`) apply; `[]` declares none. A declared list replaces the defaults only: the seat's protocol rule and the rules the plugin adds (same table) are always given first. A project may replace a protocol rule's text by serving its own copy under the same key; that copy then stops receiving plugin updates, and the manage-schemas audit reports it as project-authored. To add conduct for a seat, put a project rule on the seat's `rules` list instead. Duplicates collapse; a key that does not match the rule key grammar, or a non-string element, is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Existence is not checked, and served only when declared. Never enforced by the server: a declared key the root does not serve is a degradation the run planner reports, while a default rule the root does not serve (no `rules` list declared) is dropped silently |
 
-### Note-entry fields (on `notes[]`)
-
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` - see "The `unowned` bucket". A note with no `seat`, a `seat` naming an undeclared seat, or a `seat` declared for a *different* phase than the note's own `role`, is `unowned`. The exception is `seat: orchestrator`: it is owned in every schema and every phase with no seat declared (an orchestrator note). In a schema that declares no seats the label stands as written. |
-| `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). Enforced by the attestation gate - see "Independence (A2)". |
-
 ### Seat transitions
 
-A seat token sends `start` only into the phase of a seat that sets `enters: true`; every other trigger
-it sends must be in its `transitions:` list (default `block`, `hold`). An entering seat that lists
-`complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
-item. `unowned` and `director` are reserved seat names and are refused (F3). `orchestrator` is not a seat: it is the reserved owner of the notes the orchestrator fills itself (orchestrator notes). A note labelled `seat: orchestrator` is owned in every schema, in any phase, with no seat declared. Inside an open run on a seat-aware pinned schema, only the run token of that run (or a human credential) may write such a note; a member seat token, or an agent with no token, is refused `note_owned_by_other` with `detail.ownerSeat` and `detail.runId`. Every other seat-owned key needs that seat's own token. No agent is dispatched for orchestrator notes. The server advertises this by the `orchestratorNotes` feature. Enforcement applies only to
-an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other`; outside a
-run the seats stay a signal. The full rules, and the interaction with run membership, are in
-[config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
+A seat token sends `start` only into the phase of a seat that sets `enters: true`, and every other trigger it sends must be in its `transitions:` list (default `block`, `hold`). The full rules are in [config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
 
 ### Per-seat dispatch overrides (`dispatch.<phase>.seats.<seat>`)
 
@@ -629,41 +458,9 @@ order (item `traits` first, then `default_traits`; see "Trait Merge Semantics"):
    that seat is not itself model-selecting (the earliest overrider decides); the warning
    is a migration aid and never rejects a push. See [Seat dispatch precedence](../../../../../current/docs/config-reference.md#seat-dispatch-precedence).
 
-### Per-root layering
-
-Seats and per-seat dispatch overrides are two dimensions of a trait, and a per-root trait entry replaces
-the server's entry **whole** (see "Global vs Per-Project Config"): if the root's `traits:` map contains
-the trait's name, its seats, its dispatch (phase-level profiles and per-seat overrides together), its
-notes and its resources all come from the root's entry, and a dimension it omits is empty. A *base
-schema's* own seats travel with whichever layer supplied the base schema (see "Matching Rules"); there
-is no separate cross-layer seat merge for a schema's own (non-trait) seats.
-
 ### Structural errors (F1-F5) - reject the push and fail the boot import
 
-These are checked over one "seats scope" at a time: a single `seats:` list (a schema's own, or a
-trait's own), or - for a schema that names traits in its own `default_traits`, when both are defined in
-the **same document** - the union of the schema's own seats with those same-document default traits'
-seats. They are fatal in every parse mode, and each is reported at the path of the offending `seats`
-list. A push carrying one fails `config_invalid` and stores nothing; the server file fails startup.
-
-| Code | Condition |
-|------|-----------|
-| F1 | Two seats with `enters: true` in the same `phase`, within one seats scope. |
-| F2 | A duplicate seat `name` within one seats scope. |
-| F3 | A seat named `unowned` (the reserved bucket name) or `director` (the director never fills a seat) - exact match only; `Unowned` and `Director` are fine. |
-| F4 | An `after` cycle within one seats scope. |
-| F5 | A seat that sets `enters: true` and lists `complete` or `cancel` in `transitions`. |
-
-A conflict that only appears **at resolve time** is never fatal; see "Merge rules" rule 4. Other
-malformed seat entries - a missing or blank `name`, an invalid or missing `phase`, a non-boolean
-`enters`, a non-list `after`/`reads_exclude`/`transitions`, an unknown key - are ordinary strict errors
-(see [Strict validation](../../../../../current/docs/config-reference.md#strict-validation)).
-
-An advisory warning, which never rejects a push, covers a schema whose effective seats are non-empty
-and which has a **required** note whose `seat` is null or names no seat of the same phase (a note labelled `orchestrator` is owned in any phase): the note is
-served under `unowned` in `missingBySeat`.
-
-A second advisory warning covers a seat entry named `orchestrator` or `coordinator`: it loads, and the warning (at `<seats>/<i>/name`) says the name will be refused in a later release and asks for the entry to be removed or renamed.
+A structural error in a `seats:` list (F1-F5, for example two entering seats in one phase or an `after` cycle) is fatal in every parse mode: the push fails `config_invalid` and stores nothing, and the server file fails startup. `config` `validate` reports each at the path of the offending list.
 
 ### The `unowned` bucket
 
@@ -674,18 +471,6 @@ This is deliberate, not an error: it lets an orchestrator see at a glance which 
 seat routing at all, so a schema can be seat-aware for *some* notes while others stay unowned.
 `unowned` buckets are always sorted last among non-empty buckets; the reserved name itself can never be
 used for a real seat (F3).
-
----
-
-## Phase Flow
-
-```
-queue --(start)--> work --(start)--> review --(start)--> terminal
-```
-
-- If the schema has NO `role: review` notes, `start` from work goes directly to terminal (review is skipped)
-- Required notes for the *current* phase gate the `start` trigger
-- Optional notes (`required: false`) are shown but do not block advancement
 
 ---
 
@@ -935,11 +720,6 @@ same level.
 
 Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked in characters on every note write path (`notes_write` `upsert` and the notes of `items_write` `create_tree`) against the resolved body after CRLF-to-LF normalization (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `note_too_long`. Independently of `note_limits`, a note body over 65536 UTF-8 bytes is always rejected (`payload_too_large`), and a key the schema declares must be written with the schema's role on every path (`schema_violation`).
 
-```yaml
-note_limits:
-  mode: warn   # warn | reject
-```
-
 This mode is per-root honorable (see "Global vs Per-Project Config" above): a project root that
 pushes its own `note_limits.mode` overrides the server mode for that root's items only; a per-root
 document with no `note_limits` section at all defers to the server mode unchanged.
@@ -950,65 +730,12 @@ Notes are a compression boundary: keep bodies distilled prose. Verbatim artifact
 
 ## Independence (A2)
 
-A note-schema entry's `independent_of` (see "Note-entry fields" under "Seats" above) declares which
+A note-schema entry's `independent_of` declares which
 other seat(s) a note's *authoring* must stay independent of - e.g. a test-author's `test-manifest`
 staying independent of the `implementer` seat's notes. The server turns this into an attestation gate:
 at `start`/`complete` (and the terminal/start cascade gates), it compares the identity that wrote a
 declaring note against the identities that wrote the notes of the seat(s) it names, and reports (or, in
 `reject` mode, blocks on) any conflict.
-
-### Config block
-
-```yaml
-independence:
-  mode: warn            # off | warn | reject - default warn
-  require_verified: false  # default false
-```
-
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `mode` | no | string | `off` (the predicate is never evaluated - `violations` is absent from every surface), `warn` (default; violations are computed and reported but never block), or `reject` (a non-waived violation blocks the transition). Must be a YAML **string**, lowercase: an unquoted `off` parses as the YAML 1.1 boolean `false`, not the string `"off"` - **always quote it** (`mode: "off"`). A non-string or unrecognized value rejects a push. |
-| `require_verified` | no | boolean | When `true`, a declaring note (or a conflicting seat's note) whose proof is not cryptographic also raises an `unverified` violation. Proof status `issued` (a server-issued bearer token), `none` and `rejected` all count as unverified, on purpose: attestation wants a cryptographic proof, which only `API_AUTH_MODE=jwks` produces. Default `false`. |
-
-An unknown sub-key under `independence:` rejects a push. The block is per-root honorable: **a per-root
-`independence` block replaces the server's WHOLESALE** (both `mode` and `require_verified` together, as
-one unit) whenever the per-root document declares the key at all; a per-root document with no
-`independence` section defers to the server's block unchanged.
-
-### Constraints
-
-For each note-schema entry `N` with a non-empty `independent_of` (a "declaring entry") whose note is
-FILLED (non-blank body), the server checks `N`'s note against every FILLED note owned by each seat
-`N.independent_of` names ("S-notes"), and reports up to three kinds of finding:
-
-| Constraint | Raised when |
-|---|---|
-| `same_actor` | `N`'s note and a conflicting seat's note share the same identity (see "Identity" below). |
-| `missing_actor` | `N`'s note, or a conflicting seat's note, carries no attribution at all - **fail-closed**: an unattributed note is never treated as automatically independent, it is flagged. |
-| `unverified` | `require_verified: true` and the relevant note's proof is not cryptographic. |
-
-Each finding is a `{key, seat?, constraint, conflictingSeat?, waived?}` object: `key` is the
-declaring note's key, `seat` its owning seat (omitted when the schema is not seat-aware),
-`conflictingSeat` the seat the finding was raised against (omitted for a `missing_actor`/`unverified`
-finding raised against the declaring note itself), and `waived` present (`true`) only when the
-temporal-only waiver applies (see below). **These objects never carry an identity, proof or claim, on any
-surface, MCP or REST.**
-
-**Identity.** A note's identity for comparison is the **attribution pair (principal, seat)** of its latest
-write ([api-reference.md, notes_write](../../../../../current/docs/api-reference.md#notes_write)). The
-principal is the verified subject (`proofClaims.sub`) when the note's proof is cryptographic and carries
-one, else the principal id the call was authenticated as (`api:<id>` for a credential, `local` for the
-local principal); the seat is the seat of the `seatToken` the write was made under, or none. Two notes of
-one principal written under different seats are different identities. Comparison is an exact,
-case-sensitive match. Ownership (who may overwrite a note) is a separate thing and is never read here.
-
-**Evaluation scope.** For `start` (and the queued-parent start cascade), only declaring entries whose
-`role` equals the item's CURRENT phase are evaluated. For `complete` (and the terminal cascade, and
-`complete_tree`), every declaring entry across ALL phases is evaluated. `cancel`, `block`/`hold`,
-`resume`, and `reopen` never evaluate independence - only `start`/`complete` triggers do. The findings
-surface in the gate state (`items_read` `context`, `gateStatus.violations`), in the result of an
-`advance` transition (`violations`, present only when non-empty) and of `items_write` `complete_tree`,
-and, when `reject` mode blocks, in the `gate_blocked` error.
 
 ### The `independence: temporal-only` waiver
 
@@ -1022,15 +749,6 @@ carries `"waived": true` and **never blocks a transition in any mode**, `reject`
 
 The waiver applies ONLY to `same_actor` findings - it never waives `missing_actor` or `unverified`
 findings.
-
-### Blocking
-
-A transition is blocked only when `mode: reject` AND at least one finding is not `waived`. `warn`
-mode never blocks - the transition applies, and `violations` simply reports what was
-found. `off` mode never computes findings at all: `violations` is absent (not `[]`) everywhere for
-that item. `canAdvance` in the gate state already folds this in. `gateStatus.violations` is present
-(possibly `[]`) whenever the mode is not `off` and the schema declares `independent_of`, and omitted
-otherwise.
 
 ### Honest limits
 
