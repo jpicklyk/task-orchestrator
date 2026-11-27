@@ -5,7 +5,7 @@ This page is for the user, for maintainers and for a director session, which may
 ## What the guard denies
 
 This page is the one full description of what `hooks/director-guard.mjs` allows under the director marker; the guard's
-header comment, the director `SKILL.md`, the hooks README and the integration guide summarise it and point here. Where
+header comment, the director `SKILL.md` and the hooks README summarise it and point here. Where
 they disagree, the guard's code is right and this page is fixed.
 
 The guard enforces the altitude rule and the write rule, not this whole budget: in a skill-entered session it

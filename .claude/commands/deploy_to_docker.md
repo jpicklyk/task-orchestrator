@@ -183,7 +183,7 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 
 ## Notes
 - **Reuse is the default:** detection reads the live container (`docker inspect`) first, then `${HOME}/.taskorchestrator/deploy.env`, then built-in defaults — so a redeploy keeps your last REST mode / mounts unless you Reconfigure.
-- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`) **and** the client-side `TASK_ORCHESTRATOR_API_URL` env var — see the "config-sync" section of `runtime-config.md` (cited above) for the full requirement and the silent-no-op failure mode. With REST `off`, only `/mcp` is served and config-sync no-ops regardless.
+- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`) **and** the client-side `TASK_ORCHESTRATOR_API_URL` env var - see the "config-sync" section of `runtime-config.md` for the full requirement and the silent-no-op failure mode. With REST `off`, only `/mcp` is served and config-sync no-ops regardless.
 - **No local build needed:** the Dockerfile runs `./gradlew :current:jar` in a builder stage.
 - **Persistence:** `mcp-task-data` volume persists the DB across runs.
 - **HTTP:** detached (`-d`), `/mcp` served, container `mcp-task-orchestrator-http`, published loopback-only by default.

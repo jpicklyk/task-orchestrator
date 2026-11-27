@@ -49,7 +49,7 @@ The target file is the path on the SessionStart context's `Config:` line (projec
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
-> **Note:** a config document has these top-level keys: `work_item_schemas`, `traits`, `resources` (the server file only), `note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project` and `extensions`. Each has one owner; see [config-reference.md](../../../../current/docs/config-reference.md#key-ownership) "Key ownership". `project:` anchors a workspace to a project root item and is written by `/task-orchestrator:init` and `/adopt-project-scope`, never by this skill; `extensions:` holds the plugin's own settings under `extensions.claude-code` (see `references/config-format.md` → "Plugin settings"). Never drop or rewrite either: every write operation in Step 3 (CREATE/EDIT/DELETE) must carry `project` and `extensions` through verbatim, byte for byte. See `references/config-format.md` → Project Scoping for the `project` fields, and → "Resources (Trait Dimension)" for `resources:`.
+> **Note:** a config document has these top-level keys: `work_item_schemas`, `traits`, `resources` (the server file only), `note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project` and `extensions`. `project:` anchors a workspace to a project root item and is written by `/task-orchestrator:init` and `/adopt-project-scope`, never by this skill; `extensions:` holds the plugin's own settings under `extensions.claude-code` (see `references/config-format.md` -> "Plugin settings"). Never drop or rewrite either: every write operation in Step 3 (CREATE/EDIT/DELETE) must carry `project` and `extensions` through verbatim, byte for byte. See `references/config-format.md` -> Project Scoping for the `project` fields, and -> "Resources (Trait Dimension)" for `resources:`.
 >
 > **Never write** `actor_authentication`, `auditing`, `schema_resolution`, or a top-level `orchestration`, `retrospective` or `actor_attribution`. They are gone from the 4.0 config: a leftover `actor_authentication` key fails server startup, a push rejects the others, and `actor_attribution` has no reader left. VALIDATE and every write flag any of them found in the file, with the fix: delete `actor_authentication`, `auditing` and `schema_resolution`; move `retrospective` under `extensions.claude-code` and the `orchestration.mode` value to `extensions.claude-code.steering`; delete `actor_attribution`. Caller identity is not configured here: it comes from the server's `API_AUTH_MODE` (see `/task-orchestrator:configure-server`).
 
@@ -245,7 +245,7 @@ Needs a `project.rootId` (rollback is a server operation on the root's stored ve
 
 **Schema not applied — item has no schema**
 - Cause: an existing item whose `type` no layer declares any more (a 3.x carry-over or a deleted schema) when there is no `default`, or an item created at depth 0 or outside the project root, which sees only the server config. Tags are never consulted. A new item cannot be created with an undeclared type (`schema_violation`).
-- Resolution order (fixed): the root's exact type, the server's exact type, the root's `default`, the server's `default`. See `references/config-format.md` → Matching Rules.
+- Resolution order (fixed): the root's exact type, the server's exact type, the root's `default`, the server's `default`.
 - Solution: Verify the item's type with `items_read` `get`, then `items_write` `update` `{id, type}` to a declared type, or `{id, parentId}` under the root.
 
 ```to-call

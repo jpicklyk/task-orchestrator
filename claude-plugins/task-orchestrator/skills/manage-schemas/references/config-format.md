@@ -79,7 +79,7 @@ resources:                      # Optional registry, SERVER FILE ONLY - describe
     description: "Deploy token; advisory, recorded in the audit trail only"
 ```
 
-The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project`, `extensions`) are described in "Key ownership" in [config-reference.md](../../../../../current/docs/config-reference.md#key-ownership). The legacy `note_schemas` form (a type name mapped to its notes, auto lifecycle) is still accepted but cannot share a document with `work_item_schemas`; write `work_item_schemas`.
+The legacy `note_schemas` form (a type name mapped to its notes, auto lifecycle) is still accepted but cannot share a document with `work_item_schemas`; write `work_item_schemas`.
 
 ---
 
@@ -220,8 +220,6 @@ carry notes, resources, both, or neither.
 
 ### Merge semantics - read this before combining traits
 
-Resource requirements merge differently from notes.
-
 1. **Union across traits, never dropped.** Two traits declaring the *same resource key* both
    contribute; the merge is a union, deduplicated by key.
 2. **On a mode conflict for the same key, `exclusive` wins.** If one trait declares a key
@@ -302,7 +300,7 @@ a statement about **phase-level** profiles only.
 
 Per-seat overrides follow their own rule: for a `(phase, seat)` pair a model-selecting override from a
 seat-only trait outranks the other overrides whatever the order, and otherwise the first override in
-trait order wins (see "Seats", merge rule 6, and
+trait order wins (see "Seats" and
 [Seat dispatch precedence](../../../../../current/docs/config-reference.md#seat-dispatch-precedence)).
 
 ### How effort reaches a dispatch
@@ -380,7 +378,7 @@ traits:
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named. A seat named exactly `orchestrator` or `coordinator` loads with an advisory at `<entry>/name` saying the name will be refused in a later release: the orchestrator is a reserved note owner, not a seat (see "Seat transitions"), so remove the entry and label its notes `seat: orchestrator`. |
+| `name` | yes | string | Non-blank, unique within its declaring scope. Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named. A seat named exactly `orchestrator` or `coordinator` loads with an advisory at `<entry>/name` saying the name will be refused in a later release: the orchestrator is a reserved note owner, not a seat (see "Seat transitions"), so remove the entry and label its notes `seat: orchestrator`. |
 | `phase` | yes | string | `queue`, `work`, or `review` only - exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within one seats scope - see "Structural errors". A conflict discovered only at resolve time (per-item traits, or traits from a different config layer) is not fatal - see "Merge rules". |
 | `writes` | no | boolean | Whether this seat changes files in the item's worktree and commits them; notes are not covered. Absent: `true` in the `work` phase, `false` elsewhere. Served, never enforced. Advertised by the `seatWrites` feature. |
@@ -436,8 +434,7 @@ order (item `traits` first, then `default_traits`):
    once traits are merged at resolve time (a per-item trait, or a trait from a different config layer)
    is resolved deterministically: the seat that already has the phase keeps `enters: true`, the later
    seat is served with `enters` demoted to `false`, and a warning is logged.
-5. **Note `seat` / `independent_of` ride on the note merge rules.**
-6. **Per-seat dispatch overrides resolve in the same trait order, with one exception.** For a given
+5. **Per-seat dispatch overrides resolve in the same trait order, with one exception.** For a given
    `(phase, seat)` pair the first trait in order that declares an override wins outright, except that a
    **model-selecting** override outranks the rest regardless of order; its fields overlay the phase's
    already-resolved dispatch profile (`agent`/`model`/`effort` field by field, an explicit `null`
@@ -694,8 +691,7 @@ A push is **strict**: it validates the whole document (`config` `validate` runs 
 writing) and any error rejects it with `config_invalid` and a `{path, reason}` list; nothing is stored. Through the `config` tool a push is one element of a non-atomic call: the call-level error is `partial_failure`, and `config_invalid` with `detail.errors` is at `data.results[0].error`.
 The server file is held to the same rules at boot, with a narrow allowance for the 3.x plugin sections and `schema_resolution`
 (see [Parse modes](../../../../../current/docs/config-reference.md#parse-modes)); any other error fails
-startup. Which top-level key may appear in which layer is in
-[Key ownership](../../../../../current/docs/config-reference.md#key-ownership).
+startup.
 
 ### How the layers combine
 
@@ -704,7 +700,7 @@ same level.
 
 | Facet | Rule |
 |-------|------|
-| Schema for a type | root exact type, server exact type, root `default`, server `default`, none (see "Matching Rules") |
+| Schema for a type | root exact type, server exact type, root `default`, server `default`, none |
 | Trait | when the root's `traits:` map contains the name, notes, seats, resources, dispatch and `builds` all come from the root's entry (a dimension it omits is empty); otherwise all from the server's |
 | `resources:` registry | server only; a root document that carries it is rejected |
 | `note_limits.mode` | the root's explicit value, else the server's |

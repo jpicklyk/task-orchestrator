@@ -1269,7 +1269,7 @@ below). What an operator sees:
 
 - **Observed spend.** `runs_read` `get` shows `usage.observedTokens`: the server's own estimate, written off the request
   path by the call-log writer. It is an estimate: only rows actually stored count (a duplicate or refused row adds
-  nothing), and a dropped or failed call-log batch (see "Call log") under-counts it. It enforces nothing: no write pauses
+  nothing), and a dropped or failed call-log batch under-counts it. It enforces nothing: no write pauses
   a run because of it.
 - **Attempt cap.** An `assign` over `attempts_per_seat` is refused `run_paused`, pauses the run (`pauseReason:
   attempts`) and raises a high-severity `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is

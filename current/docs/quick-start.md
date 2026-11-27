@@ -637,5 +637,5 @@ Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the he
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
-- [workflow-guide.md](workflow-guide.md) - note schemas, phase gates, dependency patterns, and lifecycle examples; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
+- [workflow-guide.md](workflow-guide.md) - phase gates and dependency patterns; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
 - [reporting.md](reporting.md) - the `report` tool: usage, gates, contention, waste and run rollups
