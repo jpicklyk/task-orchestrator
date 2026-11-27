@@ -863,7 +863,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "verifier": "bearer",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate"],
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"],
   "configWarnings": []
 }
 ```
@@ -904,7 +904,7 @@ rule text served by the `config` tool's `rules` op (section 10) - see [api-refer
   "version": "4.0.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"]
 }
 ```
 

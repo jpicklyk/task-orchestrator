@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A decision records who it waits on and who decided it.** A pending decision can be routed to the director or the user (`waitingOn`, with a `waitingReason` for the user) and an answer records `decidedBy`, `basis`, `relayed`, `withinAutonomy` and cited `links`, derived from the caller's seat and credential kind; `decision.delegated` and `decision.escalated` events join the lifecycle. `features` gains `answerProvenance`.
+
 - **`resume` is refused while the item's blocking decision is pending.** An item blocked `awaiting_decision` resumes only once the decision its block names is answered or withdrawn: while that decision is open or acknowledged, `advance` `resume` answers `gate_blocked` with a `decision-pending` violation naming the decision and its status, and nothing is written. Other block reasons are not gated, and `cancel` stays allowed. `features` gains `resumeGate`.
 
 - **`orchestrator` is a reserved note owner in every schema, and every served note entry carries `owningSeat`.** A note labelled `seat: orchestrator` is an orchestrator note: owned by `orchestrator` in any phase of every seat-aware schema, with no seat declared for it, and written inside an open run by that run's token. `items_read` `schema` (and its REST and OpenAPI forms) serves each entry's computed owner as `owningSeat`, a string or `null`, in every schema; `features` gains `orchestratorNotes`. `seat_forbidden` and `note_owned_by_other` carry `detail.runId` (the open run) so the refusal names the run whose token may act.
