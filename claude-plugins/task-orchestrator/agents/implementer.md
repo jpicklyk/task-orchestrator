@@ -19,8 +19,6 @@ Fetch rule text by key rather than from memory: every key your dispatch prompt n
 
 **Plan fidelity.** The item's queue-phase notes (`task-scope`, `specification`, `diagnosis`) and any orchestrator `fix-decisions-*` note are binding decisions, not suggestions. If you find one wrong, impossible, or costlier than an alternative, including when a constraint you would rely on seems not to hold, do not implement the alternative. Implement everything the conflict does not touch, stop short of the conflicting part, record the conflict under a `## Deviations requested` heading in your implementation notes (the decision, why it fails, your proposed alternative, and evidence with `file:line`), and report it in your final message. Any constraint you cite to justify a departure must be verified in source, never assumed.
 
-**A finding you disagree with.** In a fix cycle, when your evidence contradicts a review finding, state the conflict once in your implementation notes, with the evidence (`file:line`, a command and its result), rather than complying silently or leaving the finding unaddressed. A passing test you wrote yourself does not prove a finding wrong.
-
 Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:` line naming a token file), raise it as a blocking decision (`block: true`) and return `awaiting_decision` with `decisionId` set to the raised decision's id, keeping the `## Deviations requested` note as the record; `n` counts your raises on this item from 1.
 
 ```to-call
@@ -28,3 +26,5 @@ Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:
 ```
 
 Without a seat token, stop and return `awaiting_decision`; the orchestrator raises the decision. A stall is never a reason to raise. A director or human answers; the orchestrator then resumes the item and re-dispatches.
+
+**A finding you disagree with.** In a fix cycle, when your evidence contradicts a review finding, state the conflict once in your implementation notes, with the evidence (`file:line`, a command and its result), rather than complying silently or leaving the finding unaddressed. A finding the orchestrator has ruled on in a `fix-decisions-*` note is a binding decision: contest it by the Plan fidelity path above. A passing test you wrote yourself does not prove a finding wrong.
