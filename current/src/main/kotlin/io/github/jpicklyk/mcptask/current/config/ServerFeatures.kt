@@ -14,9 +14,10 @@ package io.github.jpicklyk.mcptask.current.config
  * list in the served `seats` and the `callerSeat` member of `items_read` `context` and `advance` `transition`.
  * `"seatWrites"` advertises the `writes` member the served `seats` carry on every seat. `"orchestratorNotes"` advertises
  * that `orchestrator` is a reserved note owner in every seat-aware schema and that every served note entry carries its
- * computed `owningSeat`.
+ * computed `owningSeat`. `"resumeGate"` advertises that `advance` `resume` is refused (`gate_blocked`, violation
+ * `decision-pending`) while the decision an `awaiting_decision` block names is open or acknowledged.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
-        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
+        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate")
 }

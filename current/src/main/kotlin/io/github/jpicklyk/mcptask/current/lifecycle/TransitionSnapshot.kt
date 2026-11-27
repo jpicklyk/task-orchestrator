@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.SeatFacts
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.ParentFacts
@@ -88,6 +89,12 @@ data class LeaseFacts(
     }
 }
 
+/** The decision a block waits on while it is still pending ([status] is open or acknowledged). */
+data class PendingDecision(
+    val id: UUID,
+    val status: DecisionRequestStatus
+)
+
 /**
  * Everything [TransitionPolicy] reads, loaded by the service inside its unit of work.
  *
@@ -96,6 +103,8 @@ data class LeaseFacts(
  * @property independence null when independence is OFF or no note declares it.
  * @property blockers edges whose blocked side is this item.
  * @property seat seat-enforcement facts ([SeatFacts.NONE] outside an open run or without a caller).
+ * @property pendingDecision the still-pending decision an `awaiting_decision` block names, loaded only for a `resume`
+ *   that resolves a target; null otherwise (not blocked on a decision, or the decision is settled or missing).
  */
 data class TransitionSnapshot(
     val item: ItemFacts,
@@ -107,7 +116,8 @@ data class TransitionSnapshot(
     val blockers: List<BlockerState> = emptyList(),
     val ownership: OwnershipFacts = OwnershipFacts.NONE,
     val lease: LeaseFacts = LeaseFacts.NONE,
-    val seat: SeatFacts = SeatFacts.NONE
+    val seat: SeatFacts = SeatFacts.NONE,
+    val pendingDecision: PendingDecision? = null
 ) {
     companion object {
         /** The snapshot for a [Trigger.Structural.Create] of a new item [newId] under [parent]. */

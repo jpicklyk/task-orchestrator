@@ -51,7 +51,8 @@
             "rules",
             "seatSkills",
             "seatWrites",
-            "orchestratorNotes"
+            "orchestratorNotes",
+            "resumeGate"
         ]
     },
     "metadata": {

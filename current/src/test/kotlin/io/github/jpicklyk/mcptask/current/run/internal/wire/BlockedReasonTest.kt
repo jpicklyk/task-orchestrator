@@ -551,6 +551,7 @@ decision_classes:
             w.assertState(item, "blocked", "awaiting_decision", ref, "after a refused resume with a reason")
             assertInvalid(w.step(item, "resume", field("decisionId", id)), "/decisionId", "decisionId on resume")
             w.assertState(item, "blocked", "awaiting_decision", ref, "after a refused resume with a decision id")
+            assertTrue(w.answer(id).ok(), "the decision is answered, so the block may lift")
             assertTrue(w.step(item, "resume").ok(), "control: a bare resume succeeds")
             w.assertState(item, "work", null, null, "after the bare resume")
         }
@@ -937,5 +938,69 @@ decision_classes:
             assertTrue(first.ok() && second.ok(), "$first $second")
             assertEquals(1, w.blockPayloads().size, "the replay did not write a second transition")
             w.assertState(item, "blocked", "resource", null, "after the replay")
+        }
+
+    // ------------------------------------------------------------------------------------------------ resume gate
+
+    private suspend fun SeatWorld.blockOnDecision(item: WorkItem): String {
+        startOk(item)
+        val id = decisionOn(item, "rg-" + item.id)
+        assertTrue(step(item, "block", field("reason", "awaiting_decision") + field("decisionId", id)).ok())
+        return id
+    }
+
+    @Test
+    fun `RG-E1 resume is refused while the decision the block names is open and changes nothing`(): Unit =
+        world { w ->
+            val item = w.m2
+            val id = w.blockOnDecision(item)
+            val ref = UUID.fromString(id)
+            val before = w.transitionPayloads().size
+
+            val reply = w.step(item, "resume")
+            assertEquals("gate_blocked", reply.code(), "$reply")
+            assertTrue("decision-pending" in reply.toString() && id in reply.toString() && "open" in reply.toString(), "$reply")
+            w.assertState(item, "blocked", "awaiting_decision", ref, "after the refused resume")
+            assertEquals(before, w.transitionPayloads().size, "no transition row for the refused resume")
+        }
+
+    @Test
+    fun `RG-E2 resume is refused while the decision is acknowledged`(): Unit =
+        world { w ->
+            val item = w.m2
+            val id = w.blockOnDecision(item)
+            assertTrue(w.ack(id).ok())
+
+            val reply = w.step(item, "resume")
+            assertEquals("gate_blocked", reply.code(), "$reply")
+            assertTrue("acknowledged" in reply.toString(), "$reply")
+            w.assertState(item, "blocked", "awaiting_decision", UUID.fromString(id), "after the refused resume")
+        }
+
+    @Test
+    fun `RG-E3 resume succeeds once the decision is withdrawn`(): Unit =
+        world { w ->
+            val item = w.m2
+            val id = w.blockOnDecision(item)
+            assertTrue(w.withdraw(id).ok())
+
+            assertTrue(w.step(item, "resume").ok())
+            w.assertState(item, "work", null, null, "after the resume")
+        }
+
+    @Test
+    fun `RG-E4 a manual hold resumes with an open decision about the item and cancel ignores the gate`(): Unit =
+        world { w ->
+            val held = w.m2
+            w.startOk(held)
+            w.decisionOn(held, "rg-manual")
+            assertTrue(w.step(held, "hold").ok())
+            assertTrue(w.step(held, "resume").ok(), "a manual hold is not decision-gated")
+            w.assertState(held, "work", null, null, "after the manual resume")
+
+            val other = w.m1
+            w.blockOnDecision(other)
+            assertTrue(w.step(other, "cancel").ok(), "cancel is not decision-gated")
+            assertEquals("terminal", w.roleOf(other))
         }
 }

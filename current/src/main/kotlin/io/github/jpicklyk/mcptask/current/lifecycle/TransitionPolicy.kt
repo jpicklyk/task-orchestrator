@@ -200,6 +200,37 @@ object StandardGates {
             }
         }
 
+    /**
+     * A `resume` is refused while the decision the item's `awaiting_decision` block names is still pending (open or
+     * acknowledged): the block lifts only once that decision is answered or withdrawn. Only [User.RESUME] is gated; the
+     * snapshot carries a pending decision only for it.
+     */
+    val DECISION_PENDING: TransitionGate =
+        TransitionGate { input ->
+            val pending = input.snapshot.pendingDecision
+            if (input.trigger == User.RESUME && pending != null) {
+                val id = input.snapshot.item.id
+                val status = pending.status.wire
+                Decision.Reject(
+                    GateId.DECISION_PENDING,
+                    DomainError(
+                        code = ErrorCode.GATE_BLOCKED,
+                        message = "Item $id waits on decision ${pending.id}, which is $status; answer or withdraw it, then resume.",
+                        detail =
+                            ErrorDetail.GateBlocked(
+                                id,
+                                Role.BLOCKED.wire(),
+                                emptyList(),
+                                listOf(GateViolation("decision-pending", "decision ${pending.id} is $status"))
+                            ),
+                        fixArgs = mapOf("itemId" to id.toString())
+                    )
+                )
+            } else {
+                null
+            }
+        }
+
     /** Entry into WORK, REVIEW or TERMINAL (except by `cancel`) needs every blocker satisfied. */
     val DEPENDENCY: TransitionGate =
         TransitionGate { input ->
@@ -487,7 +518,7 @@ class TransitionPolicy(
         }
 
     companion object {
-        /** OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> REVIEW_PENDING -> DEPENDENCY -> NOTE -> LEASE. */
+        /** OWNERSHIP -> SEAT -> TABLE -> WARRANT -> HOLD -> REVIEW_PENDING -> DECISION_PENDING -> DEPENDENCY -> NOTE -> LEASE. */
         val DEFAULT_GATES: List<TransitionGate> =
             listOf(
                 StandardGates.OWNERSHIP,
@@ -496,6 +527,7 @@ class TransitionPolicy(
                 StandardGates.WARRANT,
                 StandardGates.HOLD,
                 StandardGates.REVIEW_PENDING,
+                StandardGates.DECISION_PENDING,
                 StandardGates.DEPENDENCY,
                 StandardGates.NOTE,
                 StandardGates.LEASE

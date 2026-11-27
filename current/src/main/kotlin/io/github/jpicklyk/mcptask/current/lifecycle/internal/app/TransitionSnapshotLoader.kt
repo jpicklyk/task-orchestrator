@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.lifecycle.ItemFacts
 import io.github.jpicklyk.mcptask.current.lifecycle.LeaseFacts
 import io.github.jpicklyk.mcptask.current.lifecycle.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.lifecycle.OwnershipFacts
+import io.github.jpicklyk.mcptask.current.lifecycle.PendingDecision
 import io.github.jpicklyk.mcptask.current.lifecycle.RequiredNote
 import io.github.jpicklyk.mcptask.current.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.GatePredicate
@@ -19,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.TransitionTa
 import io.github.jpicklyk.mcptask.current.lifecycle.internal.domain.noteScopeOf
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.dependency.BlockingEdge
+import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -107,7 +109,8 @@ internal data class LoadedSnapshot(
  * WORK, REVIEW or TERMINAL (and the trigger is not `cancel`); requirements and leases only when the lease
  * input is enforced and the target is WORK (zero lease-store reads when no exclusive key is declared); the item's open
  * run ([openRunResolver]) only when the seat input is enforced for a non-human caller, the trigger is a user trigger and
- * the resolved (pin-aware) schema is seat-aware.
+ * the resolved (pin-aware) schema is seat-aware; the decision an `awaiting_decision` block names only for a `resume`
+ * whose table resolves a target.
  */
 class TransitionSnapshotLoader(
     private val workItemRepository: WorkItemRepository,
@@ -227,6 +230,24 @@ class TransitionSnapshotLoader(
                 SeatFacts.NONE
             }
 
+        // A resume is gated on the decision its awaiting_decision block names: read it only then. A settled or missing
+        // decision leaves the snapshot without one, so the resume is allowed.
+        val blockedRef = item.blockedRef
+        val pendingDecision =
+            if (trigger == Trigger.User.RESUME &&
+                target != null &&
+                item.effectiveBlockedReason == BlockedReason.AWAITING_DECISION &&
+                blockedRef != null
+            ) {
+                scope.stores
+                    .decisionReads()
+                    .getById(blockedRef)
+                    ?.takeIf { it.status.isPending }
+                    ?.let { PendingDecision(it.id, it.status) }
+            } else {
+                null
+            }
+
         val snapshot =
             TransitionSnapshot(
                 item = ItemFacts(item.id, item.role, item.previousRole, item.parentId),
@@ -238,7 +259,8 @@ class TransitionSnapshotLoader(
                 blockers = blockers,
                 ownership = ownershipFacts,
                 lease = leaseFacts,
-                seat = seatFacts
+                seat = seatFacts,
+                pendingDecision = pendingDecision
             )
         return LoadedSnapshot(snapshot, schema, requirements, notes)
     }
