@@ -92,7 +92,7 @@ class DecisionAnswererMatrixTest {
 
     // ------------------------------------------------------------------ the truth table (task-scope D1)
 
-    private val RUNS_AND_DECIDE = setOf(ApiCapability.RUNS, ApiCapability.DECIDE)
+    private val runsAndDecide = setOf(ApiCapability.RUNS, ApiCapability.DECIDE)
 
     private val humanProofs = setOf(ProofStatus.VERIFIED, ProofStatus.VERIFIED_STALE, ProofStatus.ISSUED)
 
@@ -129,7 +129,7 @@ class DecisionAnswererMatrixTest {
         id: String,
         kind: PrincipalKind,
         proof: ProofStatus,
-        capabilities: Set<ApiCapability> = RUNS_AND_DECIDE
+        capabilities: Set<ApiCapability> = runsAndDecide
     ) = Principal(
         id = id,
         kind = kind,
@@ -144,18 +144,17 @@ class DecisionAnswererMatrixTest {
         profile: String?,
         seat: SeatContext?,
         id: String = "dm-${kind.wire}-${proof.wire}",
-        capabilities: Set<ApiCapability> = RUNS_AND_DECIDE
+        capabilities: Set<ApiCapability> = runsAndDecide
     ): CallContext =
         CallContext(
             reqId = "dm-matrix",
             surface = "rest",
             principal = principal(id, kind, proof, capabilities).toCallPrincipal(),
             profile = profile
-        )
-            .copy(seat = seat)
+        ).copy(seat = seat)
 
     private val capabilitySets: List<Set<ApiCapability>> =
-        listOf(RUNS_AND_DECIDE, setOf(ApiCapability.RUNS), setOf(ApiCapability.ADMIN))
+        listOf(runsAndDecide, setOf(ApiCapability.RUNS), setOf(ApiCapability.ADMIN))
 
     private val runId = UUID.fromString("11111111-1111-4111-8111-111111111111")
     private val memberSeat = SeatContext(runId = runId, assignmentId = UUID.randomUUID(), itemId = UUID.randomUUID(), seat = "implementer")

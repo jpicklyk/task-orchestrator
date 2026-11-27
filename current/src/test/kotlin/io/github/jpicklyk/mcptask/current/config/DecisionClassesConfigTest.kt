@@ -654,7 +654,12 @@ class DecisionClassesConfigTest {
                         it.readBytes().toString(Charsets.UTF_8)
                     }
                 ).jsonObject
-        val decisionClass = schema.getValue("\$defs").jsonObject.getValue("decisionClass").jsonObject
+        val decisionClass =
+            schema
+                .getValue("\$defs")
+                .jsonObject
+                .getValue("decisionClass")
+                .jsonObject
         val properties = decisionClass.getValue("properties").jsonObject
 
         assertEquals(ConfigKeyCatalog.DECISION_CLASS, properties.keys)
