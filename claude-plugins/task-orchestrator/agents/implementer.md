@@ -26,3 +26,5 @@ Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:
 ```
 
 Without a seat token, stop and return `awaiting_decision`; the orchestrator raises the decision. A stall is never a reason to raise. A director or human answers; the orchestrator then resumes the item and re-dispatches.
+
+**A finding you disagree with.** In a fix cycle, when your evidence contradicts a review finding, state the conflict once in your implementation notes, with the evidence (`file:line`, a command and its result), rather than complying silently or leaving the finding unaddressed. A finding the orchestrator has ruled on in a `fix-decisions-*` note is a binding decision: contest it by the Plan fidelity path above. A passing test you wrote yourself does not prove a finding wrong.
