@@ -56,8 +56,6 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * `session-tracking` / `diagnosis`. Oracles come from the test-plan's citations, never from what
  * the route currently returns:
  *
- * - O1/O2 the tag scope (`tags_include` is item-level, exact CSV membership, no
- *   ancestor walk, empty = no constraint) and SSE (replay applies the same filter as live fan-out).
  * - O3 [AccessScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
  * - O4 `allowsItemTags` KDoc (exact
  *   membership, no prefix/substring; empty `tagsInclude` = no constraint).

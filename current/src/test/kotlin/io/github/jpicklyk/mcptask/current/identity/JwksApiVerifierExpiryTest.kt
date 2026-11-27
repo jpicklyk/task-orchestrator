@@ -54,8 +54,7 @@ import java.util.Date
  * must be rejected (regardless of `nbf`), and `verifyWithExpiry` must expose a non-null,
  * whole-second-truncated `expiresAt` for every successfully verified token.
  *
- * Oracles: the REST auth rules (exp now REQUIRED in jwks mode, rejected -> 401
- * `invalid_token`), RFC 7519 §4.1.4 (`exp` is a NumericDate — whole seconds), and
+ * Oracles: RFC 7519 §4.1.4 (`exp` is a NumericDate — whole seconds), and
  * `JwksApiVerifier.kt:32` KDoc (60s clock skew, unchanged by this fix).
  *
  * Probe recorded, not automated: an explicit JSON `"exp": null` claim was considered as a

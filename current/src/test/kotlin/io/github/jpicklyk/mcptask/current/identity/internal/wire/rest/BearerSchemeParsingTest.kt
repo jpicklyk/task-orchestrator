@@ -58,8 +58,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  *
  * Oracles (frozen at queue phase, supplied verbatim in the dispatch prompt's declarations block):
  * RFC 7235 §2.1 (auth-scheme names are case-insensitive), RFC 6750 §2.1 (`1*SP` before the
- * credential) and §3.1 (`WWW-Authenticate` error codes), the REST failure table
- * (`invalid_request` for missing/empty; `invalid_token` for a non-matching credential), and the
+ * credential) and §3.1 (`WWW-Authenticate` error codes), and the
  * frozen `diagnosis` note's D-a decision: exactly ONE `Bearer`/`bearer` prefix is ever stripped,
  * so `"Bearer bearer T"` must resolve to the literal credential `"bearer T"`, which cannot be a
  * valid `b64token` (RFC 6750 has no internal whitespace) and must therefore fail as

@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  * ambiguous prefix is `ambiguous_id`) and the scope refusal of S7 on the REST leg.
  *
  * Oracles (never read from a run): the R25 placement clause (the select is served on the orchestration profile and the director profile, so
- * the plain and the director route both answer it), the frozen REST fault table of the ops route (the error code is the envelope `error.code`),
+ * the plain and the director route both answer it),
  * the run-as-visible-as-its-root rule of `api-reference.md` (a run on a root outside the token scope is `forbidden`, never `not_found`), the
  * seeded fixture of `RunsParityScenarios` (run `ra` on root R1 over children C1 and C2, both queue and unclaimed, so both are ready; two runs
  * whose ids share the prefix `ab000000`; the well-formed id `99999999` that no run carries). Item ids on the wire are the first 8 hex digits

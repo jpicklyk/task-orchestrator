@@ -108,7 +108,7 @@ AskUserQuestion(questions: [{
   ("Loopback footgun") before the command, and force `-p 127.0.0.1:3001:3001` in the render — never a
   wider publish.
 - **Bearer** → ask for the host path to the token YAML (free-text/"Other" answer), e.g.
-  `~/.taskorchestrator-secrets/api-tokens.yaml`. If the file doesn't exist yet, this skill does not generate tokens.
+  `~/.taskorchestrator-secrets/api-tokens.yaml`.
 - **Unauthenticated and Off both:** every caller is the local agent principal (proof none), so a human-only decision class can never be answered; director-or-human classes (attempt cap, deviation; the run budget is legacy-only) can, through the director entry. A user who wants human sign-off needs Bearer with a `kind: human` token (see "Director credential").
 - **Off** → REST fragment is `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`; config-sync will
   no-op (tell the user). Without the opt-in, an HTTP server with the API off refuses to start (`MCP_AUTH`,

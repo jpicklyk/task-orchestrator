@@ -1,6 +1,5 @@
 // Contract tests for hooks/lib/api-client.mjs callOp and wellKnown (fc131c71, scenarios S13-S16).
-// Oracle: the frozen task-scope signatures; a 401 is the
-// `unauthenticated` envelope and the unauthenticated well-known document; api-reference.md
+// Oracle: the frozen task-scope signatures; api-reference.md
 // "Response envelope" (HTTP status = the code's status, 207 for partial_failure). A node:http fake
 // records method, url, raw headers and body of every request. The four moved exports
 // (apiBaseUrl/authHeader/isLoopbackApiUrl/fetchWithTimeout) keep their coverage in api-client.test.mjs.

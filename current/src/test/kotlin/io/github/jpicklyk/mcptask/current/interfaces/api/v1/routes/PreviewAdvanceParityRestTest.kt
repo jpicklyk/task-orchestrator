@@ -44,8 +44,7 @@ import kotlin.test.assertTrue
  * does over the same generated states as the MCP parity test (every role x dependency x current-phase notes x exclusive-lease
  * combination).
  *
- * Oracles: the gate contract (canAdvance is "a start would be allowed right now", claim ownership excluded; blockedBy
- * is table | dependency | note | lease, present only when canAdvance is false and the item is not terminal) and AC5; the expected
+ * Oracles: AC5; the expected
  * `blockedBy` comes from [P11MatrixState.expectedBlockedBy], derived from the documented gate order. The element error code per
  * blocked gate comes from the envelope catalog: a terminal item or a transition-table refusal is `invalid_transition`, a missing
  * note is `gate_blocked`, a held exclusive lease is `resource_unavailable`; an unmet dependency is `dependency_unmet`, with

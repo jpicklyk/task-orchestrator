@@ -7,7 +7,7 @@ capability model) this doc defers to:
 
 - [`current/docs/fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md) — authoritative for fleet/security posture
 
-If this catalog and either of those docs ever disagree, those docs win — fix this file to match.
+If this catalog and those docs ever disagree, those docs win — fix this file to match.
 
 > **Anti-drift note:** this file is cited by `configure-server/SKILL.md`,
 > a project deploy command, and a comment in `docker-compose.yml`'s `http-rest`

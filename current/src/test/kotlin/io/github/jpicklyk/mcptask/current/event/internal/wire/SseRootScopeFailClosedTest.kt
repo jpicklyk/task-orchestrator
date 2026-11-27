@@ -68,7 +68,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * - O1 `AccessScope` KDoc -- non-null `rootIds` = access ONLY items under those roots => a non-null,
  *   unmatched intersection is a deny, never an implicit allow.
  * - O2 `AuthorizationPlugin` -- an empty candidate set / lookup failure denies, never admits.
- * - O3 the SSE route -- effective subscription = intersection of `?root=` with the principal's
+ * - O3 effective subscription = intersection of `?root=` with the principal's
  *   scope; an empty intersection is an empty subscription, not a universal one.
  * - O4 `AuthorizationPlugin` -- 403, not 404, for an out-of-scope request.
  * - O5 `ApiEventBus` KDoc -- `emptySet` `affectedRoots` (the pre-existing default) is a bus-level
