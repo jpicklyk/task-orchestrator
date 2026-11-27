@@ -515,7 +515,7 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`, `resumeGate`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
@@ -1264,8 +1264,7 @@ tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `
 section 20a); both answer the same response envelope.
 
 Every `transition` is ONE transaction through the shared advance pipeline (`AdvanceService`): the item is re-read, the transition
-policy evaluates its gates in a fixed order (claim ownership, seat, transition table, cascade warrant, hold, review-pending, blocking dependencies,
-required notes, resource lease; the first failure wins), and the role change, its audit row, its event, the lease acquire or
+policy evaluates its gates in the order of `TransitionPolicy.DEFAULT_GATES` (the first failure wins), and the role change, its audit row, its event, the lease acquire or
 release, and every cascade it triggers commit together or not at all. Unblocked downstream items are then reported.
 
 **Call shape.** `ops` is an array of flat objects, each naming its `op`. Optional top-level `atomic` (default false: each
