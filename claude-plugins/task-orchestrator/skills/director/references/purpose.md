@@ -30,7 +30,7 @@ cost. A run of one or two items needs no separate orchestrator even under a dire
 
 ## Limits
 
-The director cannot plan or read files, one wave runs per project root at a time, and its
+The director cannot plan or read files, waves on one project root run at once only when their members, files and worktrees do not overlap, and its
 orchestrators run as a background agent in the director session (tier 2), as a Code Mode orchestrator
 subagent in the director session (tier 2b), as a separate desktop session
 (tier 1) or as a separate headless `claude -p` process that a background agent starts (tier 3); tier 4

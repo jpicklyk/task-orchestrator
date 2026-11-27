@@ -207,7 +207,7 @@ re-plan.
 
 ## Limits
 
-- One wave per project root at a time: run-wave resumes an open or paused run instead of starting a second.
+- Several waves may run on one project root at once when their members, files and worktrees do not overlap: run-wave resumes the target's own open or paused run instead of starting a second, and defers what another run holds.
 - The tier-2 and tier-2b orchestrators, the agent that starts a tier-3 process, and tier 4 live inside the director
   session and end with it. A tier-1 session does not.
 - Nothing wakes the director but an orchestrator report, a task notification or the user.

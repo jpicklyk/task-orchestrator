@@ -4,7 +4,7 @@
 // buildSnapshot(input, io) is async and holds no environment access of its own: every read of the server, git,
 // the run profile, the probe result and the clock arrives through the injected `io`, as run-exec-lib.mjs gets
 // EXEC_IO (run-planner.mjs builds the real one). The pure helpers (projectSchema, parseWorktreePorcelain,
-// carryInSection, scopeNeeds, snapshotArgErrors) are exported for tests.
+// carryInSection, scopeNeeds, splitScopes, snapshotArgErrors) are exported for tests.
 //
 // io:
 //   call(tool, body)      -> Promise<{ok, data, error:{code, ...}}>   one REST op; never rejects
@@ -223,6 +223,67 @@ function mapBlocked(row) {
   return entry;
 }
 
+/**
+ * readOtherRuns(io, rootId) -> every open, then every paused run on the root (any hints), as snapshot
+ * `otherRuns` entries: {runId, label, status, scopeId, worktree, branch, members}. members are the
+ * distinct lower-case shorts of the run's frontier ready, inFlight and waiting lists. A failed read is exit 3.
+ */
+async function readOtherRuns(io, rootId) {
+  const out = [];
+  for (const status of ['open', 'paused']) {
+    const runs = await pages(io, 'runs_read', { select: 'list', rootId, status });
+    for (const run of runs) {
+      if (!isPlain(run) || typeof run.runId !== 'string') continue;
+      if (out.some((r) => r.runId === run.runId)) continue;
+      const fr = (await read(io, 'runs_read', { select: 'frontier', runId: run.runId })).data || {};
+      const members = [];
+      for (const list of ['ready', 'inFlight', 'waiting']) {
+        for (const row of Array.isArray(fr[list]) ? fr[list] : []) {
+          const id = row && typeof row.id === 'string' ? row.id.toLowerCase() : '';
+          if (id !== '' && !members.includes(id)) members.push(id);
+        }
+      }
+      const hints = isPlain(run.hints) ? run.hints : {};
+      const str = (v) => (typeof v === 'string' && v !== '' ? v : null);
+      out.push({
+        runId: run.runId,
+        label: str(run.label) || str(hints.plan) || run.runId.slice(0, 8),
+        status: run.status,
+        scopeId: str(run.scopeId),
+        worktree: str(hints.worktree),
+        branch: str(hints.branch),
+        members
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * splitScopes(raw, candidates, otherRuns) -> {scopes}: the --scopes entries keyed by a candidate id stay in
+ * `scopes`; an entry keyed by a member short of another run becomes that run's `claims[<short>]` (its files);
+ * any other key stays in `scopes`, where validateSnapshot names it. otherRuns entries gain `claims` in place.
+ */
+export function splitScopes(raw, candidates, otherRuns) {
+  if (!isPlain(raw)) return { scopes: undefined };
+  const scopes = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    if (candidates.some((c) => c.id === key)) {
+      scopes[key] = entry;
+      continue;
+    }
+    const short = key.toLowerCase();
+    const run = (otherRuns || []).find((r) => r.members.includes(short));
+    if (!run) {
+      scopes[key] = entry;
+      continue;
+    }
+    run.claims = run.claims || {};
+    run.claims[short] = isPlain(entry) && Array.isArray(entry.files) ? entry.files : [];
+  }
+  return { scopes };
+}
+
 // Candidate ids (as the list reads answer them) of an ancestor scope: next, the join of dependency-blocked items
 // whose every unsatisfied blocker is itself a candidate (a fixpoint), then the work-role rows.
 function ancestorOrder(nextRows, workRows, blockedRows, excludeId) {
@@ -403,9 +464,20 @@ async function build(input, io) {
     carryIns[c.id] = { keys, dispositions };
   }
 
+  const otherRuns = await readOtherRuns(io, rootId);
   const blocked = blockedRows.map(mapBlocked);
-  const scopes = isPlain(input.scopes) ? input.scopes : undefined;
+  const split = splitScopes(input.scopes, candidates, otherRuns);
+  const scopes = split.scopes;
   const needs = scopeNeeds(candidates, blocked, scopes);
+  if (otherRuns.length > 0) {
+    // Cross-run claims: every candidate and every member of another run names its files.
+    const covered = new Set(isPlain(input.scopes) ? Object.keys(input.scopes).map((k) => k.toLowerCase()) : []);
+    const add = (id) => {
+      if (!covered.has(id.toLowerCase()) && !needs.some((n) => n.toLowerCase() === id.toLowerCase())) needs.push(id);
+    };
+    for (const c of candidates) add(c.id);
+    for (const run of otherRuns) for (const m of run.members) add(m);
+  }
 
   // git
   if (!input.noFetch) {
@@ -434,6 +506,7 @@ async function build(input, io) {
   };
   if (scopes !== undefined) snapshot.scopes = scopes;
   if (Object.keys(carryIns).length > 0) snapshot.carryIns = carryIns;
+  if (otherRuns.length > 0) snapshot.otherRuns = otherRuns;
   Object.assign(snapshot, {
     noteOwners,
     parents,
