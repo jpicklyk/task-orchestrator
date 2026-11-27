@@ -573,7 +573,7 @@ async function r1() {
 await r1()
 ```
 
-A `{resume}` return sends the model to the Resume matrix of `SKILL.md` with the `run8` and phase it names. A `{stopped}` return is the F2 or F3 stop of `SKILL.md` Step 0 (its repair text applies). After Checkpoint 1 (the `explain` table and the F8 check), use R2 with `PRE_DIR` set to the returned `preDir`: it copies `plan-draft.json` and the snapshot from there into `<scratchpad>/run-wave/<runId>/` for the `runId` returned here. A non-zero `lateCarryIns` means write the disposition lines of Step 3 before R2.
+A `{resume}` return sends the model to the Resume matrix of `SKILL.md` with the `run8` and phase it names; one that lists more than one run (no target) stops and asks for `--resume <runId>`. A `{stopped}` return is the F2 or F3 stop of `SKILL.md` Step 0 (its repair text applies). After Checkpoint 1 (the `explain` table and the F8 check), use R2 with `PRE_DIR` set to the returned `preDir`: it copies `plan-draft.json` and the snapshot from there into `<scratchpad>/run-wave/<runId>/` for the `runId` returned here. A non-zero `lateCarryIns` means write the disposition lines of Step 3 before R2.
 
 ## R2: Steps 4, 5 and 5a: worktrees, open, parent check, pointer, pre-entered start, Method A assign
 
