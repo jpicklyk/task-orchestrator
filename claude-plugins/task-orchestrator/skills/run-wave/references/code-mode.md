@@ -330,7 +330,7 @@ const sendReport = async (event, files) => {
 
 ## R1: Step 0 probe, F7 resume check, Step 2 snapshot and Step 3 plan
 
-Replaces F7, the Step 0 `probe`, the Step 2 snapshot, Step 3 `plan` and `explain`. The model sees one of four things: `{resume}` (an open or paused run of this skill exists: nothing else ran, go to the Resume matrix), `{stopped}` (F2 or F3 missed or the server is incompatible), `{needs}` (ids that need a hand-made snapshot field) or the `explain` table with the `runId` and the late carry-in count (Checkpoint 1, where it runs Step 0 F8 on the `Seat skills:` line). The snapshot comes from the `snapshot` subcommand (see [snapshot.md](snapshot.md)); only when it exits 2 for `no REST API URL resolves` does the script read the server by hand, as the Step 2 table lists. `ANCESTOR_ID` scopes to a subtree, `ITEM_IDS` to an explicit item list (set one, leave the other null; with neither, the hand reads list the root's ready items). `MODE`, `ALTITUDE_SAFE` and `SHARED_WORKTREE` carry the invocation arguments of the same names to `plan`, and `--entry pre-entered` is added when the probe reports no phase 0 hooks. `scopes` and `carryIns` hold note-derived text: when the script returns `needs.scopes`, build `{<id>: {files, dependsOn?}}` by the scopes rule of `snapshot.md`, save it as `<scratchpad>/run-wave/scopes.json`, set `SCOPES_FILE` and run the script again (in the hand fallback set `EXTRA.scopes` instead).
+Replaces F7, the Step 0 `probe`, the Step 2 snapshot, Step 3 `plan` and `explain`. The model sees one of four things: `{resume}` (the target's own open or paused run of this skill exists, by the F7 rule of `SKILL.md`: nothing else ran, go to the Resume matrix), `{stopped}` (F2 or F3 missed or the server is incompatible), `{needs}` (ids that need a hand-made snapshot field) or the `explain` table with the `runId`, the late carry-in count, `preDir` and `others` (Checkpoint 1, where it runs Step 0 F8 on the `Seat skills:` line; a non-empty `others` is the one line `other open runs left alone: <label> (<status>), ...`). The snapshot comes from the `snapshot` subcommand (see [snapshot.md](snapshot.md)); only when it exits 2 for `no REST API URL resolves` does the script read the server by hand, as the Step 2 table lists. `ANCESTOR_ID` scopes to a subtree, `ITEM_IDS` to an explicit item list (set one, leave the other null; with neither, the hand reads list the root's ready items). `MODE`, `ALTITUDE_SAFE` and `SHARED_WORKTREE` carry the invocation arguments of the same names to `plan`, and `--entry pre-entered` is added when the probe reports no phase 0 hooks. `scopes` and `carryIns` hold note-derived text: when the script returns `needs.scopes`, build `{<id>: {files, dependsOn?}}` by the scopes rule of `snapshot.md`, save it as `scopes.json` in the returned `preDir` (`<scratchpad>/run-wave/pre-<key>/`, the target's pre-runId folder: key = the first 8 hex of the ancestor id, else of the first item id, else `root`), set `SCOPES_FILE` and run the script again (in the hand fallback set `EXTRA.scopes` instead).
 
 ```js
 async function r1() {
@@ -345,17 +345,75 @@ async function r1() {
   const SCOPES_FILE = null; // after a needs.scopes return: the file holding {<id>: {files, dependsOn?}}
   const EXTRA = { scopes: undefined, carryIns: undefined }; // the hand fallback only
 
-  // F7: an open or paused run of this skill resumes through the Resume matrix, not through Steps 1-3
-  const resume = [];
+  // F7: the target's own open or paused run of this skill resumes through the Resume matrix, not through Steps 1-3;
+  // another run on the root is left alone and reported in `others`
+  const idKey = (s) => String(s || '').toLowerCase().replace(/-/g, '');
+  const sameId = (a, b) => { const x = idKey(a); const y = idKey(b); return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x)); };
+  const runs = []; // every open or paused run on the root, any hints: the hand snapshot's otherRuns
   for (const status of ['open', 'paused']) {
     const l = await call('runs_read', { select: 'list', rootId: ROOT_ID, status, limit: 200 });
     if (!l.ok) return await stop(l);
-    for (const run of l.data.items || []) {
-      const h = run.hints || {};
-      if (typeof h.plan === 'string' && /^r-/.test(h.plan)) resume.push({ run8: String(run.runId).slice(0, 8), plan: h.plan, status: run.status, phase: h.phase || null });
+    runs.push(...(l.data.items || []));
+  }
+  const hasItems = !!(ITEM_IDS && ITEM_IDS.length);
+  // the distinct lower-case member shorts of a run's frontier (terminal members are not listed), read once per run
+  const memberCache = new Map();
+  const memberShorts = async (runId) => {
+    if (memberCache.has(runId)) return memberCache.get(runId);
+    const f = await call('runs_read', { select: 'frontier', runId });
+    if (!f.ok) return { stop: await stop(f) };
+    const ids = [];
+    for (const k of ['ready', 'inFlight', 'waiting']) {
+      for (const row of f.data[k] || []) {
+        const id = row && row.id ? String(row.id).toLowerCase() : '';
+        if (id && !ids.includes(id)) ids.push(id);
+      }
     }
+    memberCache.set(runId, { ids });
+    return { ids };
+  };
+  let pointer = null; // the run= values of the target's pointer lines, read once and only for an unclassified run
+  const pointerRuns = async () => {
+    if (pointer) return pointer;
+    const id = ANCESTOR_ID || (hasItems && ITEM_IDS.length === 1 ? ITEM_IDS[0] : null);
+    pointer = { runs: [] };
+    if (!id) return pointer;
+    for (const key of ['run-pointers', 'session-tracking']) {
+      const n = await call('notes_read', { select: 'get', itemId: id, key });
+      if (n.ok) {
+        for (const m of String(n.data.body || '').matchAll(/run-wave: \S+ run=([0-9a-fA-F]+)/g)) pointer.runs.push(m[1].toLowerCase());
+        return pointer;
+      }
+      if (n.refused) return (pointer = { stop: n.refused });
+      if (n.code !== 'not_found') return (pointer = { stop: await stop(n) });
+    }
+    return pointer;
+  };
+  const resume = [];
+  const others = [];
+  for (const run of runs) {
+    const h = run.hints || {};
+    if (!(typeof h.plan === 'string' && /^r-/.test(h.plan))) continue;
+    const run8 = String(run.runId).slice(0, 8);
+    let own = !ANCESTOR_ID && !hasItems; // no target: every r- run is own
+    if (!own && ANCESTOR_ID && run.scopeId) own = sameId(run.scopeId, ANCESTOR_ID);
+    if (!own && hasItems) {
+      const m = await memberShorts(run.runId);
+      if (m.stop) return m.stop;
+      own = m.ids.some((s) => ITEM_IDS.some((id) => sameId(s, id)));
+    }
+    if (!own && (ANCESTOR_ID || ITEM_IDS.length === 1)) { // an ancestor, or a single item: its pointer line
+      const p = await pointerRuns();
+      if (p.stop) return p.stop;
+      own = p.runs.some((r) => sameId(r, run.runId));
+    }
+    if (own) resume.push({ run8, plan: h.plan, status: run.status, phase: h.phase || null });
+    else others.push({ run8, label: run.label || h.plan || run8, status: run.status });
   }
   if (resume.length) return { resume };
+  // the pre-runId files of this target live in <scratchpad>/run-wave/pre-<key>/, so two targets never share them
+  const preKey = (ANCESTOR_ID ? idKey(ANCESTOR_ID) : hasItems ? idKey(ITEM_IDS[0]) : '').slice(0, 8) || 'root';
+  const PRE_DIR = SCRATCH + '/run-wave/pre-' + preKey;
 
   const probe = await helper('probe', '');
   if (probe.ref) return probe.ref;
@@ -363,7 +421,7 @@ async function r1() {
   if (probe.json.serverCompat) return { stopped: true, serverCompat: probe.json.serverCompat };
 
   let snapshot = null;
-  const snapFile = SCRATCH + '/run-wave/snapshot.json';
+  const snapFile = PRE_DIR + '/snapshot.json';
   const target = ANCESTOR_ID ? '--ancestor ' + q(ANCESTOR_ID) : (ITEM_IDS && ITEM_IDS.length ? '--items ' + q(ITEM_IDS.join(',')) : null);
   // the subcommand needs a scope; with none, the hand reads list the root's ready items
   const sn = target ? await helper('snapshot', '--root ' + q(ROOT_ID) + ' ' + target + ' --out ' + q(snapFile) + (SCOPES_FILE ? ' --scopes ' + q(SCOPES_FILE) : '')) : null;
@@ -371,12 +429,12 @@ async function r1() {
   if (sn && sn.code === 0) {
     if (!sn.json) return { failed: true, step: 'snapshot', code: 0, err: 'no summary line' };
     const wantScopes = (sn.json.needs && sn.json.needs.scopes) || [];
-    if (wantScopes.length) return { needs: { scopes: wantScopes } };
+    if (wantScopes.length) return { needs: { scopes: wantScopes }, preDir: PRE_DIR };
     snapshot = await readJson(snapFile);
   } else if (!sn || (sn.code === 2 && sn.err.includes('no REST API URL resolves'))) {
     snapshot = await handSnapshot();
     if (snapshot.stop) return snapshot.stop;
-    if (snapshot.needs) return { needs: snapshot.needs };
+    if (snapshot.needs) return { needs: snapshot.needs, preDir: PRE_DIR };
     snapshot = snapshot.value;
     await writeJson(snapFile, snapshot);
   } else {
@@ -396,12 +454,12 @@ async function r1() {
     + (ALTITUDE_SAFE ? ' --altitude-safe' : '')
     + (SHARED_WORKTREE ? ' --worktree ' + q(SHARED_WORKTREE.path) + ' --branch ' + q(SHARED_WORKTREE.branch) : '')
     + (probe.json.phase0Hooks ? '' : ' --entry pre-entered');
-  const plan = await helper('plan', '--in ' + q(snapFile) + ' --scratchpad ' + q(SCRATCH) + flags + ' --out ' + q(SCRATCH + '/run-wave/plan-draft.json'));
+  const plan = await helper('plan', '--in ' + q(snapFile) + ' --scratchpad ' + q(SCRATCH) + flags + ' --out ' + q(PRE_DIR + '/plan-draft.json'));
   if (plan.code !== 0) return { failed: true, step: 'plan', code: plan.code, err: plan.err };
-  const exp = await helper('explain', '--in ' + q(SCRATCH + '/run-wave/plan-draft.json'));
+  const exp = await helper('explain', '--in ' + q(PRE_DIR + '/plan-draft.json'));
   if (exp.code !== 0 || !exp.raw) return { failed: true, step: 'explain', code: exp.code, err: exp.err };
-  const draft = await readJson(SCRATCH + '/run-wave/plan-draft.json');
-  return { explain: exp.raw, runId: draft.args.runId, lateCarryIns: ((draft.meta && draft.meta.lateCarryIns) || []).length }; // explain prints a text table, not JSON: read raw
+  const draft = await readJson(PRE_DIR + '/plan-draft.json');
+  return { explain: exp.raw, runId: draft.args.runId, lateCarryIns: ((draft.meta && draft.meta.lateCarryIns) || []).length, preDir: PRE_DIR, others }; // explain prints a text table, not JSON: read raw
 
   // the Step 2 hand reads, used only when no REST API URL resolves
   async function handSnapshot() {
@@ -488,10 +546,29 @@ async function r1() {
       blocked: blocked.items.map((b) => ({ itemId: b.id, role: b.role, blockType: b.blockType, blockedBy: (b.blockers || []).map((x) => ({ itemId: x.id, role: x.role, effectiveUnblockRole: x.threshold, satisfied: x.satisfied })) })),
       profile, git: { repoRoot, originMain: await git('rev-parse origin/main'), worktrees: {} },
     };
-    if (EXTRA.scopes) value.scopes = EXTRA.scopes;
+    // every open or paused run still on the root is another run (an own run returned {resume} above)
+    const otherRuns = [];
+    for (const run of runs) {
+      const m = await memberShorts(run.runId);
+      if (m.stop) return { stop: m.stop };
+      const h = run.hints || {};
+      otherRuns.push({ runId: run.runId, label: run.label || h.plan || String(run.runId).slice(0, 8), status: run.status, scopeId: run.scopeId || null, worktree: h.worktree || null, branch: h.branch || null, members: m.ids });
+    }
+    if (otherRuns.length) value.otherRuns = otherRuns;
+    if (EXTRA.scopes) {
+      // a key that is a member short of another run is that run's claim; every other key stays in scopes
+      value.scopes = {};
+      for (const [k, entry] of Object.entries(EXTRA.scopes)) {
+        const holder = candidates.some((c) => c.id === k) ? null : otherRuns.find((r) => r.members.includes(k.toLowerCase()));
+        if (holder) (holder.claims = holder.claims || {})[k.toLowerCase()] = (entry && entry.files) || [];
+        else value.scopes[k] = entry;
+      }
+    }
     if (EXTRA.carryIns) value.carryIns = EXTRA.carryIns;
     const needs = [];
     for (const b of value.blocked) if (candidates.some((c) => c.id.startsWith(b.itemId)) && b.blockedBy.some((x) => !x.satisfied && candidates.some((c) => c.id.startsWith(x.itemId)))) needs.push(b.itemId);
+    // with another run open, every candidate (full id) and every member (short) names its files
+    if (otherRuns.length) for (const id of [...candidates.map((c) => c.id), ...otherRuns.flatMap((r) => r.members)]) if (!needs.includes(id)) needs.push(id);
     if (needs.length && !EXTRA.scopes) return { needs: { scopes: needs, carryIns: 'list each candidate notes for carry-in-* keys' } };
     return { value };
   }
@@ -499,20 +576,20 @@ async function r1() {
 await r1()
 ```
 
-A `{resume}` return sends the model to the Resume matrix of `SKILL.md` with the `run8` and phase it names. A `{stopped}` return is the F2 or F3 stop of `SKILL.md` Step 0 (its repair text applies). After Checkpoint 1 (the `explain` table and the F8 check), use R2: it copies `plan-draft.json` and the snapshot into `<scratchpad>/run-wave/<runId>/` from the `runId` returned here. A non-zero `lateCarryIns` means write the disposition lines of Step 3 before R2.
+A `{resume}` return sends the model to the Resume matrix of `SKILL.md` with the `run8` and phase it names; one that lists more than one run (no target) stops and asks for `--resume <runId>`. A `{stopped}` return is the F2 or F3 stop of `SKILL.md` Step 0 (its repair text applies). After Checkpoint 1 (the `explain` table and the F8 check), use R2 with `PRE_DIR` set to the returned `preDir`: it copies `plan-draft.json` and the snapshot from there into `<scratchpad>/run-wave/<runId>/` for the `runId` returned here. A non-zero `lateCarryIns` means write the disposition lines of Step 3 before R2.
 
 ## R2: Steps 4, 5 and 5a: worktrees, open, parent check, pointer, pre-entered start, Method A assign
 
-Copies `plan-draft.json` (only when `plan.json` is absent) and the snapshot into `<scratchpad>/run-wave/<runId>/`, creates the `meta.worktreesToCreate` worktrees with `git -C <args.repoRoot>` (a path that is already a worktree is reused; a branch that exists is added without `-b`), sends `run-ops --phase open`, binds the server run id and writes the run token. It then runs the Step 5 parent check and writes the pointer line (target: `meta.scopeId`, else the single item; the key is `run-pointers` when the target's schema declares it, else `session-tracking`, skipped on a seat-less item whose stage owns that note; written under the run token when the target is a run member, token-less otherwise). Under `entryMode: pre-entered` it starts every queue-role item and stops (`{stopped: 'pre-entered', notEntered}`) before any assign when one did not enter. Method A then assigns every schema seat whose token file is absent in one atomic call; Method B skips the assign (R5 assigns per batch). The last step records phase `planned` (both methods; R4 and R5 record `launched`). A rerun on a bound plan whose `tokens/coordinator.token` exists skips open and bind and rewrites the pointer's `parent=` field in place. Returns counts, `parent`, `parentMissing` and the worktree counts only.
+Copies `plan-draft.json` (only when `plan.json` is absent) and the snapshot from `PRE_DIR` (the `preDir` R1 returned) into `<scratchpad>/run-wave/<runId>/`, creates the `meta.worktreesToCreate` worktrees with `git -C <args.repoRoot>` (a path that is already a worktree is reused; a branch that exists is added without `-b`), sends `run-ops --phase open`, binds the server run id and writes the run token. It then runs the Step 5 parent check and writes the pointer line (target: `meta.scopeId`, else the single item; the key is `run-pointers` when the target's schema declares it, else `session-tracking`, skipped on a seat-less item whose stage owns that note; written under the run token when the target is a run member, token-less otherwise). Under `entryMode: pre-entered` it starts every queue-role item and stops (`{stopped: 'pre-entered', notEntered}`) before any assign when one did not enter. Method A then assigns every schema seat whose token file is absent in one atomic call; Method B skips the assign (R5 assigns per batch). The last step records phase `planned` (both methods; R4 and R5 record `launched`). A rerun on a bound plan whose `tokens/coordinator.token` exists skips open and bind and rewrites the pointer's `parent=` field in place. Returns counts, `parent`, `parentMissing` and the worktree counts only.
 
 ```js
 async function r2() {
-  const SCRATCH = '<scratchpad>';
+  const PRE_DIR = '<preDir>'; // the preDir R1 returned: <scratchpad>/run-wave/pre-<key>
   const copy = async (from, to) => {
     if ((await file(from).exists()) && !(await file(to).exists())) await Write({ file_path: to, content: await file(from).text() });
   };
-  await copy(SCRATCH + '/run-wave/plan-draft.json', RUN_DIR + '/plan.json');
-  await copy(SCRATCH + '/run-wave/snapshot.json', RUN_DIR + '/snapshot.json');
+  await copy(PRE_DIR + '/plan-draft.json', RUN_DIR + '/plan.json');
+  await copy(PRE_DIR + '/snapshot.json', RUN_DIR + '/snapshot.json');
   let plan = await readJson(RUN_DIR + '/plan.json');
   await sh('mkdir -p ' + q(RUN_DIR + '/tokens'));
 

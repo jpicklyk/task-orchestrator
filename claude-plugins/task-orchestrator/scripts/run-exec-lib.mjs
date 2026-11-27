@@ -1964,6 +1964,12 @@ function runHints(doc, phase) {
     method: (doc.meta && doc.meta.method) || 'A',
     worktreeMode: doc.args.worktreeMode,
   }
+  // shared mode: the run's one feature worktree and branch, so a planner on another run refuses to reuse them
+  const first = (doc.args.items || [])[0]
+  if (doc.args.worktreeMode === 'shared' && first && typeof first.worktree === 'string' && typeof first.branch === 'string') {
+    hints.worktree = first.worktree
+    hints.branch = first.branch
+  }
   if (phase) hints.phase = phase
   return hints
 }
@@ -1974,7 +1980,7 @@ function runHints(doc, phase) {
  * token, except end_seat, which goes under each seat's own token).
  * opts.phase:
  *   open      runs_write open {rootId, items, scopeId?, label: runId, title, hints:{plan, method,
- *             worktreeMode}, budget?} (budget only from the profile's opt-in runBudget, meta.runBudget);
+ *             worktreeMode, worktree?, branch?}, budget?} (worktree and branch in shared mode only) (budget only from the profile's opt-in runBudget, meta.runBudget);
  *             also tokenFile: <scratchDir>/tokens/coordinator.token, where the orchestrator persists the
  *             run token so a restart or compaction can read it back (the file is redacted by value).
  *   assign    runs_write assign {runId, itemId, seat}; without opts.item every non-inserted stage of

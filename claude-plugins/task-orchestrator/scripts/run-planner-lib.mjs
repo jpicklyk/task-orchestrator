@@ -14,6 +14,7 @@ import { isOrchestratorServerKey } from '../hooks/registration.mjs';
 import { forClass } from './lib/dispatch-policy.mjs';
 import { SEAT_SKILLS_FEATURE, seatSkillsFor, loadSeatSkillDefaults } from '../hooks/lib/seat-skills.mjs';
 import { loadSeatRules, seatRoleOf, seatRulesFor, seatProtocolFor, seatDefaultsRoleFor } from '../hooks/lib/seat-rules.mjs';
+import { loadWaveCore } from './lib/wave-core.mjs';
 
 /** The server features the served path reads: per-seat writes and transitions, and the served note owner. */
 export const SEAT_WRITES_FEATURE = 'seatWrites';
@@ -351,6 +352,33 @@ export function validateSnapshot(snap) {
           errors.push(`carryIns ${id}: dispositions must be a string or null`);
         }
       }
+    }
+  }
+  if (snap.otherRuns !== undefined) {
+    if (!Array.isArray(snap.otherRuns)) {
+      errors.push('otherRuns must be an array');
+    } else {
+      const strOrNull = (v) => v === null || v === undefined || typeof v === 'string';
+      snap.otherRuns.forEach((r, i) => {
+        if (!r || typeof r !== 'object' || Array.isArray(r)) {
+          errors.push(`otherRuns[${i}] must be an object`);
+          return;
+        }
+        if (!isNonEmptyString(r.runId)) errors.push(`otherRuns[${i}].runId must be a non-empty string`);
+        if (!strOrNull(r.label) || !strOrNull(r.scopeId) || !strOrNull(r.worktree) || !strOrNull(r.branch)) {
+          errors.push(`otherRuns[${i}]: label, scopeId, worktree and branch must be strings or null`);
+        }
+        if (!Array.isArray(r.members) || r.members.some((m) => typeof m !== 'string' || m === '')) {
+          errors.push(`otherRuns[${i}].members must be an array of ids`);
+        }
+        if (r.claims !== undefined) {
+          const c = r.claims;
+          if (!c || typeof c !== 'object' || Array.isArray(c)
+            || Object.values(c).some((f) => !Array.isArray(f) || f.some((x) => typeof x !== 'string'))) {
+            errors.push(`otherRuns[${i}].claims must map member ids to arrays of strings`);
+          }
+        }
+      });
     }
   }
   // E1 (blocker B1): git.repoRoot and profile are load-bearing for assembleArgs (worktree paths,
@@ -1405,6 +1433,90 @@ function shortFromId(id) {
   return String(id || '').replace(/-/g, '').slice(0, 8);
 }
 
+const otherRunLabel = (run) => (isNonEmptyString(run.label) ? run.label : shortFromId(run.runId));
+
+/**
+ * crossRunDeferrals(snap, loadCore = loadWaveCore) -> {snap, deferred:[{id, reason}]}
+ * Another open or paused run (snap.otherRuns) already holds its members and their files, so a candidate
+ * yields to it: a candidate that is a member defers `member of run <label>`; a remaining candidate (priority
+ * order) whose scopes files overlap a member's claims, by the in-run per-item overlap rule (overlapDeferral,
+ * appendOnlyFiles exempt), defers `overlap <memberShort> on <files> (run <label>)`. The returned snap leaves out
+ * each deferred candidate and its own blocked[] entries, so a dependent defers cross-run by classifyEdge.
+ * No otherRuns: the snap as given and no deferrals (the core is never loaded).
+ */
+export function crossRunDeferrals(snap, loadCore = loadWaveCore) {
+  const runs = Array.isArray(snap && snap.otherRuns) ? snap.otherRuns : [];
+  if (runs.length === 0) return { snap, deferred: [] };
+  const ordered = [...(snap.candidates || [])].sort(comparePriorityComplexityId);
+  const removed = new Set();
+  const deferred = [];
+  for (const c of ordered) {
+    if (removed.has(c.id)) continue;
+    const holder = runs.find((r) => (r.members || []).some((m) => sameRef(m, c.id)));
+    if (holder) {
+      removed.add(c.id);
+      deferred.push({ id: c.id, reason: `member of run ${otherRunLabel(holder)}` });
+    }
+  }
+  const repoRoot = (snap.git && snap.git.repoRoot) || '';
+  const patterns = Array.isArray(snap.profile && snap.profile.appendOnlyFiles) ? snap.profile.appendOnlyFiles.map(canonAppendOnly) : [];
+  let core = null;
+  for (const c of ordered) {
+    if (removed.has(c.id)) continue;
+    const scope = snap.scopes && snap.scopes[c.id];
+    if (!scope || !Array.isArray(scope.files) || scope.files.length === 0) continue;
+    const mine = { short: c.short || shortFromId(c.id), output: { mainFiles: scope.files }, roots: [repoRoot].filter(Boolean) };
+    for (const run of runs) {
+      const claims = run.claims && typeof run.claims === 'object' ? run.claims : {};
+      const higher = Object.entries(claims)
+        .filter(([, files]) => Array.isArray(files) && files.length > 0)
+        .map(([short, files]) => ({ short, output: { mainFiles: files }, roots: [run.worktree, repoRoot].filter(Boolean) }));
+      if (higher.length === 0) continue;
+      core = core || loadCore();
+      // per-item always: two runs never share a worktree, so no lock spans them
+      const overlap = core.overlapDeferral(mine, higher, 'per-item', patterns);
+      if (overlap) {
+        removed.add(c.id);
+        deferred.push({ id: c.id, reason: `${overlap.reason} (run ${otherRunLabel(run)})` });
+        break;
+      }
+    }
+  }
+  if (removed.size === 0) return { snap, deferred };
+  return {
+    snap: {
+      ...snap,
+      candidates: (snap.candidates || []).filter((c) => !removed.has(c.id)),
+      blocked: (snap.blocked || []).filter((b) => !removed.has(b.itemId))
+    },
+    deferred
+  };
+}
+
+const worktreeKey = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+/**
+ * worktreeConflicts(items, otherRuns) -> string[]: one refusal per planned worktree path (normalized,
+ * case-insensitive) or branch (case-insensitive) that another open run records in its hints.
+ */
+export function worktreeConflicts(items, otherRuns) {
+  const errors = [];
+  const seen = new Set();
+  for (const it of items || []) {
+    for (const run of otherRuns || []) {
+      const samePath = typeof it.worktree === 'string' && typeof run.worktree === 'string' && worktreeKey(it.worktree) === worktreeKey(run.worktree);
+      const sameBranch = typeof it.branch === 'string' && typeof run.branch === 'string' && it.branch.toLowerCase() === run.branch.toLowerCase();
+      if (!samePath && !sameBranch) continue;
+      const msg = `plan: worktree ${it.worktree} (branch ${it.branch}) is in use by open run ${otherRunLabel(run)}; pass --worktree and --branch with a distinct pair, or --mode per-item`;
+      if (!seen.has(msg)) {
+        seen.add(msg);
+        errors.push(msg);
+      }
+    }
+  }
+  return errors;
+}
+
 // Canonical form of a scope file for exact-equality comparison; '' means "not a plain file path".
 function canonicalScopeFile(p, repoRoot) {
   if (typeof p !== 'string') return '';
@@ -1656,9 +1768,9 @@ function buildWorktreesToCreate(snap, args, mode) {
  * opts = {now, maxItems=5, mode='auto', entry='auto', method?, scratchpad, altitudeSafe?}
  * opts.altitudeSafe === true sets args.altitudeSafe true (implement-wave then returns the scrubbed
  * altitude-safe result); otherwise args carries no altitudeSafe key.
- * Runs the whole pipeline: validateSnapshot -> chooseMode/chooseEntry -> deriveStages ->
- * frontier -> resourceDeferrals -> orderItems -> applyCap -> lockSourceDeferrals ->
- * assembleArgs -> size check.
+ * Runs the whole pipeline: validateSnapshot -> crossRunDeferrals -> chooseMode/chooseEntry ->
+ * deriveStages -> frontier -> resourceDeferrals -> orderItems -> applyCap -> lockSourceDeferrals ->
+ * assembleArgs -> worktreeConflicts -> size check.
  */
 export function buildPlanDoc(snap, opts = {}) {
   const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch, altitudeSafe } = opts;
@@ -1669,6 +1781,9 @@ export function buildPlanDoc(snap, opts = {}) {
   }
 
   snap = resolveSnapshotRefs(snap);
+  // Cross-run: a candidate another open run holds, or whose files a member of one claims, leaves the pipeline.
+  const crossRun = crossRunDeferrals(snap);
+  snap = crossRun.snap;
   const probe = snap.probe || {};
   const profile = snap.profile || {};
   const candidatesById = new Map((snap.candidates || []).map((c) => [c.id, c]));
@@ -1767,6 +1882,7 @@ export function buildPlanDoc(snap, opts = {}) {
   const finalIds = capResult.kept.filter((id) => lockKeptSet.has(id));
 
   const allDeferred = [
+    ...crossRun.deferred,
     ...fr.deferred,
     ...resourceResult.deferred,
     ...capResult.dropped,
@@ -1838,6 +1954,8 @@ export function buildPlanDoc(snap, opts = {}) {
     branch
   });
   if (altitudeSafe === true) args.altitudeSafe = true;
+  const inUse = worktreeConflicts(args.items, snap.otherRuns);
+  if (inUse.length) return { ok: false, refused: true, errors: inUse };
 
   const warnings = [];
   for (const id of finalIds) {
