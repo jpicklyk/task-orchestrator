@@ -130,8 +130,7 @@ Print the exact command to run. The user copies and pastes it.
     --iteration-timeout 2700
 
   -> Opens one run on the project root; closes it when the loop ends
-  -> Per iteration: one seat (the work seat the item's schema declares for
-     entering the phase, else implementer), claimed under its seat token, then
+  -> Per iteration: one seat, claimed under its seat token, then
      one `claude -p --worktree=ralph-...` with the token path in its env
   -> Each iteration is fresh context, isolated worktree
   -> Logs print live as iterations run (token values masked)
@@ -210,7 +209,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `invalid_transition` | permanent | driver | `skip` | The item cannot be claimed or moved from its role (for example already terminal). Skip-listed for the rest of the loop. | skip |
 | `duplicate` | permanent | driver | `skip` | update addItems found the item in another open run. Skip-listed for the rest of the loop. | skip |
 | `gate_blocked` | permanent | iteration | `gate-blocked` | advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code. | gate |
-| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it. | gate |
+| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let this seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it. | gate |
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the run token the loop exits 2. | error |
@@ -290,7 +289,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --max 10
 ```
 
-User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it the seat its schema declares for entering the work phase (the implementer seat when it declares none or the schema cannot be read), claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver sends the `complete` transition and ends the seat.
+User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it its work seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver sends the `complete` transition and ends the seat.
 
 5 iterations later: 3 terminal, 1 gate-blocked (a required note couldn't be filled), 1 errored (test failure unrelated to the fix). Loop exits when consecutive gate failures hit the budget (3) or nothing is ready - whichever comes first - and closes the run.
 
@@ -401,7 +400,7 @@ Solution: have that seat or a human fill the note, or drain only items whose sch
 
 **Problem: iterations end `gate-blocked` with code `seat_forbidden`**
 
-Cause: the item's schema declares seats, and its transitions past work belong to a seat other than the one ralph assigned (the schema's entering work seat, `implementer` by default; for example a reviewer seat). The iteration cannot make that move under its assigned seat.
+Cause: the item's schema declares seats, and its transitions past work belong to a seat other than the one ralph assigned (for example a reviewer seat). The iteration cannot make that move under its assigned seat.
 
 Solution: drain items whose schema lets one seat carry them to terminal, or finish those items with `/status-progression` or a run-wave.
 

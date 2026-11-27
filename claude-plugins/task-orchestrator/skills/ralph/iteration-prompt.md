@@ -100,7 +100,7 @@ Rows marked `by: driver` are observed by the loop driver, not by you; they are l
 | `invalid_transition` | permanent | driver | `skip` | The item cannot be claimed or moved from its role (for example already terminal). Skip-listed for the rest of the loop. | skip |
 | `duplicate` | permanent | driver | `skip` | update addItems found the item in another open run. Skip-listed for the rest of the loop. | skip |
 | `gate_blocked` | permanent | iteration | `gate-blocked` | advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code. | gate |
-| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it. | gate |
+| `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let this seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it. | gate |
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the run token the loop exits 2. | error |

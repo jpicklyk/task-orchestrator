@@ -2,8 +2,8 @@
 // ralph-loop.mjs - Ralph-style queue drain for MCP Task Orchestrator 4.0.
 //
 // One server run per loop. Each iteration: select the oldest ready queue item with
-// `items_read next` (minus a per-loop skip list), add it to the run, assign it an `implementer`
-// seat, claim it under that seat token, hand the token to a fresh `claude -p` process (in its own
+// `items_read next` (minus a per-loop skip list), add it to the run, assign it its entering
+// work seat (`implementer` when the schema declares none), claim it under that seat token, hand the token to a fresh `claude -p` process (in its own
 // git worktree) through a 0o600 file, wait for the iteration's `RALPH_OUTCOME:` marker, and
 // end the seat. Every exit path ends any active seat first, then closes the run.
 //
@@ -1127,7 +1127,7 @@ function printHelp() {
     console.log(`Usage: node ralph-loop.mjs [options]
 
 Drain the TO queue Ralph-loop style over the 4.0 REST API. The loop opens one
-run, and per iteration assigns an implementer seat, claims the item under that
+run, and per iteration assigns the item's entering work seat, claims the item under that
 seat, and spawns a fresh 'claude -p' in its own git worktree to work it per the
 item's schema. Needs TASK_ORCHESTRATOR_API_URL (or apiUrl in client.json).
 

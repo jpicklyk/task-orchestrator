@@ -1472,6 +1472,7 @@ function promptCommitForm(item, stage) {
   if (!stage.writes) return ''
   // served path: stage.protocol is set and the key is the capabilities' writer-chosen rule; old path: the role row
   const served = typeof stage.protocol === 'string' && SEAT_RULES.capabilities
+  // old path (the row branch): remove one release after seatWrites/orchestratorNotes
   const row = served ? null : SEAT_RULES.roles[seatRoleOf(stage)]
   const ruleKey = served
     ? (SEAT_RULES.capabilities.writerChosen[0] || null)

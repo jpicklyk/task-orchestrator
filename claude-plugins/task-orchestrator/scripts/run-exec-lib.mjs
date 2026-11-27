@@ -1771,8 +1771,8 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
 
 /**
  * reviewPrompt(core, doc, idOrShort, result?) -> text joined by '\n\n'.
- * On a bound run (args.serverRunId) it names the reviewer lane's token file
- * (<scratchDir>/tokens/<short>.reviewer.token) and the END SEAT call; the token itself never appears.
+ * On a bound run (args.serverRunId) it names the review lane seat's token file
+ * (<scratchDir>/tokens/<short>.<lane seat>.token) and the END SEAT call; the token itself never appears.
  * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles+
  * existingTestEdits, relativized against the worktree and args.repoRoot, as quoted ':(literal)'/
  * ':(glob)' pathspecs when a result is given, deduped after relativizePath canonicalization (so
@@ -1790,7 +1790,9 @@ export function reviewPrompt(core, doc, idOrShort, result) {
   const item = findItem(plan, idOrShort)
   const parts = []
 
-  parts.push(`SEAT: reviewer for item ${item.id} (${item.short}) "${item.title || item.short}". Run ${plan.runId}.`)
+  // The lane seat comes from the declared seats (planner reviewSeats); 'reviewer' when the plan carries none.
+  const laneSeat = (item.reviewSeats || ['reviewer'])[0]
+  parts.push(`SEAT: ${laneSeat} for item ${item.id} (${item.short}) "${item.title || item.short}". Run ${plan.runId}.`)
 
   if (result) {
     const resItem = (result.items || []).find((r) => r.id === item.id)
@@ -1853,8 +1855,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     parts.push(`SEAT SKILLS: invoke each skill below with the Skill tool, in this order, before your seat's first file edit or note write: ${seatSkillUnion.join(', ')}.`)
   }
 
-  // The lane seat comes from the declared seats (planner reviewSeats); 'reviewer' when the plan carries none.
-  const tokenFile = core.seatTokenFile(plan, item, { seat: (item.reviewSeats || ['reviewer'])[0] })
+  const tokenFile = core.seatTokenFile(plan, item, { seat: laneSeat })
   if (tokenFile) {
     parts.push(
       `SEAT TOKEN: run ${plan.serverRunId}. Your seat token is the single line in the file ${tokenFile}. Read it with your file tool, ` +
@@ -2295,6 +2296,7 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     // Orchestrator-owned review notes (seat orchestrator, or listed in the planned item's
     // orchestratorNotes) are written by the orchestrator: they belong to no lane and to neither list.
     const orchestratorOwned = new Set(item.orchestratorNotes || [])
+    // old path (the n.seat branch): remove one release after seatWrites/orchestratorNotes
     const reviewNotes = (schema.notes || []).filter(
       (n) => n && n.role === 'review' && (ownerServed ? n.owningSeat : n.seat) !== 'orchestrator' && !orchestratorOwned.has(n.key)
     )

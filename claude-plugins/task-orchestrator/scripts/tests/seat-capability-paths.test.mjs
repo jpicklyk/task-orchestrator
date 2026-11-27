@@ -421,12 +421,20 @@ test('AC8: a schema whose only review seat is auditor and whose review note is u
   assert.equal(laneSeatOf(entry.notes[2], { seats: [{ name: 'a', phase: 'review' }, { name: 'b', phase: 'review' }] }, true), 'reviewer', 'two review seats: not guessed')
   const result = derive(entry)
   assert.deepEqual(result.reviewSeats, ['auditor'])
-  assert.deepEqual(Object.keys(result.reviewRules || {}).filter((k) => k !== 'auditor'), [])
+  assert.deepEqual(result.degradations.filter((d) => d.includes('auditor')), ['seat auditor of feature-task has no defaults row: no rule or skill defaults (declare rules: and skills:)'])
+  assert.equal(result.reviewRules, null, 'an undeclared auditor has no rule defaults')
+  // the same lane declaring rules and skills gets its rules under the auditor seat and no advisory
+  const declared = dogfood({ ...entry, seats: entry.seats.map((s) => (s.name === 'auditor' ? { ...s, rules: ['review-scoping'], skills: [] } : s)) })
+  const declaredResult = derive(declared)
+  assert.deepEqual(Object.keys(declaredResult.reviewRules), ['auditor'])
+  assert.ok(declaredResult.reviewRules.auditor.includes('review-scoping'), String(declaredResult.reviewRules.auditor))
+  assert.deepEqual(declaredResult.degradations.filter((d) => d.includes('auditor')), [])
   // the review prompt reads the lane's token file
   const item = itemFixture({ short: 'aaaaaaaa', stages: [planner, { ...implAfter, enters: true }], reviewSeats: ['auditor'] })
   const plan = planFixture({ items: [item], serverRunId: SERVER_RUN_ID, project: { scratchDir: '/scratch/run' } })
   const doc = { contract: 'run-wave/plan-doc-v1', args: plan, meta: {} }
   assert.ok(execLib.reviewPrompt(loadWaveCore(), doc, 'aaaaaaaa').includes('/scratch/run/tokens/aaaaaaaa.auditor.token'))
+  assert.match(execLib.reviewPrompt(loadWaveCore(), doc, 'aaaaaaaa'), /^SEAT: auditor for item /)
   const plain = itemFixture({ short: 'aaaaaaaa', stages: [planner, { ...implAfter, enters: true }] })
   const plainDoc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [plain], serverRunId: SERVER_RUN_ID, project: { scratchDir: '/scratch/run' } }), meta: {} }
   assert.ok(execLib.reviewPrompt(loadWaveCore(), plainDoc, 'aaaaaaaa').includes('/scratch/run/tokens/aaaaaaaa.reviewer.token'), 'dogfood fixtures keep reviewer')
