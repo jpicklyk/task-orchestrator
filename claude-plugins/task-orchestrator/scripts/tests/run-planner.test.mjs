@@ -2252,3 +2252,52 @@ test("F1 (plan level): a snapshot note with maxLength gives its stage noteLimits
     const unlimited = planOf(bugFixLikeSchema());
     assert.equal(unlimited.some((s) => "noteLimits" in s), false, "no maxLength in the snapshot, no noteLimits on any stage");
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rank (decision 0013): the order is next's default order: priority, rank asc (unranked last),
+// complexity asc (null last), createdAt asc by parsed instant (absent last), id asc.
+// [0013 Decision; the server's claim order]
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("T1: orderItems ranks before complexity at equal priority, ranked before unranked", () => {
+    const byId = {
+        a: { id: "a", priority: "high", complexity: 1, rank: 20 },
+        b: { id: "b", priority: "high", complexity: 5, rank: 10 },
+        c: { id: "c", priority: "high", complexity: 1 },
+    };
+    assert.deepEqual(orderItems(["a", "b", "c"], byId, {}), ["b", "a", "c"]);
+});
+
+test("T2: orderItems compares createdAt as an instant, not as a string", () => {
+    const byId = {
+        z1: { id: "z1", priority: "high", complexity: 2, createdAt: "2026-11-27T20:12:40Z" },
+        a1: { id: "a1", priority: "high", complexity: 2, createdAt: "2026-11-27T20:12:40.491Z" },
+    };
+    assert.deepEqual(orderItems(["a1", "z1"], byId, {}), ["z1", "a1"]);
+});
+
+test("T3: orderItems puts an absent createdAt last and lets priority beat rank", () => {
+    const withDate = { z2: { id: "z2", priority: "high", createdAt: "2026-11-27T20:12:40Z" }, a2: { id: "a2", priority: "high" } };
+    assert.deepEqual(orderItems(["a2", "z2"], withDate, {}), ["z2", "a2"]);
+    const mixed = { m: { id: "m", priority: "medium", rank: 1 }, h: { id: "h", priority: "high" } };
+    assert.deepEqual(orderItems(["m", "h"], mixed, {}), ["h", "m"]);
+});
+
+test("T4: orderItems keeps a ranked-later blocker ahead of its dependent (topological first)", () => {
+    const byId = {
+        blocker: { id: "blocker", priority: "high", rank: 30 },
+        dependent: { id: "dependent", priority: "high", rank: 10 },
+    };
+    const waitsFor = { dependent: [{ item: "blocker", milestone: "implementer" }] };
+    assert.deepEqual(orderItems(["dependent", "blocker"], byId, waitsFor), ["blocker", "dependent"]);
+});
+
+test("T5: buildPlanDoc keeps the rank-10 item under a size cap of 1, not the lower-complexity one", () => {
+    const snap = clone(loadFixture("independent-two.json"));
+    // A has complexity 3, B has complexity 1: without rank B is kept.
+    snap.candidates.find((c) => c.short === "aaaaaaaa").rank = 10;
+    snap.candidates.find((c) => c.short === "bbbbbbbb").rank = 20;
+    const result = buildPlanDoc(snap, { now: NOW, maxItems: 1 });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.args.items.map((it) => it.short), ["aaaaaaaa"]);
+});

@@ -12,7 +12,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table); the `snapshot` 
 
 ```
 {contract, rootId, ancestorId|null, capturedAt, features[], rulesServed:[{key, rulesVersion}],
- candidates:[{id, short, title, priority, complexity?, type, role, parentId, traits[], hasChildren, source:"ready"|"work"}],
+ candidates:[{id, short, title, priority, complexity?, rank?, createdAt?, type, role, parentId, traits[], hasChildren, source:"ready"|"work"}],
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
           notes:[{key, role, required, seat?, skill?, skills?, skillMode?, lane?, maxLength?}], seats?, dispatch?, dispatchBySeat?, resources?}},
@@ -212,7 +212,7 @@ of `TASK_ORCHESTRATOR_API_TOKEN` (no token for an unauthenticated server), one r
 
 **Field sources.**
 
-- `candidates`: with `--ancestor`, the ancestor is read by `get` (its full id is `ancestorId`), then `next`, `list` with `role:"work"` and a fixpoint over `blocked`: a dependency entry that is not terminal and whose every unsatisfied blocker is a candidate joins, with `source:"ready"`. An ancestor with children is never a candidate; a leaf ancestor is its own single candidate. With `--items`, each id is read by `get` and `ancestorId` is `null`: a queue item is ready, a work item is work, any other role goes to the stdout `skipped` list as `{id, role}`. Each candidate takes one `get` (its full id, `complexity` only when a number, `traits` `[]` when absent) and one child probe for `hasChildren`. `source` is `work` for the `work` role, else `ready`.
+- `candidates`: with `--ancestor`, the ancestor is read by `get` (its full id is `ancestorId`), then `next`, `list` with `role:"work"` and a fixpoint over `blocked`: a dependency entry that is not terminal and whose every unsatisfied blocker is a candidate joins, with `source:"ready"`. An ancestor with children is never a candidate; a leaf ancestor is its own single candidate. With `--items`, each id is read by `get` and `ancestorId` is `null`: a queue item is ready, a work item is work, any other role goes to the stdout `skipped` list as `{id, role}`. Each candidate takes one `get` (its full id, `complexity` and `rank` only when a number, `createdAt` from `fields: ["createdAt"]`, `traits` `[]` when absent) and one child probe for `hasChildren`. `source` is `work` for the `work` role, else `ready`.
 - `blocked`: as the field list says, with `reason`, `decisionId` and `resumable` when present. With `--items` the read is scoped to `rootId` and only the given ids' entries are kept.
 - `schemas`: the `schema` answer, without `description` or `guidance`. A `schemaFree` answer and a `not_found` error give `not-found`, any other failure `unavailable` (the one read that is not fatal).
 - `features`: the first schema answer that carries them, else the well-known document, else exit 3. `rulesServed` is the `config` `rules` list for `rootId`.

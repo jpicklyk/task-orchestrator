@@ -2,7 +2,7 @@
 
 **Status:** Accepted | **Date:** 2026-11-24, amended 2026-11-26 | **Source:** [architecture-breakdown.md](../architecture-breakdown.md) P8; Entry Skills Design server change table; [user-journey-map.html](../user-journey-map.html) gap "No backlog rank" and stage 7.4. Amendment: Boundary analysis 2026-11-26, pass 10 decisions (plans/boundaries/README.md, not tracked), decision G11, and pass 11 (plans/boundaries/11-next-ordering.md, not tracked), owner decision options A and E.
 
-**Amended 2026-11-26:** "Reopen when" is reworded to a trigger anyone can observe. Why: "a need appears" and "the owner reopens" gave no one a sign to look for. Also amended 2026-11-26 (pass 11, owner decision): the record is reversed and retitled, from "No sibling rank until a need appears" to building a sibling rank, and its file is renamed from `0013-no-sibling-rank-yet.md`. Why: the trigger is visible in shipped plugin text. The dependency-manager skill maps "A sequence A then B then C" to a `linear` chain of `blocks` edges, and it calls `unblockAt: queue` "ordering only" (`claude-plugins/task-orchestrator/skills/dependency-manager/SKILL.md:80,185`), so a stated order already ends up as edges that carry no real dependency.
+**Amended 2026-11-26:** "Reopen when" is reworded to a trigger anyone can observe. Why: "a need appears" and "the owner reopens" gave no one a sign to look for. Also amended 2026-11-26 (pass 11, owner decision): the record is reversed and retitled, from "No sibling rank until a need appears" to building a sibling rank, and its file is renamed from `0013-no-sibling-rank-yet.md`. Why: the trigger is visible in shipped plugin text. The dependency-manager skill mapped "A sequence A then B then C" to a `linear` chain of `blocks` edges, and it called `unblockAt: queue` "ordering only", so a stated order already ends up as edges that carry no real dependency.
 
 ## Decision
 
@@ -25,7 +25,7 @@ The variation is the per-item value, which is data, not config: the orchestrator
 
 ## Consequences
 
-- Package P8 in [architecture-breakdown.md](../architecture-breakdown.md) carries it: on the server a migration adding a nullable `work_items.rank`, `WorkItem.rank`, a `rank` field on create, update and `create_tree` items with its `@Doc`, the sort key in `next`, and regenerated goldens and API reference; in the plugin post-plan writes rank from the plan, dependency-manager stops turning a stated sequence into a `blocks` chain and stops calling `unblockAt: queue` "ordering only", and run-wave's frontier comparator and snapshot carry rank.
+- Package P8 in [architecture-breakdown.md](../architecture-breakdown.md) carries it: on the server a migration adding a nullable `work_items.rank`, `WorkItem.rank`, a `rank` field on create, update and `create_tree` children with its `@Doc`, the sort key in `next`, and regenerated goldens and API reference; in the plugin post-plan writes rank from the plan, dependency-manager stops turning a stated sequence into a `blocks` chain and stops calling `unblockAt: queue` "ordering only", and run-wave's frontier comparator and snapshot carry rank.
 - `claim` by selector shares the eligibility query, so it inherits the same order.
 - Run-wave admits the same items as before; the comparator with rank orders its size cap and dispatch so it matches `next`. Items in one wave still run in parallel: rank is a preference, and strict one-after-another is a real dependency.
 - Ralph drains with `orderBy: "oldest"`, so it ignores rank by its own documented choice.

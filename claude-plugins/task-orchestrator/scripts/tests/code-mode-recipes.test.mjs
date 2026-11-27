@@ -1586,3 +1586,25 @@ test('A1 (B2): method-b.md has a loop step that records launched with run-ops up
   assert.ok(/^0\. \*\*Record `launched`/m.test(mb), 'the Method B loop has no launched step');
   assert.ok(mb.includes('--phase update --run-phase launched'));
 });
+
+test('T7: R1 writes complexity, rank and createdAt on a candidate and asks its get for createdAt', async () => {
+  const { scratch, repo, tools, ids } = r1Fixture();
+  const inner = tools[ikey('items_read')];
+  const gets = [];
+  tools[ikey('items_read')] = async (a) => {
+    if (a.select === 'get' && a.itemId === ids.C) {
+      gets.push(a);
+      const r = await inner(a);
+      return env({ ...JSON.parse(r).data, complexity: 3, rank: 10, createdAt: '2026-11-27T20:12:40.491Z' });
+    }
+    return inner(a);
+  };
+  const out = await run(1, { scratch, cwd: repo, tools, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'A-SHORT';" } });
+  assert.ok(out && out.explain, JSON.stringify(out));
+  const snap = JSON.parse(readFileSync(scratch + '/run-wave/snapshot.json', 'utf8'));
+  const c = snap.candidates.find((x) => x.id === ids.C);
+  assert.equal(c.complexity, 3);
+  assert.equal(c.rank, 10);
+  assert.equal(c.createdAt, '2026-11-27T20:12:40.491Z');
+  assert.ok(gets.length >= 1 && gets.every((g) => Array.isArray(g.fields) && g.fields.includes('createdAt')), JSON.stringify(gets));
+});

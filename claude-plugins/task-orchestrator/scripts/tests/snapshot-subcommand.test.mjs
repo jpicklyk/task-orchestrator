@@ -689,3 +689,22 @@ test('S10 (CLI): --out under a missing nested directory creates it, exits 0 and 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('T6: a candidate carries rank and createdAt when its get answer has them, and every candidate get asks for createdAt', async () => {
+  const stamp = '2026-11-27T20:12:40.491Z';
+  for (const mode of ['ancestor', 'items']) {
+    const w = parentWorld();
+    w.items[A] = item(A, { parentId: P, rank: 10, createdAt: stamp });
+    const r = await run(w, mode === 'ancestor' ? { ancestor: short(P) } : { items: [short(A), short(B)] });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const a = r.snapshot.candidates.find((c) => c.id === A);
+    const b = r.snapshot.candidates.find((c) => c.id === B);
+    assert.equal(a.rank, 10, mode);
+    assert.equal(a.createdAt, stamp, mode);
+    assert.equal('rank' in b, false, mode);
+    assert.equal('createdAt' in b, false, mode);
+    const gets = w.calls.filter((c) => c.tool === 'items_read' && c.body.select === 'get' && [A, B].some((id) => id.startsWith(c.body.itemId) || c.body.itemId === id));
+    assert.ok(gets.length >= 2, mode);
+    for (const g of gets) assert.ok(Array.isArray(g.body.fields) && g.body.fields.includes('createdAt'), `${mode}: ${JSON.stringify(g.body)}`);
+  }
+});

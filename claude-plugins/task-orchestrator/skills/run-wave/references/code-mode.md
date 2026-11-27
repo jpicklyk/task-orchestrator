@@ -451,14 +451,14 @@ async function r1() {
     if (!ruleRows.ok) return { stop: await stop(ruleRows) };
     const rulesServed = ruleRows.data.results[0].rules.map((r) => ({ key: r.key, rulesVersion: r.rulesVersion }));
     for (const [id, source] of seen) {
-      const g = await call('items_read', { select: 'get', itemId: id });
+      const g = await call('items_read', { select: 'get', itemId: id, fields: ['createdAt'] });
       if (!g.ok) return { stop: await stop(g) };
       const it = g.data;
       const kids = await call('items_read', { select: 'list', parentId: it.id, limit: 1 });
       if (!kids.ok) return { stop: await stop(kids) };
       const hasChildren = (kids.data.items || []).length > 0;
       if (ancestorFull !== null && it.id === ancestorFull && hasChildren) continue; // the scope's own container is no candidate; a leaf ancestor is a single-item scope
-      candidates.push({ id: it.id, short: it.id.slice(0, 8), title: it.title, priority: it.priority, type: it.type, role: it.role, parentId: it.parentId, traits: it.traits || [], hasChildren, source });
+      candidates.push({ id: it.id, short: it.id.slice(0, 8), title: it.title, priority: it.priority, complexity: it.complexity, rank: it.rank, createdAt: it.createdAt, type: it.type, role: it.role, parentId: it.parentId, traits: it.traits || [], hasChildren, source });
       if (it.parentId) parentIds.add(it.parentId);
       const s = await call('items_read', { select: 'schema', itemId: it.id });
       if (s.ok && features === null) features = s.data.features || [];

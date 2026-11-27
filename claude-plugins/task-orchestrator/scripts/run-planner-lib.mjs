@@ -1142,12 +1142,21 @@ function priorityRank(p) {
   return p === 'high' ? 0 : p === 'medium' ? 1 : p === 'low' ? 2 : 3;
 }
 
-function comparePriorityComplexityId(a, b) {
+function compareNextOrder(a, b) {
   const pr = priorityRank(a && a.priority) - priorityRank(b && b.priority);
   if (pr !== 0) return pr;
+  const ra = (a && Number.isFinite(a.rank)) ? a.rank : Infinity;
+  const rb = (b && Number.isFinite(b.rank)) ? b.rank : Infinity;
+  if (ra !== rb) return ra - rb;
   const ca = (a && a.complexity != null) ? a.complexity : Infinity;
   const cb = (b && b.complexity != null) ? b.complexity : Infinity;
   if (ca !== cb) return ca - cb;
+  // createdAt is Instant.toString(), whose fraction digits vary: parse it, never compare strings.
+  const ta = Date.parse(a && a.createdAt);
+  const tb = Date.parse(b && b.createdAt);
+  const xa = Number.isNaN(ta) ? Infinity : ta;
+  const xb = Number.isNaN(tb) ? Infinity : tb;
+  if (xa !== xb) return xa - xb;
   return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
 }
 
@@ -1287,7 +1296,7 @@ export function frontier(snap, derivedById, { mode, entryMode } = {}) {
 
 /**
  * orderItems(ids, byId, waitsFor) -> string[]
- * Topological (blockers first), then priority desc, complexity asc (null last), id asc.
+ * Topological (blockers first), then next's default order: priority, rank (unranked last), complexity (null last), createdAt, id.
  */
 export function orderItems(ids, byId, waitsFor) {
   const idSet = new Set(ids);
@@ -1305,7 +1314,7 @@ export function orderItems(ids, byId, waitsFor) {
       }
     }
   }
-  const cmp = (a, b) => comparePriorityComplexityId(byId[a], byId[b]);
+  const cmp = (a, b) => compareNextOrder(byId[a], byId[b]);
   const remaining = new Map(inDegree);
   let readyQueue = ids.filter((id) => remaining.get(id) === 0);
   const result = [];
@@ -1735,7 +1744,7 @@ export function buildPlanDoc(snap, opts = {}) {
 
   const fr = frontier(snap, derivedById, { mode, entryMode });
 
-  const priorityOrdered = [...fr.admitted].sort((a, b) => comparePriorityComplexityId(candidatesById.get(a), candidatesById.get(b)));
+  const priorityOrdered = [...fr.admitted].sort((a, b) => compareNextOrder(candidatesById.get(a), candidatesById.get(b)));
 
   const schemasForResources = {};
   for (const id of priorityOrdered) schemasForResources[id] = (snap.schemas || {})[id] || {};

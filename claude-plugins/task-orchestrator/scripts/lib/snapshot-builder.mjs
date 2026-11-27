@@ -307,7 +307,7 @@ async function build(input, io) {
   } else {
     seeds = [];
     for (const raw of input.items) {
-      const it = (await read(io, 'items_read', { select: 'get', itemId: raw })).data;
+      const it = (await read(io, 'items_read', { select: 'get', itemId: raw, fields: ['createdAt'] })).data;
       if (!isPlain(it) || typeof it.id !== 'string') throw stop(3, 'refused', { read: 'items_read get', code: 'bad_answer' });
       if (!sameRoot(it)) throw stop(2, 'invalid args', `item ${raw} belongs to another root`);
       given.push(it.id);
@@ -327,7 +327,7 @@ async function build(input, io) {
   let features = null;
   const seen = new Set();
   for (const seed of seeds) {
-    const it = seed.it || (await read(io, 'items_read', { select: 'get', itemId: seed.id })).data;
+    const it = seed.it || (await read(io, 'items_read', { select: 'get', itemId: seed.id, fields: ['createdAt'] })).data;
     if (!isPlain(it) || typeof it.id !== 'string' || seen.has(it.id)) continue;
     seen.add(it.id);
     const kids = await hasChildren(io, it.id);
@@ -338,6 +338,8 @@ async function build(input, io) {
       priority: it.priority
     };
     if (typeof it.complexity === 'number') cand.complexity = it.complexity;
+    if (typeof it.rank === 'number') cand.rank = it.rank;
+    if (typeof it.createdAt === 'string' && it.createdAt) cand.createdAt = it.createdAt;
     Object.assign(cand, {
       type: it.type,
       role: it.role,
