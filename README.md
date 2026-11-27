@@ -185,7 +185,7 @@ Illustrated: [Runs and Decisions](https://jpicklyk.github.io/task-orchestrator/f
 | **[Field Guide](https://jpicklyk.github.io/task-orchestrator/field-guide/)** | Illustrated, partly interactive walkthrough of the core ideas. The best first read. |
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | Every MCP tool: parameters, response shapes, actor attribution |
-| **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
+| **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies |
 | **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST and `/mcp` authentication, caller identity, health checks, SQLite tuning, capacity planning |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
 | **[Changelog](CHANGELOG.md)** | Release history |

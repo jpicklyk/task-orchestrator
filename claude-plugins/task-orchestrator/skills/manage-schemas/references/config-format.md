@@ -198,7 +198,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
 
 ## Matching Rules
 
-Schema resolution is by exact `type` over the root's own config, then the server config; a `default` is the last resort in each layer, and an item no schema matches is schema-free. The schema is pinned when the item is created: see [Schema pins](../../../../../current/docs/config-reference.md#schema-pins). Tags are never consulted.
+Schema resolution is by exact `type` over the root's own config, then the server config; an item no schema matches is schema-free. The schema is pinned when the item is created: see [Schema pins](../../../../../current/docs/config-reference.md#schema-pins). Tags are never consulted.
 
 ---
 
@@ -220,7 +220,7 @@ carry notes, resources, both, or neither.
 
 ### Merge semantics - read this before combining traits
 
-Resource requirements merge differently from notes - do not assume the note merge rules apply here.
+Resource requirements merge differently from notes.
 
 1. **Union across traits, never dropped.** Two traits declaring the *same resource key* both
    contribute; the merge is a union, deduplicated by key.
@@ -254,8 +254,7 @@ known-key list. Declared keys (both `exclusive`, once acquired, and `advisory`) 
 **auto-recorded** into `consumedCredentials` on work entry - you do not need to repeat them in
 `credentialRefs`. Items that declare no resources are unaffected: `credentialRefs` there stays an
 open, format-only-validated field. See [`api-reference.md`](../../../../../current/docs/api-reference.md)
-for the full `credentialRefs` contract and [`workflow-guide.md`](../../../../../current/docs/workflow-guide.md#11-resource-leasing)
-for the contention/retry model and the guarantees-vs-non-guarantees statement.
+for the full `credentialRefs` contract.
 
 ---
 
@@ -423,7 +422,7 @@ default resolves from elsewhere (another trait, or none). An override map with n
 ### Merge rules
 
 Seats merge alongside notes when a trait's seats combine with a schema's base seats, in the one trait
-order (item `traits` first, then `default_traits`; see "Trait Merge Semantics"):
+order (item `traits` first, then `default_traits`):
 
 1. **Base-schema seats always win by name.** If a trait declares a seat with the same `name` as one
    already in the schema's own `seats:` list, the trait's seat is dropped with a server-side warning.
@@ -437,7 +436,7 @@ order (item `traits` first, then `default_traits`; see "Trait Merge Semantics"):
    once traits are merged at resolve time (a per-item trait, or a trait from a different config layer)
    is resolved deterministically: the seat that already has the phase keeps `enters: true`, the later
    seat is served with `enters` demoted to `false`, and a warning is logged.
-5. **Note `seat` / `independent_of` ride on the note merge rules** (see "Trait Merge Semantics").
+5. **Note `seat` / `independent_of` ride on the note merge rules.**
 6. **Per-seat dispatch overrides resolve in the same trait order, with one exception.** For a given
    `(phase, seat)` pair the first trait in order that declares an override wins outright, except that a
    **model-selecting** override outranks the rest regardless of order; its fields overlay the phase's

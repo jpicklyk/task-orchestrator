@@ -1,7 +1,7 @@
 # Runtime Config Catalog
 
 This is the **rendering catalog** for `/configure-server` (and the fragment source a project deploy
-command cites): the exact env fragments, tuples, and caveats to render for each runtime choice. It is not a
+command cites): the exact tuples and caveats to render. It is not a
 tutorial and not a security explainer — for env *semantics* (what each flag does, auth model details,
 capability model) this doc defers to:
 

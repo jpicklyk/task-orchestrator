@@ -74,7 +74,7 @@ After running, restart Claude Code and run `/mcp` to verify the connection. You 
 | [Field Guide](https://jpicklyk.github.io/task-orchestrator/field-guide/) | Illustrated, partly interactive walkthrough of the core ideas. The best first read. |
 | [Quick Start](quick-start.md) | Docker setup, first work item, note schemas, key concepts |
 | [API Reference](api-reference.md) | Every MCP tool — parameters, response shapes, and examples |
-| [Workflow Guide](workflow-guide.md) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior, runs, seats and decisions |
+| [Workflow Guide](workflow-guide.md) | Role lifecycle, dependency patterns, cascade behavior, runs, seats and decisions |
 | [Fleet Deployment](fleet-deployment.md) | Multi-agent fleet operators: identity policy, SQLite tuning, capacity planning, claim disclosure, observability |
 | [Upgrading from 3.x](fleet-deployment.md#upgrading-from-3x) | The procedure for moving a 3.x deployment and its data volume to 4.x |
 | [Reporting](reporting.md) | The `report` tool: which select answers which question, how to read its bases, and what retention changes in an answer |

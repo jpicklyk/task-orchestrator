@@ -142,8 +142,6 @@ Then ask Yes/No for debug logging (`LOG_LEVEL=DEBUG` + `DATABASE_SHOW_SQL=true`)
 
 ## Step 5 — Render
 
-Look up the exact fragments in `references/runtime-config.md` — do not improvise env values.
-
 **Resolve `<FLOOR_DIR>` first** whenever the floor is mounted (the recommended default, a Step 4 "Process-schema floor" answer, or STDIO). It is `<checkout>/deploy/global-config/.taskorchestrator` in a source
 checkout. Otherwise it is a host directory the user downloads the file into (the image bakes no
 config); render the command for them, for example:

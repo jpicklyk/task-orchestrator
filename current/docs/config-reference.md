@@ -14,7 +14,7 @@ file, never the file itself.
 
 Every top-level key has one owner. The server validates what it owns and stores the rest without reading it.
 
-Where each key may appear (the server file, a per-root push or both) is in the served schema and in `config` `validate`. `resources` is server-file only: a per-root document that carries it is rejected. Plugin settings go under `extensions.<tool>`, which the server stores and never reads.
+Where each key may appear (the server file, a per-root push or both) is in `config` `validate`. `resources` is server-file only: a per-root document that carries it is rejected. Plugin settings go under `extensions.<tool>`, which the server stores and never reads.
 
 ### `extensions`
 

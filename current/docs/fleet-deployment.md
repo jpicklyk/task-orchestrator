@@ -188,7 +188,7 @@ Logs are structured JSON, one object per line, written to **stderr only** - stdo
 exclusively for MCP JSON-RPC messages on the stdio transport, so nothing may ever be pointed at it.
 Level is controlled by `LOG_LEVEL` (default `INFO`); there is no separate stderr threshold.
 
-**File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
+**File logging is opt-in** via `LOG_FILE` (unset by default - no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`
 volume in Docker); the file uses the same JSON encoding, rolls at 10MB/day (`.gz`, 30-day/100MB
 retention), and its parent directories are created automatically.
@@ -1234,7 +1234,7 @@ acting principal's token id — check server logs to attribute the override afte
 token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`
 interval(s) for that key (`releaseReason: "force_released"`), so the override is attributable from
 `GET /api/v1/resources/leases/history?key=<key>` (`ADMIN` capability for actor identity) even after
-server logs have rotated. There is **no equivalent MCP tool/verb** — force-release is
+server logs have rotated. There is **no equivalent MCP tool/verb** - force-release is
 REST-only, by design (see Non-Goals in the implementation plan: no MCP acquire/release/renew verbs).
 
 **Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add

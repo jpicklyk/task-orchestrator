@@ -66,7 +66,7 @@ The plugin reads its own settings from `extensions.claude-code` in `.taskorchest
 
 ## Hooks
 
-Hooks fire automatically after installation: they inject context at session start, guard dispatches and phase transitions, record skill use and nudge the retrospective. Each hook is fail-open except `director-guard`, which fails closed under the director marker. Setting `steering` to `off` in `extensions.claude-code` silences the context-injecting hooks; a few guards are not gated by it.
+Hooks fire automatically after installation: they inject context at session start, guard dispatches and phase transitions, record skill use and nudge the retrospective. Each hook is fail-open except `director-guard`, which fails closed under the director marker.
 
 What each hook does, when it is inert and how it is gated is owned by [`hooks/README.md`](../../../claude-plugins/task-orchestrator/hooks/README.md).
 

@@ -763,7 +763,7 @@ A lost orchestrator token cannot be recovered (close the run and open a new one)
 
 ### Seats in a run
 
-Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-transitions)). Inside a run that is not closed, on a member whose pinned schema declares seats, the server enforces them:
+Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-transitions)). Inside a run that is not closed, on a member whose pinned schema declares seats, the server enforces them.
 
 The enforcement rules (what a seat token may start, which note keys it may write, and the `seat_forbidden` and `note_owned_by_other` refusals) are in [Seat transitions](./config-reference.md#seat-transitions).
 
@@ -808,13 +808,13 @@ The director (or the human) lists and reads decisions with `decisions_read` `lis
 
 A run can carry an attempt cap per (item, seat) and a cap on concurrently active seats; both are checked on `assign`. Token and cost budgets and agent-reported usage were removed in 4.0.1 (a run still reports `usage.observedTokens`, the server's own estimate, which enforces nothing); see [Run Budgets and Caps](fleet-deployment.md#run-budgets-and-caps).
 
-The attempt cap and the concurrency cap are checked on `assign`; a run paused for a limit is resumed by the answer to its decision, or ended by a `close`.
+A run paused for a limit is resumed by the answer to its decision, or ended by a `close`.
 
 Operator-side detail, including what the numbers mean and what is only an estimate, is in [Run Budgets and Caps](./fleet-deployment.md#run-budgets-and-caps).
 
 ### Closing a run
 
-`close` is allowed to the orchestrator, the director profile or a human; `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers the run's snapshot for a closed run, and `runs_write` `mark` (REST only) stamps a named instant on a run. Both are in the Runs category of the [API Reference](./api-reference.md#category-runs).
+`close` is allowed to the orchestrator, the director profile or a human; `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers the run's snapshot for a closed run, and `runs_write` `mark` (REST only) stamps a named instant on a run.
 
 ### Answering a decision as a single developer
 

@@ -147,7 +147,7 @@ docker stop mcp-task-orchestrator-http 2>/dev/null || true
 docker rm   mcp-task-orchestrator-http 2>/dev/null || true
 ```
 
-Base command (compose the REST-mode / config-mount / debug fragments below into it):
+Base command (compose the REST-mode / config-mount / debug fragments into it):
 ```
 docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   -v mcp-task-data:/app/data \
@@ -155,11 +155,6 @@ docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   <REST-MODE fragment> <CONFIG-MOUNT fragment> <DEBUG fragment> \
   -p 127.0.0.1:3001:3001 <image-tag>
 ```
-
-The exact fragments for each choice (REST off/unauthenticated/bearer, config mount, debug), the
-loopback-safety rationale, and the Windows/MSYS path caveat are single-sourced in
-`claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md` — use that
-catalog to compose the command above rather than re-deriving the flags here.
 
 Verify running:
 ```bash

@@ -75,7 +75,7 @@ Do not log agent-discipline issues as MCP observation tasks — those are for to
 
 ## Loop 3: Session Retrospective & Trend Graduation
 
-Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries, aggregating the distributed `session-tracking` notes into structured analysis and graduating recurring patterns into actionable proposals.
+Loop 2 fires continuously during work. Loop 3 fires at session boundaries, aggregating the distributed `session-tracking` notes into structured analysis and graduating recurring patterns into actionable proposals.
 
 ### When It Runs
 
@@ -225,11 +225,11 @@ boundary: a worktree's PR opened or merged, a run closed, a feature reaching ter
 Hold it while background agents from that work are still running, and never emit it twice for one boundary.
 ```
 
-This buys you continuous monitoring without changing how you operate. Inline analysis, observation logging and all of Loop 2.
+This buys you continuous monitoring without changing how you operate.
 
 ### Option C: Full Pipeline (personal output style + retrospective)
 
-The complete setup — all three loops including session-level aggregation and trend graduation.
+The complete setup, including session-level aggregation and trend graduation.
 
 > **What the plugin ships vs. what you assemble.** Enabling the TO plugin gives you the orchestration core only — the `orchestration-context` SessionStart hook, the `orchestrate` skill, and the other orchestration skills (planning, materialization, advance, work-summary, etc.). The analysis layer described below is **not** packaged in the plugin marketplace and is **not installed when you enable the plugin**. The TO project repo carries reference implementations of these pieces: the `.taskorchestrator/config.yaml` schemas and traits, and the process-schema floor under `deploy/global-config/.taskorchestrator/`; the retrospective skill and hooks ship in the plugin (described below). Adopters copy and adapt those files into their own projects. This keeps the self-improvement layer optional and per-project customizable rather than imposing one shape on every TO user.
 
@@ -251,7 +251,7 @@ This is the load-bearing change — without distributed `session-tracking` notes
 **4.** Create a personal output style with two zones. The plugin already delivers the orchestration core (delegation rules, tier classification, phase transitions) through its SessionStart hook, so the style holds no Zone 1 and mirrors nothing from the plugin:
 
 - **Zone 2 — Extended orchestration:** enhancements specific to your setup (parallel dispatch rules, retrospective nudge, etc.)
-- **Zone 3 — Workflow analysis layer:** detection of friction and tier mismatches, self-correction protocol from [Loop 2](#loop-2-self-correction-via-auto-memory), analysis reporting format
+- **Zone 3 - Workflow analysis layer:** detection of friction and tier mismatches, self-correction protocol from [Loop 2](#loop-2-self-correction-via-auto-memory)
 
 Place the file in `~/.claude/output-styles/` (a personal style is still a valid Claude Code feature) and activate via `.claude/settings.local.json`:
 
@@ -326,7 +326,7 @@ If `session-tracking` notes are missing, the gate enforcement is not configured 
 
 ## Example: A Multi-Session Improvement Cycle
 
-This shows how a pattern moves through all three loops over four sessions.
+This shows how a pattern moves through the loops over four sessions.
 
 **Session 1.** Orchestrator dispatches an implementation subagent without setting `model`:
 
@@ -348,7 +348,7 @@ Memory update: "Always set model parameter explicitly on Agent dispatch —
 haiku for MCP bulk ops, sonnet for implementation, opus for architecture."
 ```
 
-It also logs an `agent-observation` MCP item tagged `optimization`. The implementation item's `session-tracking` note records the friction entry: `friction: api-confusion — model param defaulted unexpectedly`.
+It also logs an `agent-observation` MCP item tagged `optimization`. The implementation item's `session-tracking` note records the friction entry: `friction: api-confusion - model param defaulted unexpectedly`.
 
 `/session-retrospective` runs at end of session. A new trend item is created, with this summary:
 
