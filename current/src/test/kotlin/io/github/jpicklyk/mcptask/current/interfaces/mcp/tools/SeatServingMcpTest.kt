@@ -473,7 +473,9 @@ traits:
             "decisionTools",
             "waitingOn",
             "decisionAuthority",
-            "profileSets"
+            "profileSets",
+            "rank",
+            "createTreeExistingDeps"
         )
 
     @Test
