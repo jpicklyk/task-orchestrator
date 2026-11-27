@@ -213,10 +213,18 @@ decision_classes:
     private fun detail(error: DomainError): JsonObject = EnvelopeEncoder.detail(assertNotNull(error.detail, "the error carries a detail"))
 
     private fun pointers(error: DomainError): List<String> =
-        detail(error).getValue("fields").jsonArray.map { it.jsonObject.getValue("field").jsonPrimitive.content }
+        detail(error).getValue("fields").jsonArray.map {
+            it.jsonObject
+                .getValue("field")
+                .jsonPrimitive.content
+        }
 
     private fun reasons(error: DomainError): List<String> =
-        detail(error).getValue("fields").jsonArray.map { it.jsonObject.getValue("reason").jsonPrimitive.content }
+        detail(error).getValue("fields").jsonArray.map {
+            it.jsonObject
+                .getValue("reason")
+                .jsonPrimitive.content
+        }
 
     private fun assertInvalid(
         error: DomainError,
@@ -300,7 +308,7 @@ decision_classes:
         }
 
     @Test
-    fun `S3 a human-only decision cannot be delegated - the human who may answer it gets invalid_request on decisionId, nothing is written`(): Unit =
+    fun `S3 a human-only decision cannot be delegated - the human gets invalid_request on decisionId, nothing written`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("signoff")
@@ -313,13 +321,20 @@ decision_classes:
             assertEquals(before, frozen(d.id), "the row is unchanged")
             assertEquals(eventsBefore, decisionEventCount(), "no event")
 
-            // the director is not admitted by a human-only class at all, so it is refused before the class check (order D5: forbidden first)
+            // a human-only class never admits the director, so it is refused before the class check
+            // (order D5: forbidden first)
             assertForbiddenKind(f.svc.delegate(d.id, director).err(), DecisionRequestAnswerers.HUMAN_ONLY, "director on human-only")
             assertEquals(before, frozen(d.id))
 
             // control: a director-or-human decision is delegated by the same human
             val ok = f.raise("deviation", "k2")
-            assertEquals(DecisionWaitingOn.DIRECTOR, f.svc.delegate(ok.id, human).ok().waitingOn)
+            assertEquals(
+                DecisionWaitingOn.DIRECTOR,
+                f.svc
+                    .delegate(ok.id, human)
+                    .ok()
+                    .waitingOn
+            )
         }
 
     @Test
@@ -340,7 +355,13 @@ decision_classes:
             assertEquals(answeredBefore, frozen(answered.id))
             assertEquals(eventsBefore, decisionEventCount())
             // control: the director delegates the same open decision
-            assertEquals(DecisionWaitingOn.DIRECTOR, f.svc.delegate(open.id, director).ok().waitingOn)
+            assertEquals(
+                DecisionWaitingOn.DIRECTOR,
+                f.svc
+                    .delegate(open.id, director)
+                    .ok()
+                    .waitingOn
+            )
         }
 
     @Test
@@ -406,7 +427,7 @@ decision_classes:
     // ------------------------------------------------------------------ S8 to S12: escalate
 
     @Test
-    fun `S8 escalate with a reason - waitingOn user, the reason stored, status unchanged, event with waitingOn and without the reason`(): Unit =
+    fun `S8 escalate with a reason - waitingOn user, reason stored, status unchanged, event has waitingOn, not the reason`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("deviation")
@@ -452,9 +473,21 @@ decision_classes:
             assertEquals(eventsBefore, decisionEventCount())
 
             // controls: the director escalates the human-only decision, and a human escalates it too
-            assertEquals(DecisionWaitingOn.USER, f.svc.escalate(humanOnly.id, "why", director).ok().waitingOn)
+            assertEquals(
+                DecisionWaitingOn.USER,
+                f.svc
+                    .escalate(humanOnly.id, "why", director)
+                    .ok()
+                    .waitingOn
+            )
             assertEquals("user", row(humanOnly.id)["waiting_on"])
-            assertEquals(DecisionWaitingOn.USER, f.svc.escalate(shared.id, "why", human).ok().waitingOn)
+            assertEquals(
+                DecisionWaitingOn.USER,
+                f.svc
+                    .escalate(shared.id, "why", human)
+                    .ok()
+                    .waitingOn
+            )
         }
 
     @Test
@@ -478,10 +511,22 @@ decision_classes:
             }
 
             // boundaries: 1 and 500 characters are accepted
-            assertEquals("x", f.svc.escalate(d.id, "x", director).ok().waitingReason)
+            assertEquals(
+                "x",
+                f.svc
+                    .escalate(d.id, "x", director)
+                    .ok()
+                    .waitingReason
+            )
             assertEquals("x", row(d.id)["waiting_reason"])
             val longest = "r".repeat(500)
-            assertEquals(longest, f.svc.escalate(d.id, longest, director).ok().waitingReason)
+            assertEquals(
+                longest,
+                f.svc
+                    .escalate(d.id, longest, director)
+                    .ok()
+                    .waitingReason
+            )
             assertEquals(longest, row(d.id)["waiting_reason"])
         }
 

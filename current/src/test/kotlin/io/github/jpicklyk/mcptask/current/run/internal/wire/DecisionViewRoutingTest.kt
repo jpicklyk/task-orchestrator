@@ -135,7 +135,7 @@ class DecisionViewRoutingTest {
     // ------------------------------------------------------------------ S23: the full view
 
     @Test
-    fun `S23 an unrouted decision shows neither waitingOn nor waitingReason`(): Unit {
+    fun `S23 an unrouted decision shows neither waitingOn nor waitingReason`() {
         val view = full(decision())
 
         for (member in newMembers) assertFalse(member in view.keys, "an unrouted decision has no $member: $view")
@@ -144,7 +144,7 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 a delegated decision shows waitingOn director and no waitingReason`(): Unit {
+    fun `S23 a delegated decision shows waitingOn director and no waitingReason`() {
         val view = full(decision(waitingOn = DecisionWaitingOn.DIRECTOR))
 
         assertEquals("director", view.getValue("waitingOn").jsonPrimitive.content)
@@ -153,7 +153,7 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 an escalated decision shows waitingOn user and its waitingReason, also while acknowledged`(): Unit {
+    fun `S23 an escalated decision shows waitingOn user and its waitingReason, also while acknowledged`() {
         for (status in listOf(DecisionRequestStatus.OPEN, DecisionRequestStatus.ACKNOWLEDGED)) {
             val view = full(decision(status = status, waitingOn = DecisionWaitingOn.USER, waitingReason = "needs the product owner"))
 
@@ -164,7 +164,7 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 an answered decision shows the four provenance members and the links, with booleans as JSON booleans`(): Unit {
+    fun `S23 an answered decision shows the four provenance members and the links, with booleans as JSON booleans`() {
         val links = listOf(RunSeatLink("url", "https://example.test/a"), RunSeatLink("commit", "abc1234"))
         val answered =
             decision(
@@ -193,7 +193,15 @@ class DecisionViewRoutingTest {
             val shownLinks: JsonArray = shown.getValue("links").jsonArray
             assertEquals(
                 links.map { it.kind to it.ref },
-                shownLinks.map { it.jsonObject.getValue("kind").jsonPrimitive.content to it.jsonObject.getValue("ref").jsonPrimitive.content },
+                shownLinks.map {
+                    it.jsonObject
+                        .getValue(
+                            "kind"
+                        ).jsonPrimitive.content to
+                        it.jsonObject
+                            .getValue("ref")
+                            .jsonPrimitive.content
+                },
                 "the links in order, each as {kind, ref}"
             )
             assertEquals("a", shown.getValue("option").jsonPrimitive.content, "the existing answer members stay")
@@ -201,7 +209,7 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 the relayed provenance shows decidedBy user, basis relayed and relayed true`(): Unit {
+    fun `S23 the relayed provenance shows decidedBy user, basis relayed and relayed true`() {
         val shown =
             full(
                 decision(
@@ -217,12 +225,15 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 absent provenance members are omitted from the answer, never JSON null, and a present false is kept`(): Unit {
+    fun `S23 absent provenance members are omitted from the answer, never JSON null, and a present false is kept`() {
         val none = full(decision(status = DecisionRequestStatus.ANSWERED, answer = answer())).answerObject()
         for (member in newAnswerMembers) assertFalse(member in none.keys, "an answer with no $member omits it: $none")
 
         // the user answer: decidedBy and relayed set, basis and withinAutonomy absent; relayed false is present, not omitted
-        val human = full(decision(status = DecisionRequestStatus.ANSWERED, answer = answer(DecisionDecidedBy.USER, relayed = false))).answerObject()
+        val human =
+            full(
+                decision(status = DecisionRequestStatus.ANSWERED, answer = answer(DecisionDecidedBy.USER, relayed = false))
+            ).answerObject()
         assertEquals("user", human.getValue("decidedBy").jsonPrimitive.content)
         assertEquals(false, (human.getValue("relayed") as JsonPrimitive).boolean)
         assertFalse("basis" in human.keys, "$human")
@@ -230,7 +241,7 @@ class DecisionViewRoutingTest {
     }
 
     @Test
-    fun `S23 the summary is unchanged by the routing - no routing member, and equal to its unrouted twin`(): Unit {
+    fun `S23 the summary is unchanged by the routing - no routing member, and equal to its unrouted twin`() {
         val plain = decision()
         val routed =
             listOf(
@@ -299,7 +310,10 @@ class DecisionViewRoutingTest {
             for (member in newMembers) assertFalse(member in openView.keys, "no $member on a decision that was never routed: $openView")
             val answeredView = full(assertNotNull(store.getById(seated.id))).answerObject()
             for (member in newAnswerMembers) assertFalse(member in answeredView.keys, "a seat answer records no $member: $answeredView")
-            assertFalse("links" in answeredView.keys && answeredView.getValue("links").jsonArray.isNotEmpty(), "and no evidence links: $answeredView")
+            assertFalse(
+                "links" in answeredView.keys && answeredView.getValue("links").jsonArray.isNotEmpty(),
+                "and no evidence links: $answeredView"
+            )
             assertEquals("a", answeredView.getValue("option").jsonPrimitive.content, "control: the answer itself is shown")
         }
 
@@ -341,7 +355,11 @@ class DecisionViewRoutingTest {
             assertEquals(true, (answerView.getValue("withinAutonomy") as JsonPrimitive).boolean)
             assertEquals(
                 links.map { it.ref },
-                answerView.getValue("links").jsonArray.map { it.jsonObject.getValue("ref").jsonPrimitive.content }
+                answerView.getValue("links").jsonArray.map {
+                    it.jsonObject
+                        .getValue("ref")
+                        .jsonPrimitive.content
+                }
             )
         }
 }

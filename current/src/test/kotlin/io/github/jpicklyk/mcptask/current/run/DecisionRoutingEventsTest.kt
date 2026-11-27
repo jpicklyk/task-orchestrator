@@ -130,7 +130,14 @@ class DecisionRoutingEventsTest {
         assertEquals(EventClass.AUDIT, EventClasses.of("decision.escalated"))
         assertEquals("decision.delegated", DomainEvent.DECISION_DELEGATED)
         assertEquals("decision.escalated", DomainEvent.DECISION_ESCALATED)
-        assertTrue(ROUTING_TYPES.all { it in EventClasses.AUDIT_TYPES || EventClasses.AUDIT_PREFIXES.any { prefix -> it.startsWith(prefix) } })
+        assertTrue(
+            ROUTING_TYPES.all {
+                it in EventClasses.AUDIT_TYPES ||
+                    EventClasses.AUDIT_PREFIXES.any { prefix ->
+                        it.startsWith(prefix)
+                    }
+            }
+        )
         // the family prefix is the rule, so the control for the other four types is the same
         for (type in listOf("decision.raised", "decision.acknowledged", "decision.answered", "decision.withdrawn")) {
             assertEquals(EventClass.AUDIT, EventClasses.of(type), type)
@@ -222,7 +229,11 @@ class DecisionRoutingEventsTest {
             .written {
                 val anchors = listOf(f.alphaRoot to null, f.alphaRoot to f.alphaItem, f.betaRoot to null, f.betaRoot to f.betaItem)
                 anchors.forEachIndexed { i, (root, item) ->
-                    val d = f.svc.raise(f.cmd(root, item, "k$i")).getOrNull()!!.decision
+                    val d =
+                        f.svc
+                            .raise(f.cmd(root, item, "k$i"))
+                            .getOrNull()!!
+                            .decision
                     f.svc.delegate(d.id, director).getOrNull()!!
                     f.svc.escalate(d.id, REASON, director).getOrNull()!!
                 }

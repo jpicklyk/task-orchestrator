@@ -852,7 +852,7 @@ sealed class DomainEvent {
             listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED, RUN_ORCHESTRATOR_REISSUED)
 
         /** The decision event types, in lifecycle order (all of them stream on the SSE projection; audit by prefix). */
-        val DECISION_TYPES: List<String> = 
+        val DECISION_TYPES: List<String> =
             listOf(DECISION_RAISED, DECISION_ACKNOWLEDGED, DECISION_DELEGATED, DECISION_ESCALATED, DECISION_ANSWERED, DECISION_WITHDRAWN)
 
         /** `transition.rejected` codes (the error-catalog wire codes they mirror). */

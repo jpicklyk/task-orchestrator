@@ -159,7 +159,14 @@ work_item_schemas:
     private val agent get() = caller("api:agent-secret", PrincipalKind.AGENT, ProofStatus.VERIFIED)
 
     private fun seat(f: Fixture) =
-        caller("api:seat-secret", PrincipalKind.SERVICE, ProofStatus.ISSUED, seat = "implementer", runId = f.runA, profile = "orchestration")
+        caller(
+            "api:seat-secret",
+            PrincipalKind.SERVICE,
+            ProofStatus.ISSUED,
+            seat = "implementer",
+            runId = f.runA,
+            profile = "orchestration"
+        )
 
     // ------------------------------------------------------------------ raw reads
 
@@ -206,7 +213,11 @@ work_item_schemas:
     private fun detail(error: DomainError): JsonObject = EnvelopeEncoder.detail(assertNotNull(error.detail, "the error carries a detail"))
 
     private fun pointers(error: DomainError): List<String> =
-        detail(error).getValue("fields").jsonArray.map { it.jsonObject.getValue("field").jsonPrimitive.content }
+        detail(error).getValue("fields").jsonArray.map {
+            it.jsonObject
+                .getValue("field")
+                .jsonPrimitive.content
+        }
 
     private fun assertInvalid(
         error: DomainError,
@@ -224,7 +235,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S13, S14: the director's answers
 
     @Test
-    fun `S13 the director answering an unrouted decision is recorded director on the autonomy basis, not relayed, not within autonomy`(): Unit =
+    fun `S13 a director answer on an unrouted decision records director, autonomy basis, not relayed, not within autonomy`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("deviation")
@@ -414,7 +425,13 @@ work_item_schemas:
             val result = f.svc.answer(d.id, DecisionAnswerCommand(option = "a", links = sent), human).ok()
 
             assertEquals(sent, assertNotNull(result.answer).links)
-            val reread = assertNotNull(f.rig.provider.decisionRequestStore().getById(d.id), "the stored decision")
+            val reread =
+                assertNotNull(
+                    f.rig.provider
+                        .decisionRequestStore()
+                        .getById(d.id),
+                    "the stored decision"
+                )
             assertEquals(sent, assertNotNull(reread.answer).links, "a re-read from storage keeps the links in order")
             val stored = Json.parseToJsonElement(row(d.id)["answer_links"] as String).jsonArray.map { it.jsonObject }
             assertEquals(sent.map { it.ref }, stored.map { it.text("ref") })
@@ -432,7 +449,13 @@ work_item_schemas:
             assertNull(row(d.id)["answer_links"], "NULL when there are none")
             assertEquals(
                 emptyList(),
-                assertNotNull(assertNotNull(f.rig.provider.decisionRequestStore().getById(d.id)).answer).links
+                assertNotNull(
+                    assertNotNull(
+                        f.rig.provider
+                            .decisionRequestStore()
+                            .getById(d.id)
+                    ).answer
+                ).links
             )
         }
 
@@ -462,7 +485,11 @@ work_item_schemas:
                 )
             }
             val second = listOf(RunSeatLink("url", "https://example.test/ok"), RunSeatLink("bogus", "x"))
-            assertInvalid(f.svc.answer(d.id, DecisionAnswerCommand(option = "a", links = second), human).err(), "/links/1/kind", "kind at index 1")
+            assertInvalid(
+                f.svc.answer(d.id, DecisionAnswerCommand(option = "a", links = second), human).err(),
+                "/links/1/kind",
+                "kind at index 1"
+            )
 
             assertEquals(before, frozen(d.id), "every refusal left the row alone")
             assertEquals(eventsBefore, decisionEventCount())
@@ -474,7 +501,7 @@ work_item_schemas:
     // ------------------------------------------------------------------ S25: the answered event
 
     @Test
-    fun `S25 the answered event carries decidedBy, basis, relayed and withinAutonomy, and no principal, text, rationale or waiting reason`(): Unit =
+    fun `S25 the answered event carries decidedBy, basis, relayed, withinAutonomy and no principal, text or reasons`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("deviation")

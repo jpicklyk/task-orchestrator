@@ -62,7 +62,15 @@ object SeedV39 : MigrationSeed(39) {
 
     override fun seed(conn: Connection) {
         insertDecision(conn, OPEN, "s39-open", "open")
-        insertDecision(conn, ACKNOWLEDGED, "s39-acknowledged", "acknowledged", "ack_by_id" to "s39-acker", "ack_by_kind" to "human", "ack_at" to TS)
+        insertDecision(
+            conn,
+            ACKNOWLEDGED,
+            "s39-acknowledged",
+            "acknowledged",
+            "ack_by_id" to "s39-acker",
+            "ack_by_kind" to "human",
+            "ack_at" to TS
+        )
         insertDecision(
             conn,
             ANSWERED,
@@ -118,7 +126,11 @@ object SeedV39 : MigrationSeed(39) {
                 assertEquals(value, now[column], "decision $id column $column changed across V39")
             }
         }
-        assertEquals(3L, scalar(conn, "SELECT count(*) FROM decision_requests WHERE dedupe_key LIKE 's39-%'"), "the three seeded rows survive")
+        assertEquals(
+            3L,
+            scalar(conn, "SELECT count(*) FROM decision_requests WHERE dedupe_key LIKE 's39-%'"),
+            "the three seeded rows survive"
+        )
     }
 
     /** Assessment section 4: row counts, the decision_requests indexes and triggers, and its foreign keys are unchanged. */

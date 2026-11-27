@@ -460,7 +460,17 @@ traits:
         }
 
     private val expectedFeatures =
-        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance")
+        listOf(
+            "seats",
+            "dispatchBySeat",
+            "independent_of",
+            "rules",
+            "seatSkills",
+            "seatWrites",
+            "orchestratorNotes",
+            "resumeGate",
+            "answerProvenance"
+        )
 
     @Test
     fun `S13 - query_items schema by type reports features on both a seat-aware and a seat-less schema`(
