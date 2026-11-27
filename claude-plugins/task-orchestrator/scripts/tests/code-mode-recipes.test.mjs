@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -178,10 +178,10 @@ test('R1 fills snapshot.features from the schema answer and snapshot.profile fro
   tools[key('runs_read')] = async () => env({ items: [] });
   const out = await run(1, { scratch, cwd: repo, tools });
   assert.ok(out && out.explain, 'R1 returned ' + JSON.stringify(out));
-  const written = JSON.parse(readFileSync(scratch + '/run-wave/snapshot.json', 'utf8'));
+  const written = JSON.parse(readFileSync(scratch + '/run-wave/pre-root/snapshot.json', 'utf8'));
   assert.deepEqual(written.features, snap.features);
   assert.deepEqual(written.profile, { appendOnlyFiles: ['CHANGELOG.md'] });
-  const plan = JSON.parse(readFileSync(scratch + '/run-wave/plan-draft.json', 'utf8'));
+  const plan = JSON.parse(readFileSync(scratch + '/run-wave/pre-root/plan-draft.json', 'utf8'));
   assert.deepEqual(plan.args.capabilities.features, snap.features);
   assert.deepEqual(plan.args.project.appendOnlyFiles, ['CHANGELOG.md']);
 });
@@ -204,7 +204,7 @@ test('R1 writes profile {} when run-profile.json is absent', async () => {
   };
   const out = await run(1, { scratch, cwd: repo, tools });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const written = JSON.parse(readFileSync(scratch + '/run-wave/snapshot.json', 'utf8'));
+  const written = JSON.parse(readFileSync(scratch + '/run-wave/pre-root/snapshot.json', 'utf8'));
   assert.deepEqual(written.profile, {});
 });
 
@@ -405,12 +405,12 @@ test('S3 (AC4, AC5): R1 leaves the ancestor out when it has children and fills h
   const { scratch, repo, tools, ids, lists } = r1Fixture();
   const out = await run(1, { scratch, cwd: repo, tools, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'A-SHORT';" } });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const snap = JSON.parse(readFileSync(scratch + '/run-wave/snapshot.json', 'utf8'));
+  const snap = JSON.parse(readFileSync(scratch + '/run-wave/pre-ashort/snapshot.json', 'utf8'));
   assert.deepEqual(snap.candidates.map((c) => c.id).sort(), [ids.C, ids.K].sort());
   assert.equal(snap.candidates.find((c) => c.id === ids.K).hasChildren, true);
   assert.equal(snap.candidates.find((c) => c.id === ids.C).hasChildren, false);
   assert.ok(lists.length >= 3 && lists.every((l) => l.limit === 1));
-  const plan = JSON.parse(readFileSync(scratch + '/run-wave/plan-draft.json', 'utf8'));
+  const plan = JSON.parse(readFileSync(scratch + '/run-wave/pre-ashort/plan-draft.json', 'utf8'));
   const k = (plan.meta.excluded || []).find((e) => e.id === ids.K);
   assert.ok(k && k.reason === 'container', JSON.stringify(plan.meta.excluded));
   assert.ok(!(plan.meta.excluded || []).some((e) => e.id === ids.A) && !plan.args.items.some((i) => i.id === ids.A), 'the ancestor is no candidate');
@@ -426,7 +426,7 @@ test('S3 (D5): a leaf ancestor stays a candidate (single-item scope)', async () 
   };
   const out = await run(1, { scratch, cwd: repo, tools, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'C-SHORT';" } });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const snap = JSON.parse(readFileSync(scratch + '/run-wave/snapshot.json', 'utf8'));
+  const snap = JSON.parse(readFileSync(scratch + '/run-wave/pre-cshort/snapshot.json', 'utf8'));
   assert.deepEqual(snap.candidates.map((c) => c.id), [ids.C]);
 });
 
@@ -441,7 +441,7 @@ test('S4 (AC6): MODE, ALTITUDE_SAFE and a probe without phase 0 hooks reach plan
     },
   });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const plan = JSON.parse(readFileSync(scratch + '/run-wave/plan-draft.json', 'utf8'));
+  const plan = JSON.parse(readFileSync(scratch + '/run-wave/pre-root/plan-draft.json', 'utf8'));
   assert.equal(plan.args.worktreeMode, 'per-item');
   assert.equal(plan.args.altitudeSafe, true);
   assert.equal(plan.args.entryMode, 'pre-entered');
@@ -459,7 +459,7 @@ test('S4 (AC6): SHARED_WORKTREE reaches plan as --worktree and --branch', async 
     },
   });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const plan = JSON.parse(readFileSync(scratch + '/run-wave/plan-draft.json', 'utf8'));
+  const plan = JSON.parse(readFileSync(scratch + '/run-wave/pre-root/plan-draft.json', 'utf8'));
   assert.equal(plan.args.worktreeMode, 'shared');
   assert.ok(JSON.stringify(plan.args).includes('feat/x'), 'the shared branch is in the plan args');
 });
@@ -991,7 +991,7 @@ test('S17 (AC7): R1 returns resume for an open r- run and makes no snapshot, pla
   assert.deepEqual(out, { resume: [{ run8: SERVER_RUN.slice(0, 8), plan: 'r-20260928-aaaa', status: 'open', phase: 'launched' }] });
   assert.deepEqual(lists.map((l) => l.status), ['open', 'paused']);
   assert.equal(commands.length, 0, 'a command ran before the resume return');
-  assert.ok(!existsSync(scratch + '/run-wave/plan-draft.json') && !existsSync(scratch + '/run-wave/snapshot.json'));
+  assert.ok(!existsSync(scratch + '/run-wave/pre-root/plan-draft.json') && !existsSync(scratch + '/run-wave/pre-root/snapshot.json'));
 });
 
 test('S17 (AC7): a run whose hints.plan is not an r- plan id, and a paused r- run, are judged by that field only', async () => {
@@ -1056,7 +1056,7 @@ test('S18 (AC7): exit 2 for no REST URL falls back to the hand reads; any other 
   const noRest = snapshotShell(fallback.repo, fallback.scratch, () => handle('{"error":"invalid args","detail":"no REST API URL resolves: assemble the snapshot by hand"}\n', 2), seen);
   const out = await run(1, { scratch: fallback.scratch, cwd: fallback.repo, tools: fallback.tools, shellFn: noRest, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'A-SHORT';" } });
   assert.ok(out && out.explain, JSON.stringify(out));
-  const snap = JSON.parse(readFileSync(fallback.scratch + '/run-wave/snapshot.json', 'utf8'));
+  const snap = JSON.parse(readFileSync(fallback.scratch + '/run-wave/pre-ashort/snapshot.json', 'utf8'));
   assert.equal(snap.contract, 'run-wave/snapshot-v1');
   assert.ok(snap.candidates.length > 0, 'the hand reads built the candidates');
   const other = r1Fixture();
@@ -1080,7 +1080,7 @@ test('S18 (AC7): R1 returns needs.scopes from the subcommand summary and passes 
     return handle(JSON.stringify({ ok: true, out: outPathOf(command), candidates: 2, needs: { scopes: ['aaaa', 'bbbb'] }, skipped: [], warnings: [] }) + '\n', 0);
   }, seen);
   const out = await run(1, { scratch, cwd: repo, tools, shellFn, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'A0';", 'const SCOPES_FILE = null;': "const SCOPES_FILE = 'S.json';" } });
-  assert.deepEqual(out, { needs: { scopes: ['aaaa', 'bbbb'] } });
+  assert.deepEqual(out, { needs: { scopes: ['aaaa', 'bbbb'] }, preDir: scratch + '/run-wave/pre-a0' });
   assert.ok(seen[0].includes('--scopes "S.json"'), seen[0]);
 });
 
@@ -1093,7 +1093,7 @@ test('S18 (AC7): a snapshot without the rules feature stops F2, one without the 
       return handle('{"ok":true,"out":"x","candidates":2,"needs":{"scopes":[]},"skipped":[],"warnings":[]}\n', 0);
     }, []);
     const out = await run(1, { scratch, cwd: repo, tools, shellFn, subst: { 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = 'A0';" } });
-    assert.ok(!existsSync(scratch + '/run-wave/plan-draft.json'), 'plan ran after a stop');
+    assert.ok(!existsSync(scratch + '/run-wave/pre-a0/plan-draft.json'), 'plan ran after a stop');
     return out;
   };
   assert.deepEqual(await run1((s) => { s.features = ['seats', 'dispatchBySeat']; }), { stopped: true, check: 'F2', missing: ['rules'] });
@@ -1585,4 +1585,236 @@ test('A1 (B2): method-b.md has a loop step that records launched with run-ops up
   const mb = readFileSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'references', 'method-b.md'), 'utf8');
   assert.ok(/^0\. \*\*Record `launched`/m.test(mb), 'the Method B loop has no launched step');
   assert.ok(mb.includes('--phase update --run-phase launched'));
+});
+
+
+// ---- 08c8b0eb: several runs on one root. F7 resumes only the target's own run (AC1), the pre-runId files live under
+// run-wave/pre-<key>/ (AC5) and the hand snapshot records the other runs (AC2). ----
+
+const PA = 'a0000000-0000-4000-8000-00000000000a';
+const PC = 'c0000000-0000-4000-8000-00000000000c';
+const PZ = 'b0000000-0000-4000-8000-00000000000b';
+const RUN2 = '2c7e1d9a-5b3f-4e8a-9c1d-6a4b8f2e7d30';
+const RUN8 = SERVER_RUN.slice(0, 8);
+const noRead = (what) => async () => { throw new Error('unexpected read: ' + what); };
+
+// A runs_read stub: `runs` rows by status, `frontiers` by runId; counts frontier reads.
+function runsTools({ open = [], paused = [], frontiers = {}, notes = {} } = {}) {
+  const calls = { frontier: 0, notes: 0, lists: [] };
+  const tools = {
+    [ikey('runs_read')]: async (a) => {
+      if (a.select === 'list') { calls.lists.push(a); return env({ items: a.status === 'paused' ? paused : open }); }
+      if (a.select === 'frontier') { calls.frontier += 1; return env(frontiers[a.runId] || { ready: [], inFlight: [], waiting: [] }); }
+      throw new Error('unexpected runs_read ' + a.select);
+    },
+    [ikey('notes_read')]: async (a) => {
+      calls.notes += 1;
+      const body = notes[a.itemId + '/' + a.key];
+      if (body === undefined) throw thrown('not_found');
+      return env({ key: a.key, body });
+    },
+  };
+  return { tools, calls };
+}
+
+const rRun = (runId, over = {}) => ({ runId, status: 'open', hints: { plan: 'r-20261127-aaaa', phase: 'launched' }, ...over });
+const asResume = (run, over = {}) => ({ run8: run.runId.slice(0, 8), plan: run.hints.plan, status: run.status, phase: run.hints.phase ?? null, ...over });
+
+// `reply` stands in for the snapshot subcommand (as in S18); without it every command runs for real (no REST URL: the hand path).
+async function r1With(world, subst, { reply, body } = {}) {
+  const { scratch, repo, tools } = r1Fixture();
+  const commands = [];
+  const sh = reply
+    ? snapshotShell(repo, scratch, reply, commands)
+    : (command) => { commands.push(command); return shell(command, { cwd: repo, home: scratch }); };
+  const out = await run(1, { scratch, cwd: repo, tools: { ...tools, ...world.tools }, shellFn: sh, subst, body });
+  return { out, scratch, repo, commands };
+}
+const okReply = (snap) => (command) => {
+  mkdirSync(dirname(outPathOf(command)), { recursive: true });
+  writeFileSync(outPathOf(command), JSON.stringify(snap));
+  return handle(JSON.stringify({ ok: true, out: outPathOf(command), candidates: 2, needs: { scopes: [] }, skipped: [], warnings: [] }) + '\n', 0);
+};
+
+const ancestorSubst = (id) => ({ 'const ANCESTOR_ID = null;': "const ANCESTOR_ID = '" + id + "';" });
+
+test('[08c8b0eb] S1 (AC1): an r- run whose scopeId matches the ancestor target resumes, and no command, frontier or pointer read happens', async () => {
+  // lower case, either a prefix of the other: short ancestor vs full scopeId, full vs full, upper-case spellings
+  for (const [ancestor, scopeId] of [[PA.slice(0, 8), PA], [PA, PA], [PA.toUpperCase(), PA], [PA.slice(0, 8), PA.toUpperCase()], [PA, PA.slice(0, 8)]]) {
+    const mine = rRun(SERVER_RUN, { scopeId });
+    const world = runsTools({ open: [mine] });
+    const { out, commands } = await r1With(world, ancestorSubst(ancestor));
+    assert.deepEqual(out, { resume: [asResume(mine)] }, ancestor + ' vs ' + scopeId);
+    assert.equal(commands.length, 0, 'a command ran before the resume return');
+    assert.equal(world.calls.frontier, 0, 'a classified run needs no frontier read');
+    assert.equal(world.calls.notes, 0, 'a classified run needs no pointer read');
+  }
+});
+
+test('[08c8b0eb] S2 (AC1): an --items target resumes the r- run whose frontier member short prefixes a target item id', async () => {
+  const mine = rRun(SERVER_RUN);
+  const world = runsTools({ open: [mine], frontiers: { [SERVER_RUN]: { ready: [], inFlight: [{ id: PC.slice(0, 8) }], waiting: [] } } });
+  const { out, commands } = await r1With(world, { 'const ITEM_IDS = null;': "const ITEM_IDS = ['" + PC.toUpperCase() + "'];" });
+  assert.deepEqual(out, { resume: [asResume(mine)] });
+  assert.equal(commands.length, 0);
+  assert.ok(world.calls.frontier >= 1, 'the frontier was read for the unclassified run');
+  for (const bucket of ['ready', 'waiting']) {
+    const w = runsTools({ open: [mine], frontiers: { [SERVER_RUN]: { ready: [], inFlight: [], waiting: [], [bucket]: [{ id: PC.slice(0, 8) }] } } });
+    const r = await r1With(w, { 'const ITEM_IDS = null;': "const ITEM_IDS = ['" + PC + "'];" });
+    assert.deepEqual(r.out, { resume: [asResume(mine)] }, bucket);
+  }
+});
+
+test('[08c8b0eb] S3 (AC1): the ancestor target run-pointers line `run-wave: <runId> run=<run8>` resumes a run without a scopeId', async () => {
+  const mine = rRun(SERVER_RUN);
+  const body = 'note head\nrun-wave: r-20261127-aaaa run=' + RUN8 + ' parent=started\nnote tail';
+  const world = runsTools({ open: [mine], notes: { [PA.slice(0, 8) + '/run-pointers']: body } });
+  const { out } = await r1With(world, ancestorSubst(PA.slice(0, 8)));
+  assert.deepEqual(out, { resume: [asResume(mine)] });
+});
+
+test('[08c8b0eb] S3 (probe): a pointer only in session-tracking resumes when run-pointers is absent', async () => {
+  const mine = rRun(SERVER_RUN);
+  const body = 'run-wave: r-20261127-aaaa run=' + RUN8.toUpperCase() + ' parent=skipped';
+  const world = runsTools({ open: [mine], notes: { [PA.slice(0, 8) + '/session-tracking']: body } });
+  const { out } = await r1With(world, ancestorSubst(PA.slice(0, 8)));
+  assert.deepEqual(out, { resume: [asResume(mine)] });
+});
+
+test('[08c8b0eb] S4 (AC1): with no target one open and one paused r- run are both listed; a manual run is not', async () => {
+  const open = rRun(SERVER_RUN);
+  const paused = rRun(RUN2, { status: 'paused', hints: { plan: 'r-20261127-bbbb', phase: 'review' } });
+  const manual = { runId: 'f0f0f0f0-0000-4000-8000-000000000001', status: 'open', hints: { plan: 'manual' } };
+  const world = runsTools({ open: [open, manual], paused: [paused] });
+  const { out } = await r1With(world, {});
+  assert.deepEqual(out, { resume: [asResume(open), asResume(paused)] });
+});
+
+test('[08c8b0eb] S11 (AC1): an r- run of another scope with no pointer is left alone: no resume, others names it, Steps continue to explain', async () => {
+  const foreign = rRun(SERVER_RUN, { scopeId: PZ, label: 'wave-z', status: 'open' });
+  const world = runsTools({ open: [foreign] });
+  const { out, scratch } = await r1With(world, ancestorSubst('A0'), { reply: okReply(fixtureSnapshot()) });
+  assert.equal(out.resume, undefined, JSON.stringify(out));
+  assert.ok(out.explain, JSON.stringify(out));
+  assert.deepEqual(out.others, [{ run8: RUN8, label: 'wave-z', status: 'open' }]);
+  assert.equal(out.preDir, scratch + '/run-wave/pre-a0');
+});
+
+test('[08c8b0eb] S11 (probe): a pointer to a run that is neither open nor paused resumes nothing; the label falls back to hints.plan then run8', async () => {
+  const foreign = rRun(SERVER_RUN, { scopeId: PZ });
+  const none = rRun(RUN2, { scopeId: PZ, hints: { plan: '' } });
+  const world = runsTools({ open: [foreign], paused: [{ ...none, status: 'paused', hints: { plan: 'r-x' } }], notes: { ['a0/run-pointers']: 'run-wave: r-old run=deadbeef parent=skipped' } });
+  const { out } = await r1With(world, ancestorSubst('A0'), { reply: okReply(fixtureSnapshot()) });
+  assert.equal(out.resume, undefined, JSON.stringify(out));
+  assert.deepEqual(out.others, [
+    { run8: RUN8, label: 'r-20261127-aaaa', status: 'open' },
+    { run8: RUN2.slice(0, 8), label: 'r-x', status: 'paused' },
+  ]);
+});
+
+test('[08c8b0eb] S10 (AC5): R1 writes snapshot.json and plan-draft.json under run-wave/pre-<ancestor8>/ and returns preDir; R2 copies plan.json from it', async () => {
+  const { scratch, repo, tools } = r1Fixture();
+  const out = await run(1, { scratch, cwd: repo, tools, subst: ancestorSubst('A-SHORT') });
+  assert.ok(out && out.explain, JSON.stringify(out));
+  const preDir = scratch + '/run-wave/pre-ashort';
+  assert.equal(out.preDir, preDir);
+  assert.ok(existsSync(preDir + '/snapshot.json') && existsSync(preDir + '/plan-draft.json'));
+  assert.ok(!existsSync(scratch + '/run-wave/snapshot.json') && !existsSync(scratch + '/run-wave/plan-draft.json'), 'a pre-runId file was written at the old shared path');
+
+  // R2 reads the pre-runId pair from PRE_DIR into its runDir
+  const s = mk();
+  const { runDir, plan } = makePlan(s.scratch, 'B');
+  const repo2 = gitRepo(dirname(s.scratch));
+  plan.args.repoRoot = repo2;
+  plan.meta.worktreesToCreate = [];
+  const pre = s.scratch + '/run-wave/pre-xyz';
+  mkdirSync(pre, { recursive: true });
+  writeFileSync(pre + '/plan-draft.json', JSON.stringify(plan));
+  writeFileSync(pre + '/snapshot.json', JSON.stringify({ contract: 'run-wave/snapshot-v1', marker: 'PRE-SNAPSHOT-MARKER' }));
+  rmSync(runDir + '/plan.json');
+  writeFileSync(runDir + '/state.json', '{}\n');
+  let n = 0;
+  const tools2 = {
+    [ikey('runs_write')]: async (a) => env({ results: a.ops.map(() => ({ ok: true, runId: SERVER_RUN, coordinatorToken: 'COORD-SECRET-TOKEN', seatToken: 'SEAT-SECRET-' + (n += 1) })) }),
+    [ikey('items_read')]: async (a) => env(a.select === 'context' ? { item: { role: 'work' }, gateStatus: { canAdvance: true, missing: [] } } : { notes: [] }),
+    [ikey('notes_read')]: async (a) => { if (a.select === 'get') throw thrown('not_found'); return env({ items: [] }); },
+    [ikey('notes_write')]: async (a) => env({ results: a.ops.map(() => ({ ok: true })) }),
+    [ikey('advance')]: async (a) => env({ results: a.ops.map((o) => ({ ok: true, itemId: o.itemId })) }),
+  };
+  const r2 = await run(2, { runDir, scratch: s.scratch, tools: tools2, subst: { '<preDir>': pre } });
+  assert.ok(r2 && r2.serverRunId === SERVER_RUN, JSON.stringify(r2));
+  assert.equal(JSON.parse(readFileSync(runDir + '/plan.json', 'utf8')).args.runId, plan.args.runId);
+  assert.equal(JSON.parse(readFileSync(runDir + '/snapshot.json', 'utf8')).marker, 'PRE-SNAPSHOT-MARKER');
+});
+
+test('[08c8b0eb] S16 (AC5): two R1 runs with different ancestors keep two pre- dirs and overwrite nothing; no target uses pre-root', async () => {
+  const { scratch, repo, tools } = r1Fixture();
+  const seen = [];
+  const full = fixtureSnapshot();
+  const half = fixtureSnapshot((sn) => { sn.candidates = sn.candidates.slice(0, 1); });
+  const mkShell = (snap) => snapshotShell(repo, scratch, (command) => {
+    seen.push(outPathOf(command));
+    mkdirSync(dirname(outPathOf(command)), { recursive: true });
+    writeFileSync(outPathOf(command), JSON.stringify(snap));
+    return handle(JSON.stringify({ ok: true, out: outPathOf(command), candidates: 2, needs: { scopes: [] }, skipped: [], warnings: [] }) + '\n', 0);
+  }, []);
+  const first = await run(1, { scratch, cwd: repo, tools, shellFn: mkShell(full), subst: ancestorSubst('A0') });
+  assert.equal(first.preDir, scratch + '/run-wave/pre-a0', JSON.stringify(first));
+  const planA = readFileSync(scratch + '/run-wave/pre-a0/plan-draft.json', 'utf8');
+  const second = await run(1, { scratch, cwd: repo, tools, shellFn: mkShell(half), subst: ancestorSubst('B1') });
+  assert.equal(second.preDir, scratch + '/run-wave/pre-b1', JSON.stringify(second));
+  assert.equal(readFileSync(scratch + '/run-wave/pre-a0/plan-draft.json', 'utf8'), planA, 'the first run pre- plan was overwritten');
+  assert.notEqual(readFileSync(scratch + '/run-wave/pre-b1/plan-draft.json', 'utf8'), planA);
+  assert.equal(JSON.parse(readFileSync(scratch + '/run-wave/pre-a0/plan-draft.json', 'utf8')).args.items.length, 2);
+  assert.equal(JSON.parse(readFileSync(scratch + '/run-wave/pre-b1/plan-draft.json', 'utf8')).args.items.length, 1);
+  assert.deepEqual(seen, [scratch + '/run-wave/pre-a0/snapshot.json', scratch + '/run-wave/pre-b1/snapshot.json']);
+  // an --items target keys on the first item id, lower case, first 8 chars, dashes removed
+  const third = await run(1, { scratch, cwd: repo, tools, shellFn: mkShell(full), subst: { 'const ITEM_IDS = null;': "const ITEM_IDS = ['" + PC.toUpperCase() + "', 'i2'];" } });
+  assert.equal(third.preDir, scratch + '/run-wave/pre-c0000000', JSON.stringify(third));
+  // no target: root
+  const none = r1Fixture();
+  const rootOut = await run(1, { scratch: none.scratch, cwd: none.repo, tools: none.tools });
+  assert.equal(rootOut.preDir, none.scratch + '/run-wave/pre-root', JSON.stringify(rootOut));
+  assert.ok(existsSync(none.scratch + '/run-wave/pre-root/snapshot.json'));
+});
+
+test('[08c8b0eb] S17 (AC2): with no REST URL the hand path records the other runs from runs_read list and frontier', async () => {
+  const ralph = { runId: 'e1e1e1e1-0000-4000-8000-000000000001', status: 'open', label: 'ralph-loop', hints: { plan: 'ralph-1' } };
+  const paused = { runId: 'e2e2e2e2-0000-4000-8000-000000000002', status: 'paused', scopeId: PZ, hints: { plan: 'manual-2', worktree: '/w/two', branch: 'feat/two' } };
+  const world = runsTools({
+    open: [ralph], paused: [paused],
+    frontiers: {
+      [ralph.runId]: { ready: [{ id: '11111111' }], inFlight: [{ id: '22222222' }], waiting: [{ id: '11111111' }] },
+      [paused.runId]: { ready: [], inFlight: [], waiting: [{ id: '33333333' }] },
+    },
+  });
+  // first pass: the recipe asks for scopes of every candidate and every member of the other runs
+  const first = await r1With(world, ancestorSubst('A-SHORT'));
+  assert.ok(first.out && first.out.needs && first.out.preDir === first.scratch + '/run-wave/pre-ashort', JSON.stringify(first.out));
+  const wanted = first.out.needs.scopes;
+  for (const want of ['11111111', '22222222', '33333333']) assert.ok(wanted.includes(want), 'needs.scopes lacks member ' + want + ': ' + JSON.stringify(first.out.needs));
+  assert.ok(wanted.includes(PC) && wanted.includes('d0000000-0000-4000-8000-00000000000d'), JSON.stringify(wanted));
+  assert.deepEqual(world.calls.lists.map((l) => [l.status, l.limit, l.select]), [['open', 200, 'list'], ['paused', 200, 'list']]);
+  // second pass: the scopes arrive through EXTRA and the snapshot records the runs, claims split by member short
+  const recipe1 = recipe(1);
+  const withScopes = recipe1.replace(/(EXTRA\s*=\s*\{)[^}]*(\})/, '$1 scopes: ' + JSON.stringify({
+    [PC]: { files: ['src/c.js'] }, 'd0000000-0000-4000-8000-00000000000d': { files: ['src/d.js'] },
+    '11111111': { files: ['src/m1.js'] }, '22222222': { files: ['src/m2.js'] }, '33333333': { files: ['src/m3.js'] },
+  }) + ', carryIns: undefined $2');
+  assert.notEqual(withScopes, recipe1, 'the EXTRA constant of R1 was not found to fill');
+  const second = await r1With(world, ancestorSubst('A-SHORT'), { body: withScopes });
+  assert.ok(second.out && second.out.explain, JSON.stringify(second.out));
+  const snap = JSON.parse(readFileSync(second.scratch + '/run-wave/pre-ashort/snapshot.json', 'utf8'));
+  const byId = Object.fromEntries(snap.otherRuns.map((o) => [o.runId, { ...o, members: [...o.members].sort() }]));
+  assert.deepEqual(byId[ralph.runId], { runId: ralph.runId, label: 'ralph-loop', status: 'open', scopeId: null, worktree: null, branch: null, members: ['11111111', '22222222'], claims: { '11111111': ['src/m1.js'], '22222222': ['src/m2.js'] } });
+  assert.deepEqual(byId[paused.runId], { runId: paused.runId, label: 'manual-2', status: 'paused', scopeId: PZ, worktree: '/w/two', branch: 'feat/two', members: ['33333333'], claims: { '33333333': ['src/m3.js'] } });
+  assert.deepEqual(snap.scopes, { [PC]: { files: ['src/c.js'] }, 'd0000000-0000-4000-8000-00000000000d': { files: ['src/d.js'] } });
+});
+
+test('[08c8b0eb] S17 (probe): with no other run the hand snapshot has no otherRuns key', async () => {
+  const world = runsTools({});
+  const { out, scratch } = await r1With(world, ancestorSubst('A-SHORT'));
+  assert.ok(out && out.explain, JSON.stringify(out));
+  const snap = JSON.parse(readFileSync(scratch + '/run-wave/pre-ashort/snapshot.json', 'utf8'));
+  assert.equal('otherRuns' in snap, false);
 });

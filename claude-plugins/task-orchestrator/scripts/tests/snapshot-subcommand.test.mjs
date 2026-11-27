@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { buildPlanDoc, validateSnapshot } from '../run-planner-lib.mjs';
-import { buildSnapshot, parseWorktreePorcelain, carryInSection, scopeNeeds, projectSchema } from '../lib/snapshot-builder.mjs';
+import { buildSnapshot, parseWorktreePorcelain, carryInSection, scopeNeeds, projectSchema, splitScopes } from '../lib/snapshot-builder.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'run-planner.mjs');
@@ -113,6 +113,15 @@ function fakeCall(w) {
       if (sel === 'get') {
         const key = `${body.itemId}/${body.key}`;
         return key in w.bodies ? { ok: true, data: { key: body.key, body: w.bodies[key] } } : { ok: false, error: { code: 'not_found' } };
+      }
+    }
+    // 08c8b0eb: the run reads. `list` answers the rows of w.runs with the requested status (paged like every list);
+    // `frontier` answers w.frontiers[runId] (ready, inFlight, waiting rows carry the 8-hex short as `id`).
+    if (tool === 'runs_read') {
+      if (sel === 'list') return page(w, (w.runs || []).filter((r) => r.status === body.status), body);
+      if (sel === 'frontier') {
+        const f = (w.frontiers || {})[body.runId];
+        return { ok: true, data: f || { ready: [], inFlight: [], waiting: [] } };
       }
     }
     return { ok: false, error: { code: 'internal' } };
@@ -685,6 +694,153 @@ test('S10 (CLI): --out under a missing nested directory creates it, exits 0 and 
     const res = await cliRunAsync(['snapshot', '--root', ROOT, '--ancestor', P, '--out', out, '--api-url', url, '--no-server-check', '--no-fetch', '--cwd', repo, '--now', NOW], { cwd: repo });
     assert.equal(res.status, 0, res.stderr);
     assert.equal(JSON.parse(readFileSync(out, 'utf8')).contract, 'run-wave/snapshot-v1');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+// ---- 08c8b0eb: other open or paused runs on the root (AC2, AC3) ----
+
+const R1 = 'e1e1e1e1-0000-4000-8000-000000000001';
+const R2 = 'e2e2e2e2-0000-4000-8000-000000000002';
+const R3 = 'e3e3e3e3-0000-4000-8000-000000000003';
+const M1 = '11111111';
+const M2 = '22222222';
+const M3 = '33333333';
+const M4 = '44444444';
+
+function runsWorld(extra = {}) {
+  const w = parentWorld(extra);
+  w.runs = [
+    { runId: R1, status: 'open', label: 'wave-one', scopeId: P, hints: { plan: 'r-202611271200-aaaa', worktree: '/w/one', branch: 'feat/one' } },
+    { runId: R2, status: 'paused', hints: { plan: 'manual-plan' } }
+  ];
+  w.frontiers = {
+    [R1]: { ready: [{ id: M1 }], inFlight: [{ id: M2 }], waiting: [{ id: M3 }, { id: M1 }] },
+    [R2]: { ready: [], inFlight: [], waiting: [{ id: M4 }] }
+  };
+  return w;
+}
+
+test('[08c8b0eb] S5: one open and one paused run give two otherRuns entries with distinct member shorts of ready, inFlight and waiting', async () => {
+  const w = runsWorld();
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const others = r.snapshot.otherRuns;
+  assert.equal(others.length, 2, JSON.stringify(others));
+  const [one, two] = others;
+  assert.deepEqual({ ...one, members: [...one.members].sort() }, {
+    runId: R1, label: 'wave-one', status: 'open', scopeId: P, worktree: '/w/one', branch: 'feat/one', members: [M1, M2, M3]
+  });
+  // no label: hints.plan; no scopeId, worktree or branch: null
+  assert.deepEqual({ ...two, members: [...two.members].sort() }, {
+    runId: R2, label: 'manual-plan', status: 'paused', scopeId: null, worktree: null, branch: null, members: [M4]
+  });
+  assert.equal(validateSnapshot(r.snapshot).ok, true, JSON.stringify(validateSnapshot(r.snapshot).errors));
+  const lists = w.calls.filter((c) => c.tool === 'runs_read' && c.body.select === 'list');
+  assert.deepEqual(lists.map((c) => c.body.status), ['open', 'paused']);
+  for (const c of lists) {
+    assert.equal(c.body.limit, 200);
+    assert.ok(ROOT.startsWith(c.body.rootId) || c.body.rootId.startsWith(ROOT), c.body.rootId);
+  }
+  const fronts = w.calls.filter((c) => c.tool === 'runs_read' && c.body.select === 'frontier').map((c) => c.body.runId).sort();
+  assert.deepEqual(fronts, [R1, R2]);
+});
+
+test('[08c8b0eb] S5: label falls back to the first 8 chars of the run id when label and hints.plan are absent', async () => {
+  const w = runsWorld();
+  w.runs = [{ runId: R3, status: 'open', hints: {} }];
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.snapshot.otherRuns[0].label, 'e3e3e3e3');
+});
+
+test('[08c8b0eb] S5: with no other run the otherRuns key is absent, not an empty array', async () => {
+  const w = runsWorld();
+  w.runs = [];
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal('otherRuns' in r.snapshot, false);
+  assert.deepEqual(r.summary.needs.scopes.sort(), [A, B].sort());
+});
+
+test('[08c8b0eb] S5 (probe): runs list pages are followed through page.next', async () => {
+  const w = runsWorld({ pageSize: 1 });
+  w.runs.push({ runId: R3, status: 'open', label: 'wave-three', hints: {} });
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(r.snapshot.otherRuns.map((o) => o.runId).sort(), [R1, R2, R3]);
+});
+
+test('[08c8b0eb] S6: with other runs, needs.scopes lists every candidate id and every member short', async () => {
+  const w = runsWorld();
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual([...r.summary.needs.scopes].sort(), [A, B, M1, M2, M3, M4].sort());
+  // a scopes input covering some of them removes exactly those
+  const covered = await run(runsWorld(), { ancestor: P, scopes: { [A]: { files: ['a.mjs'] }, [M2]: { files: ['x.js'] } } });
+  assert.deepEqual([...covered.summary.needs.scopes].sort(), [B, M1, M3, M4].sort());
+});
+
+test('[08c8b0eb] S6: --scopes entries keyed by a member short become that run claims, other keys stay in snapshot.scopes', async () => {
+  const w = runsWorld();
+  const scopes = { [A]: { files: ['a.mjs'] }, [B]: { files: ['b.mjs'] }, [M1]: { files: ['src/x.js', 'src/y.js'] }, [M4]: { files: ['docs/z.md'] } };
+  const r = await run(w, { ancestor: P, scopes });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(r.snapshot.scopes, { [A]: { files: ['a.mjs'] }, [B]: { files: ['b.mjs'] } });
+  const one = r.snapshot.otherRuns.find((o) => o.runId === R1);
+  const two = r.snapshot.otherRuns.find((o) => o.runId === R2);
+  assert.deepEqual(one.claims, { [M1]: ['src/x.js', 'src/y.js'] });
+  assert.deepEqual(two.claims, { [M4]: ['docs/z.md'] });
+  assert.deepEqual([...r.summary.needs.scopes].sort(), [M2, M3].sort());
+});
+
+test('[08c8b0eb] S6: splitScopes sets claims on the passed otherRuns entries and returns the remaining scopes', () => {
+  const others = [{ runId: R1, members: [M1, M2] }, { runId: R2, members: [M3] }];
+  const raw = { [A]: { files: ['a.mjs'] }, [M2]: { files: ['m2.js'] }, [M3]: { files: ['m3.js'] }, zzzz: { files: ['q.js'] } };
+  const out = splitScopes(raw, [{ id: A, parentId: P }], others);
+  assert.deepEqual(out.scopes, { [A]: { files: ['a.mjs'] }, zzzz: { files: ['q.js'] } });
+  assert.deepEqual(others[0].claims, { [M2]: ['m2.js'] });
+  assert.deepEqual(others[1].claims, { [M3]: ['m3.js'] });
+});
+
+test('[08c8b0eb] S12: a failed runs_read list is exit 3 naming the read and code, with no snapshot', async () => {
+  const r = await run(runsWorld({ failures: { 'runs_read list': 'internal' } }), { ancestor: P });
+  assert.equal(r.ok, false);
+  assert.equal(r.exit, 3);
+  assert.deepEqual(r.detail, { read: 'runs_read list', code: 'internal' });
+  assert.equal(r.snapshot, undefined);
+});
+
+test('[08c8b0eb] S12: a failed runs_read frontier is exit 3 naming that read', async () => {
+  const r = await run(runsWorld({ failures: { 'runs_read frontier': 'unavailable' } }), { ancestor: P });
+  assert.equal(r.ok, false);
+  assert.equal(r.exit, 3);
+  assert.deepEqual(r.detail, { read: 'runs_read frontier', code: 'unavailable' });
+});
+
+test('[08c8b0eb] S12 (CLI): a runs_read list failure on the server gives exit 3 naming runs_read list and writes no file', async () => {
+  const w = runsWorld({ failures: { 'runs_read list': 'internal' } });
+  const call = fakeCall(w);
+  const server = createServer((req, res) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', async () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'GET') return res.end(JSON.stringify(w.wellKnown));
+      const r = await call(req.url.split('/').pop(), JSON.parse(data || '{}'));
+      res.end(JSON.stringify(r.ok ? { ok: true, data: r.data } : { ok: false, error: { code: r.error.code, kind: 'permanent', message: r.error.code } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const repo = mkdtempSync(path.join(tmpdir(), 'snap-runs-'));
+    assert.equal(spawnSync('git', ['init', '-q', repo]).status, 0);
+    const out = path.join(repo, 'snapshot.json');
+    const res = await cliRunAsync(['snapshot', '--root', ROOT, '--ancestor', P, '--out', out, '--api-url', `http://127.0.0.1:${server.address().port}`, '--no-server-check', '--no-fetch', '--cwd', repo], { cwd: repo });
+    assert.equal(res.status, 3, res.stderr);
+    assert.match(res.stderr, /runs_read list/);
+    assert.equal(existsSync(out), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
