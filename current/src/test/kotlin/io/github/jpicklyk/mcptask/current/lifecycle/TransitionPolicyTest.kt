@@ -1077,9 +1077,11 @@ class TransitionPolicyTest {
     // ---------------------------------------------------------------------------------------------
 
     private val decisionId = UUID.fromString("00000000-0000-0000-0000-0000000000e1")
+
     private fun pending(status: DecisionRequestStatus) = PendingDecision(decisionId, status)
 
-    private fun violationsOf(r: Decision.Reject): List<GateViolation> = assertNotNull(assertIs<ErrorDetail.GateBlocked>(r.error.detail).violations)
+    private fun violationsOf(r: Decision.Reject): List<GateViolation> =
+        assertNotNull(assertIs<ErrorDetail.GateBlocked>(r.error.detail).violations)
 
     @Test
     fun `RG-P1 resume of a blocked item whose decision is open is refused by DECISION_PENDING`() {
@@ -1093,7 +1095,8 @@ class TransitionPolicyTest {
 
     @Test
     fun `RG-P2 an acknowledged decision refuses, no pending decision allows`() {
-        val ack = rejected(snap(BLOCKED, previousRole = WORK, pendingDecision = pending(DecisionRequestStatus.ACKNOWLEDGED)), Trigger.User.RESUME)
+        val ack =
+            rejected(snap(BLOCKED, previousRole = WORK, pendingDecision = pending(DecisionRequestStatus.ACKNOWLEDGED)), Trigger.User.RESUME)
         assertEquals(GateId.DECISION_PENDING, ack.gate)
         assertTrue("acknowledged" in violationsOf(ack).single().reason)
         assertEquals(WORK, allowed(snap(BLOCKED, previousRole = WORK), Trigger.User.RESUME).target)
