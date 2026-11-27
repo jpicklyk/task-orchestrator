@@ -50,8 +50,9 @@ import kotlin.test.assertTrue
  * short: provenance is derived from the caller's seat and credential kind, never from the serving profile, and the caller sends at
  * most `decidedBy`. A human is recorded `user`, relayed false, with no basis and no withinAutonomy, and sending `director` is
  * `invalid_request` on `/decidedBy`. A caller without a seat token that is not a human is recorded `director`, relayed false, with
- * basis `delegation` and withinAutonomy true when the decision waits on the director at answer time, else basis `autonomy` and
- * withinAutonomy false; sending `user` records `user`, relayed true, basis `relayed` and no withinAutonomy. A seat-token caller
+ * basis `delegation` and withinAutonomy true when the decision waits on the director at answer time, else (item b00cdc00 D5) basis `autonomy` and
+ * withinAutonomy true when the class's autonomy is `answer`, else no basis and withinAutonomy false; a seat-less caller without the
+ * decide capability records nothing, and its `decidedBy` is `invalid_request` on `/decidedBy`; sending `user` records `user`, relayed true, basis `relayed` and no withinAutonomy. A seat-token caller
  * has nothing recorded and sending `decidedBy` is `invalid_request` on `/decidedBy`. Answer links are evidence with the raise-link
  * limits (at most 10, kept in the request's order, a known kind, a non-blank ref), violations pointing at `/links`,
  * `/links/i/kind` and `/links/i/ref`. The `decision.answered` payload carries `decidedBy`, `basis`, `relayed` and `withinAutonomy`
@@ -82,6 +83,10 @@ class DecisionAnswerProvenanceTest {
 work_item_schemas:
   test-item:
     notes: []
+decision_classes:
+  routine:
+    answerers: director-or-human
+    autonomy: answer
 """
         const val ORCH = "api:orch"
     }
@@ -155,8 +160,11 @@ work_item_schemas:
     private val human get() = caller("api:person-secret", PrincipalKind.HUMAN, ProofStatus.ISSUED)
     private val director get() = caller("api:svc-secret", PrincipalKind.SERVICE, ProofStatus.ISSUED, director = true, profile = "director")
 
-    /** An agent credential with no seat token on a profile that is not the director's. */
-    private val agent get() = caller("api:agent-secret", PrincipalKind.AGENT, ProofStatus.VERIFIED)
+    /** An agent credential with no seat token, on a profile that is not the director's, whose credential grants decide. */
+    private val agent get() = caller("api:agent-secret", PrincipalKind.AGENT, ProofStatus.VERIFIED, director = true)
+
+    /** The same agent credential without the decide capability. */
+    private val agentNoDecide get() = caller("api:agent-secret", PrincipalKind.AGENT, ProofStatus.VERIFIED)
 
     private fun seat(f: Fixture) =
         caller(
@@ -235,19 +243,38 @@ work_item_schemas:
     // ------------------------------------------------------------------ S13, S14: the director's answers
 
     @Test
-    fun `S13 a director answer on an unrouted decision records director, autonomy basis, not relayed, not within autonomy`(): Unit =
+    fun `S13 a director answer on an unrouted ask decision records director, no basis, not relayed, not within autonomy`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("deviation")
 
             val result = f.svc.answer(d.id, DecisionAnswerCommand(option = "a"), director).ok()
 
-            assertEquals(listOf<Any?>("director", "autonomy", 0L, 0L), provenance(d.id))
+            assertEquals(listOf<Any?>("director", null, 0L, 0L), provenance(d.id))
             val answer = assertNotNull(result.answer)
             assertEquals(DecisionDecidedBy.DIRECTOR, answer.decidedBy)
-            assertEquals(DecisionAnswerBasis.AUTONOMY, answer.basis)
+            assertNull(answer.basis)
             assertEquals(false, answer.relayed)
             assertEquals(false, answer.withinAutonomy)
+        }
+
+    @Test
+    fun `S13 a director answer on an unrouted autonomy-answer class records the autonomy basis, within autonomy`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val d = f.raise("routine")
+
+            val result = f.svc.answer(d.id, DecisionAnswerCommand(option = "a"), director).ok()
+
+            assertEquals(listOf<Any?>("director", "autonomy", 0L, 1L), provenance(d.id))
+            val answer = assertNotNull(result.answer)
+            assertEquals(DecisionAnswerBasis.AUTONOMY, answer.basis)
+            assertEquals(true, answer.withinAutonomy)
+            // control: the delegated routine decision records delegation, so the basis turns on the routing first
+            val delegated = f.raise("routine", "k2")
+            f.svc.delegate(delegated.id, director).ok()
+            f.svc.answer(delegated.id, DecisionAnswerCommand(option = "a"), director).ok()
+            assertEquals(listOf<Any?>("director", "delegation", 0L, 1L), provenance(delegated.id))
         }
 
     @Test
@@ -279,7 +306,7 @@ work_item_schemas:
             f.svc.answer(plain.id, DecisionAnswerCommand(option = "a"), agent).ok()
 
             assertEquals(listOf<Any?>("director", "delegation", 0L, 1L), provenance(delegated.id))
-            assertEquals(listOf<Any?>("director", "autonomy", 0L, 0L), provenance(plain.id))
+            assertEquals(listOf<Any?>("director", null, 0L, 0L), provenance(plain.id))
         }
 
     // ------------------------------------------------------------------ S15: relayed
@@ -400,14 +427,58 @@ work_item_schemas:
         }
 
     @Test
-    fun `S18 a seat-less agent on an any-actor decision off the director profile is recorded director on the autonomy basis`(): Unit =
+    fun `S18 a seat-less decide agent on an any-actor ask decision off the director profile is recorded director with no basis`(): Unit =
         runBlocking {
             val f = fixture()
             val d = f.raise("question")
 
             f.svc.answer(d.id, DecisionAnswerCommand(option = "a"), agent).ok()
 
-            assertEquals(listOf<Any?>("director", "autonomy", 0L, 0L), provenance(d.id))
+            assertEquals(listOf<Any?>("director", null, 0L, 0L), provenance(d.id))
+        }
+
+    @Test
+    fun `S18 a seat-less caller without decide on an any-actor decision records nothing, even a human credential with no proof`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val byAgent = f.raise("question", "k1")
+            val byUnprovenHuman = f.raise("question", "k2")
+            val unprovenHuman = caller("api:person-secret", PrincipalKind.HUMAN, ProofStatus.NONE)
+
+            val result = f.svc.answer(byAgent.id, DecisionAnswerCommand(option = "a"), agentNoDecide).ok()
+            f.svc.answer(byUnprovenHuman.id, DecisionAnswerCommand(option = "a"), unprovenHuman).ok()
+
+            for (id in listOf(byAgent.id, byUnprovenHuman.id)) {
+                assertEquals(listOf<Any?>(null, null, null, null), provenance(id), "decision $id")
+                assertEquals("answered", row(id)["status"], "control: the answer itself is accepted")
+            }
+            assertNull(assertNotNull(result.answer).decidedBy)
+            // control: the same human credential with decide is the director (D5), so the none above turns on decide
+            val withDecide = f.raise("question", "k3")
+            val unprovenWithDecide = caller("api:person-secret", PrincipalKind.HUMAN, ProofStatus.NONE, director = true)
+            f.svc.answer(withDecide.id, DecisionAnswerCommand(option = "a"), unprovenWithDecide).ok()
+            assertEquals(listOf<Any?>("director", null, 0L, 0L), provenance(withDecide.id))
+        }
+
+    @Test
+    fun `S18 a seat-less caller without decide that sends decidedBy, either value, is invalid_request on decidedBy`(): Unit =
+        runBlocking {
+            val f = fixture()
+            val d = f.raise("question")
+            val before = frozen(d.id)
+            val eventsBefore = decisionEventCount()
+
+            for (sent in listOf(DecisionDecidedBy.USER, DecisionDecidedBy.DIRECTOR)) {
+                val error = f.svc.answer(d.id, DecisionAnswerCommand(option = "a", decidedBy = sent), agentNoDecide).err()
+                assertInvalid(error, "/decidedBy", "no-decide caller sending $sent")
+            }
+            assertEquals(before, frozen(d.id))
+            assertEquals(eventsBefore, decisionEventCount())
+            // control: the same caller without decidedBy answers, and the decide holder's relayed claim is accepted
+            f.svc.answer(d.id, DecisionAnswerCommand(option = "a"), agentNoDecide).ok()
+            val relayed = f.raise("question", "k2")
+            f.svc.answer(relayed.id, DecisionAnswerCommand(option = "a", decidedBy = DecisionDecidedBy.USER), agent).ok()
+            assertEquals(listOf<Any?>("user", "relayed", 1L, null), provenance(relayed.id))
         }
 
     // ------------------------------------------------------------------ S22: links

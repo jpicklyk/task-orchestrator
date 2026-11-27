@@ -58,17 +58,18 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Independent tests (test-author seat, item a53e6875, R24) for the answerer matrix, the consent boundary of a decision: who may
- * ack and answer a decision of each class. Two seams: the pure predicate over a [DecisionCaller] built from a [CallContext]
- * (class x kind x proof x profile x token, exhaustively) and the REST routes (`/ops/runs_write` served as `rest`,
- * `/ops/director/runs_write` served as `director`) with real bearer principals, where the refusal is the wire shape.
+ * Independent tests (test-author seat, item a53e6875, R24; the director rows rewritten by item b00cdc00) for the answerer matrix,
+ * the consent boundary of a decision: who may ack and answer a decision of each class. Two seams: the pure predicate over a
+ * [DecisionCaller] built from a [CallContext] (class x kind x proof x profile x capabilities x token, exhaustively) and the REST routes
+ * (`/ops/runs_write` served as `rest`, `/ops/director/runs_write` served as `director`) with real bearer principals, where the
+ * refusal is the wire shape.
  *
  * Oracles (never read from a run): plan 3.3 and task-scope D6: `human-only` admits a caller whose credential kind is HUMAN, who
  * presents NO seat token, and whose proof status is VERIFIED, VERIFIED_STALE or ISSUED (never NONE or REJECTED); `director-or-human`
- * admits that human, or a caller served on the `director` profile who presents no seat token; `any-actor` admits everyone; a
- * refusal is `forbidden{scope: principal_kind, required}` with `required` "human" for human-only and "director,human" for
- * director-or-human; the director is a PROFILE (never a credential attribute) and a seat is always an agent, so under any seat token
- * the caller is neither a human nor the director. The expected admission is a three-line truth table written here from those
+ * admits that human, or the director (item b00cdc00 D1): a caller who presents no seat token and whose credential grants
+ * decide (ADMIN implies decide), whatever profile served it; `any-actor` admits everyone; a refusal is `forbidden{scope: principal_kind, required}` with `required` "human" for human-only and "director,human" for
+ * director-or-human; the serving profile never makes a director and a seat is always an agent, so under any seat token
+ * (ADMIN included) the caller is neither a human nor the director. The expected admission is a three-line truth table written here from those
  * clauses, never read from the predicate.
  *
  * Negative-assertion conditions: every refusal is paired, in the same loop, with the same context differing only in the attribute
@@ -89,7 +90,9 @@ class DecisionAnswererMatrixTest {
     @TempDir
     lateinit var dir: Path
 
-    // ------------------------------------------------------------------ the truth table (task-scope D6)
+    // ------------------------------------------------------------------ the truth table (task-scope D1)
+
+    private val RUNS_AND_DECIDE = setOf(ApiCapability.RUNS, ApiCapability.DECIDE)
 
     private val humanProofs = setOf(ProofStatus.VERIFIED, ProofStatus.VERIFIED_STALE, ProofStatus.ISSUED)
 
@@ -99,21 +102,24 @@ class DecisionAnswererMatrixTest {
         seat: String?
     ): Boolean = kind == PrincipalKind.HUMAN && seat == null && proof in humanProofs
 
+    private fun decideOf(capabilities: Set<ApiCapability>): Boolean =
+        ApiCapability.DECIDE in capabilities || ApiCapability.ADMIN in capabilities
+
     private fun directorExpected(
-        profile: String?,
+        decide: Boolean,
         seat: String?
-    ): Boolean = profile == "director" && seat == null
+    ): Boolean = decide && seat == null
 
     private fun admittedExpected(
         answerers: DecisionRequestAnswerers,
         kind: PrincipalKind?,
         proof: ProofStatus?,
-        profile: String?,
+        decide: Boolean,
         seat: String?
     ): Boolean =
         when (answerers) {
             DecisionRequestAnswerers.HUMAN_ONLY -> humanExpected(kind, proof, seat)
-            DecisionRequestAnswerers.DIRECTOR_OR_HUMAN -> humanExpected(kind, proof, seat) || directorExpected(profile, seat)
+            DecisionRequestAnswerers.DIRECTOR_OR_HUMAN -> humanExpected(kind, proof, seat) || directorExpected(decide, seat)
             DecisionRequestAnswerers.ANY_ACTOR -> true
         }
 
@@ -122,13 +128,14 @@ class DecisionAnswererMatrixTest {
     private fun principal(
         id: String,
         kind: PrincipalKind,
-        proof: ProofStatus
+        proof: ProofStatus,
+        capabilities: Set<ApiCapability> = RUNS_AND_DECIDE
     ) = Principal(
         id = id,
         kind = kind,
         proofStatus = proof,
         scope = AccessScope.unrestricted(),
-        capabilities = setOf(ApiCapability.RUNS, ApiCapability.DECIDE)
+        capabilities = capabilities
     )
 
     private fun context(
@@ -136,10 +143,19 @@ class DecisionAnswererMatrixTest {
         proof: ProofStatus,
         profile: String?,
         seat: SeatContext?,
-        id: String = "dm-${kind.wire}-${proof.wire}"
+        id: String = "dm-${kind.wire}-${proof.wire}",
+        capabilities: Set<ApiCapability> = RUNS_AND_DECIDE
     ): CallContext =
-        CallContext(reqId = "dm-matrix", surface = "rest", principal = principal(id, kind, proof).toCallPrincipal(), profile = profile)
+        CallContext(
+            reqId = "dm-matrix",
+            surface = "rest",
+            principal = principal(id, kind, proof, capabilities).toCallPrincipal(),
+            profile = profile
+        )
             .copy(seat = seat)
+
+    private val capabilitySets: List<Set<ApiCapability>> =
+        listOf(RUNS_AND_DECIDE, setOf(ApiCapability.RUNS), setOf(ApiCapability.ADMIN))
 
     private val runId = UUID.fromString("11111111-1111-4111-8111-111111111111")
     private val memberSeat = SeatContext(runId = runId, assignmentId = UUID.randomUUID(), itemId = UUID.randomUUID(), seat = "implementer")
@@ -166,18 +182,21 @@ class DecisionAnswererMatrixTest {
             for (kind in PrincipalKind.entries) {
                 for (proof in ProofStatus.entries) {
                     for (profile in listOf("director", "orchestration", "rest", "knowledge", null)) {
-                        for (seat in listOf<SeatContext?>(null, memberSeat, coordinatorSeat)) {
-                            val caller = DecisionCallers.of(context(kind, proof, profile, seat))
-                            for (answerers in DecisionRequestAnswerers.entries) {
-                                val expected = admittedExpected(answerers, kind, proof, profile, seat?.seat)
-                                if (expected) {
-                                    admittedPerClass.merge(answerers, 1, Int::plus)
-                                } else {
-                                    refusedPerClass.merge(answerers, 1, Int::plus)
-                                }
-                                if (answerers.admits(caller) != expected) {
-                                    mismatches +=
-                                        "$answerers kind=$kind proof=$proof profile=$profile seat=${seat?.seat}: expected $expected"
+                        for (capabilities in capabilitySets) {
+                            for (seat in listOf<SeatContext?>(null, memberSeat, coordinatorSeat)) {
+                                val caller = DecisionCallers.of(context(kind, proof, profile, seat, capabilities = capabilities))
+                                for (answerers in DecisionRequestAnswerers.entries) {
+                                    val expected = admittedExpected(answerers, kind, proof, decideOf(capabilities), seat?.seat)
+                                    if (expected) {
+                                        admittedPerClass.merge(answerers, 1, Int::plus)
+                                    } else {
+                                        refusedPerClass.merge(answerers, 1, Int::plus)
+                                    }
+                                    if (answerers.admits(caller) != expected) {
+                                        mismatches +=
+                                            "$answerers kind=$kind proof=$proof profile=$profile caps=$capabilities " +
+                                            "seat=${seat?.seat}: expected $expected"
+                                    }
                                 }
                             }
                         }
@@ -198,9 +217,16 @@ class DecisionAnswererMatrixTest {
         runBlocking {
             for (proof in listOf(ProofStatus.NONE, ProofStatus.REJECTED)) {
                 for (profile in listOf("rest", "orchestration", null)) {
-                    val caller = DecisionCallers.of(context(PrincipalKind.HUMAN, proof, profile, seat = null))
+                    val caller =
+                        DecisionCallers.of(
+                            context(PrincipalKind.HUMAN, proof, profile, seat = null, capabilities = setOf(ApiCapability.RUNS))
+                        )
                     assertFalse(DecisionRequestAnswerers.HUMAN_ONLY.admits(caller), "human-only $proof $profile")
                     assertFalse(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(caller), "director-or-human $proof $profile")
+                    // control: the same credential holding decide is the director, so the refusal above turns on decide, not the proof
+                    val withDecide = DecisionCallers.of(context(PrincipalKind.HUMAN, proof, profile, seat = null))
+                    assertFalse(DecisionRequestAnswerers.HUMAN_ONLY.admits(withDecide), "human-only with decide $proof $profile")
+                    assertTrue(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(withDecide), "director-or-human with decide $proof")
                 }
             }
             // controls: the same credential with each acceptable proof is admitted on both restrictive classes
@@ -212,9 +238,16 @@ class DecisionAnswererMatrixTest {
         }
 
     @Test
-    fun `the director profile alone does not make a human-only answerer, and a seat token strips the director`(): Unit =
+    fun `the profile alone never admits, a decide credential does, and a seat token strips the director`(): Unit =
         runBlocking {
-            val director = DecisionCallers.of(context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "director", seat = null))
+            val director = DecisionCallers.of(context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "rest", seat = null))
+            assertTrue(director.isDirector(), "a seat-less decide credential is the director on the rest profile")
+            val withoutDecide =
+                DecisionCallers.of(
+                    context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "director", seat = null, capabilities = setOf(ApiCapability.RUNS))
+                )
+            assertFalse(withoutDecide.isDirector(), "the director profile without decide is not the director")
+            assertFalse(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(withoutDecide))
             assertTrue(director.isDirector())
             assertFalse(director.isHuman())
             assertTrue(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(director))
@@ -229,6 +262,19 @@ class DecisionAnswererMatrixTest {
             assertFalse(seatedHuman.isHuman(), "a human credential under a seat token is not a human")
             assertFalse(DecisionRequestAnswerers.HUMAN_ONLY.admits(seatedHuman))
             assertFalse(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(seatedHuman))
+        }
+
+    @Test
+    fun `an ADMIN credential under a seat token is not the director, and without a seat it is`(): Unit =
+        runBlocking {
+            val admin = setOf(ApiCapability.ADMIN)
+            val seated =
+                DecisionCallers.of(context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "orchestration", memberSeat, capabilities = admin))
+            assertFalse(seated.isDirector())
+            assertFalse(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN.admits(seated))
+            val seatless =
+                DecisionCallers.of(context(PrincipalKind.SERVICE, ProofStatus.ISSUED, "orchestration", null, capabilities = admin))
+            assertTrue(seatless.isDirector(), "control: ADMIN implies decide")
         }
 
     @Test
@@ -265,15 +311,19 @@ class DecisionAnswererMatrixTest {
     private class Bearer(
         val id: String,
         val kind: PrincipalKind,
-        val proof: ProofStatus
+        val proof: ProofStatus,
+        val capabilities: Set<ApiCapability> = setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE)
     ) {
         val raw: String get() = "raw-dm-$id"
     }
 
     private val orchestrator = Bearer("dm-orch", PrincipalKind.SERVICE, ProofStatus.ISSUED)
 
+    /** A service token holding RUNS and READ but not decide: the dispatcher refuses its ack and answer (capability decide). */
+    private val runsOnly = Bearer("dm-runs-only", PrincipalKind.SERVICE, ProofStatus.ISSUED, setOf(ApiCapability.RUNS, ApiCapability.READ))
+
     private val bearers: List<Bearer> =
-        listOf(orchestrator) +
+        listOf(orchestrator, runsOnly) +
             PrincipalKind.entries.flatMap { kind ->
                 ProofStatus.entries.map { proof -> Bearer("dm-${kind.wire}-${proof.wire}", kind, proof) }
             }
@@ -287,7 +337,7 @@ class DecisionAnswererMatrixTest {
                             Principal(
                                 id = b.id,
                                 scope = AccessScope.unrestricted(),
-                                capabilities = setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE),
+                                capabilities = b.capabilities,
                                 kind = b.kind,
                                 proofStatus = b.proof
                             ),
@@ -391,12 +441,12 @@ class DecisionAnswererMatrixTest {
             var admitted = 0
             var refused = 0
             for (answerers in DecisionRequestAnswerers.entries) {
-                for ((mount, profile) in listOf("/api/v1/ops/runs_write" to "rest", "/api/v1/ops/director/runs_write" to "director")) {
-                    for (b in bearers.filter { it !== orchestrator }) {
+                for (mount in listOf("/api/v1/ops/runs_write", "/api/v1/ops/director/runs_write")) {
+                    for (b in bearers.filter { it !== orchestrator && it !== runsOnly }) {
                         val decisionId = client.raised(classOf(answerers))
                         val response = client.send(mount, answerBody(decisionId), b)
                         val text = response.bodyAsText()
-                        val expected = admittedExpected(answerers, b.kind, b.proof, profile, seat = null)
+                        val expected = admittedExpected(answerers, b.kind, b.proof, decideOf(b.capabilities), seat = null)
                         val label = "$answerers ${b.kind} ${b.proof} on $mount"
                         if (expected) {
                             admitted++
@@ -497,5 +547,25 @@ class DecisionAnswererMatrixTest {
             val acked = client.send("/api/v1/ops/runs_write", """{"ops":[{"op":"ack","decisionId":"$decisionId"}]}""", human)
             assertEquals(200, acked.status.value, acked.bodyAsText())
             assertTrue("\"status\":\"acknowledged\"" in acked.bodyAsText(), acked.bodyAsText())
+        }
+
+    @Test
+    fun `route - a seat-less decide service token answers a deviation on the plain mount, and one without decide is refused`(): Unit =
+        withApp {
+            val service = bearers.single { it.id == "dm-service-issued" }
+            val deviation = client.raised("deviation")
+            val answered = client.send("/api/v1/ops/runs_write", answerBody(deviation), service)
+            assertEquals(200, answered.status.value, answered.bodyAsText())
+            assertTrue(answeredMarker in answered.bodyAsText(), answered.bodyAsText())
+
+            val refusedDeviation = client.raised("deviation")
+            val refused = client.send("/api/v1/ops/runs_write", answerBody(refusedDeviation), runsOnly)
+            val text = refused.bodyAsText()
+            assertEquals(207, refused.status.value, text)
+            assertTrue("\"code\":\"forbidden\"" in text && "decide" in text, text)
+
+            // control: the same decision, still open, is then answered by the decide holder
+            val retried = client.send("/api/v1/ops/runs_write", answerBody(refusedDeviation), service)
+            assertEquals(200, retried.status.value, retried.bodyAsText())
         }
 }

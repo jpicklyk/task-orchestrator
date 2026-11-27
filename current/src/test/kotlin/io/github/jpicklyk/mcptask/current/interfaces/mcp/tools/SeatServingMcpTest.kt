@@ -469,7 +469,10 @@ traits:
             "seatWrites",
             "orchestratorNotes",
             "resumeGate",
-            "answerProvenance"
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority"
         )
 
     @Test

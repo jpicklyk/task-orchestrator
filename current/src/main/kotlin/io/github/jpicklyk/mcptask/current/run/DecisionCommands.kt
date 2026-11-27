@@ -18,7 +18,7 @@ import java.util.UUID
  * @property principalId The audited actor id (`api:<id>`, or `local`).
  * @property kind The credential kind; null when the call carries no transport principal (a test-built one).
  * @property proofStatus How the credential was proven; null as for [kind].
- * @property director True when the director profile served the call and it carries no seat token.
+ * @property director True when the call carries no seat token and its credential grants decide.
  * @property seat The seat of the call's seat token, or null without one.
  * @property runId The run of the call's seat token, or null without one.
  * @property assignmentId The assignment of the call's seat token, or null without one.
@@ -46,7 +46,7 @@ data class DecisionCaller(
 /** True when [caller] is a human: a human credential, no seat token, and a proof in [DecisionCaller.HUMAN_PROOFS]. */
 fun DecisionCaller.isHuman(): Boolean = kind == PrincipalKind.HUMAN && seat == null && proofStatus in DecisionCaller.HUMAN_PROOFS
 
-/** True when [caller] is the director: the director profile served the call and it carries no seat token. */
+/** True when [caller] is the director: no seat token and a credential granting decide, on any profile. */
 fun DecisionCaller.isDirector(): Boolean = director && seat == null
 
 /**

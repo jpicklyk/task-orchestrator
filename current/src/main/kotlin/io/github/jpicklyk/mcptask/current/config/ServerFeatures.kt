@@ -19,7 +19,9 @@ package io.github.jpicklyk.mcptask.current.config
  * advertises that an answered decision records who decided it and why (`decidedBy`, `basis`, `relayed`, `withinAutonomy`)
  * and the cited `links`. `"waitingOn"` advertises that a pending decision records who it waits on (`waitingOn`,
  * `waitingReason`), set by `delegate` and `escalate`. `"decisionTools"` advertises the `decisions_read` and
- * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases.
+ * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases. `"decisionAuthority"`
+ * advertises that director-or-human admits a seat-less caller whose credential grants decide on any profile, and that
+ * decision classes carry an `autonomy`, recorded as `withinAutonomy`.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
@@ -34,6 +36,7 @@ object ServerFeatures {
             "resumeGate",
             "answerProvenance",
             "decisionTools",
-            "waitingOn"
+            "waitingOn",
+            "decisionAuthority"
         )
 }

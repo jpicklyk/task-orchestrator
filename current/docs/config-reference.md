@@ -232,6 +232,7 @@ overdue. `decision_classes:` is allowed in the server file and in a per-root doc
 | `expires_after` | integer, seconds, at least 1 | Seconds after the raise when an unanswered decision becomes overdue and its severity reads one step up. Absent: never overdue. |
 | `on_expiry` | `escalate` | What expiry does. `escalate` is the only value, and it changes only the reported severity; the server takes no other action. |
 | `freeform` | boolean | `true`: an answer may be free text instead of an option. Default `false`. |
+| `autonomy` | `answer`, `ask` | Whether the director may answer the class itself or should ask the user. Recorded as `withinAutonomy` on a director answer, never enforced. Default `ask`; a `human-only` class is always `ask`. |
 
 **Built-in classes.**
 

@@ -53,7 +53,10 @@
             "seatWrites",
             "orchestratorNotes",
             "resumeGate",
-            "answerProvenance"
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority"
         ]
     },
     "metadata": {

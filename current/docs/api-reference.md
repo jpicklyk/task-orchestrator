@@ -517,7 +517,7 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`, `resumeGate`, `answerProvenance`, `decisionTools`, `waitingOn`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`, `resumeGate`, `answerProvenance`, `decisionTools`, `waitingOn`, `decisionAuthority`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
@@ -2415,7 +2415,7 @@ Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `par
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `ack`** (director profile only; capability `decide`): Deprecated (removed in 5.0): use decisions_write ack. Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real proof and no seat token; director-or-human: also the director profile without a seat token). An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
+**`runs_write` op `ack`** (director profile only; capability `decide`): Deprecated (removed in 5.0): use decisions_write ack. Acknowledge an open decision: the answerers of its class only. An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2489,7 +2489,7 @@ A decision is a question raised under a class (see
 `raise`, `delegate` and `withdraw` are under the orchestration profile (a seat token supplies its run and item); `ack`, `delegate`, `escalate` and
 `answer` are served by the director profile, `withdraw` also by it, and REST `POST /api/v1/ops/decisions_write` serves every op. Who may `ack` or `answer`:
 
-| Class answerers | A human (human credential, real proof, no seat token) | The director profile (no seat token) | Any other caller |
+| Class answerers | A human (human credential, real proof, no seat token) | A credential granting decide (no seat token) | Any other caller |
 |---|---|---|---|
 | `human-only` | yes | no | no |
 | `director-or-human` | yes | yes | no |
@@ -2531,7 +2531,7 @@ Raise, ack, delegate, escalate, answer and withdraw decisions. Each op needs a r
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
 
-**`decisions_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real proof and no seat token; director-or-human: also the director profile without a seat token). An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
+**`decisions_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only. An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

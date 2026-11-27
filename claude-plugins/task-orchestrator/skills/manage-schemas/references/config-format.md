@@ -1093,7 +1093,7 @@ An absent ceiling means unlimited; a run's own budget may only lower a ceiling. 
 
 ## Decision Classes (`decision_classes:`)
 
-A decision is raised under a class; the class sets who answers it, its default severity and when it turns overdue. A per-class entry has `answerers` (`human-only`, `director-or-human`, `any-actor`), `severity` (`high`, `normal`, `low`), `expires_after` (seconds), `on_expiry` (`escalate`, the only value) and `freeform` (boolean). The class name matches `^[a-z][a-z0-9_-]{0,63}$`.
+A decision is raised under a class; the class sets who answers it, its default severity and when it turns overdue. A per-class entry has `answerers` (`human-only`, `director-or-human`, `any-actor`), `severity` (`high`, `normal`, `low`), `expires_after` (seconds), `on_expiry` (`escalate`, the only value), `freeform` (boolean) and `autonomy` (`answer` or `ask`, default `ask`; a `human-only` class is always `ask`). The class name matches `^[a-z][a-z0-9_-]{0,63}$`.
 
 ```yaml
 decision_classes:

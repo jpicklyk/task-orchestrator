@@ -142,7 +142,7 @@ View: show `runs:` from the file (or the merged view when a `rootId` exists). Ed
 
 ### DECISION CLASSES — the `decision_classes:` block
 
-A decision can only be raised under a declared class: a raise with an undeclared class fails `invalid_request /class`. View: when a `rootId` exists, read the server-merged classes with `config` `effective` (built-ins plus server plus root); otherwise read the file. Edit: write the class (`answerers`, `severity`, `expires_after`, `on_expiry`, `freeform`), then the existing Step 4 validate and push. Keys, built-ins and the merge rule are in `references/config-format.md` -> "Decision Classes".
+A decision can only be raised under a declared class: a raise with an undeclared class fails `invalid_request /class`. View: when a `rootId` exists, read the server-merged classes with `config` `effective` (built-ins plus server plus root); otherwise read the file. Edit: write the class (`answerers`, `severity`, `expires_after`, `on_expiry`, `freeform`, `autonomy`), then the existing Step 4 validate and push. Keys, built-ins and the merge rule are in `references/config-format.md` -> "Decision Classes".
 
 ### VALIDATE — Check Config Integrity
 

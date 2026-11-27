@@ -863,7 +863,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "verifier": "bearer",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"],
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn", "decisionAuthority"],
   "configWarnings": []
 }
 ```
@@ -904,7 +904,7 @@ rule text served by the `config` tool's `rules` op (section 10) - see [api-refer
   "version": "4.0.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn", "decisionAuthority"]
 }
 ```
 
@@ -1103,7 +1103,7 @@ answer when answered) when its class, question and option keys match, and is `40
 `detail.idempotencyKey` set to the dedupe key otherwise; a withdrawn one never matches, so a re-raise after a withdraw
 creates a new decision. `ack{decisionId}`, `delegate{decisionId}`, `escalate{decisionId, reason}` and `answer{decisionId, option?, text?, rationale?, decidedBy?, links?}` (director profile,
 `decide`; `delegate` also on the orchestration profile) need the class's answerers (`escalate` also admits the director; `delegate` refuses a `human-only` decision with `400 invalid_request` on `/decisionId`): `human-only` a human credential with proof `verified`, `verified_stale` or `issued`
-and no seat token; `director-or-human` also the director profile without a seat token; `any-actor` any caller. A refusal
+and no seat token; `director-or-human` also a credential granting `decide` without a seat token; `any-actor` any caller. A refusal
 is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `director,human`. `answer` is final: the
 option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
 1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`, and `decidedBy` (`user` or `director`; a claim the credential contradicts is refused), `basis`, `relayed`, `withinAutonomy` and the cited `links`. `delegate` sets `waitingOn: director` and `escalate` sets `waitingOn: user` with `waitingReason`; both return the decision unchanged when it already waits there. `withdraw

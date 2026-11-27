@@ -39,10 +39,8 @@ internal val decisionsAckOp =
 
 /** The `ack` op text, shared by `decisions_write` and its deprecated `runs_write` alias. */
 internal const val ACK_DOC =
-    "Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real " +
-        "proof and no seat token; director-or-human: also the director profile without a seat token). An " +
-        "acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the " +
-        "decision."
+    "Acknowledge an open decision: the answerers of its class only. An acknowledged decision is returned " +
+        "unchanged; an answered or withdrawn one is decision_closed. Returns the decision."
 
 /** Runs `decisions_write ack` for both tools: the one body of the op. */
 internal suspend fun WriteScope<RunStoreProvider>.ackDecision(

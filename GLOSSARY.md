@@ -117,7 +117,7 @@ In code: today the hardened director agent and the director profile also apply t
 
 ### Director profile
 
-The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director. Today the server checks it as a stand-in for decision authority (`RunPermissions.kt:43`); in the destination authority lives in the decision's class and the credential, not the profile. It stays served, for other platforms and deployments. Today director mode still holds it for the decision ops, `pause`, `resume` and `reissue`, which are served only here; once [0003](design/decisions/0003-role-neutral-decisions-surface.md) puts decision ops on every profile that needs them, with authority from the decision's class plus a credential's `decide` capability, director mode no longer depends on it.
+The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director. Decision authority lives in the decision's class and the credential, not the profile. It stays served, for other platforms and deployments. Today director mode still holds it for the decision ops, `pause`, `resume` and `reissue`, which are served only here; once [0003](design/decisions/0003-role-neutral-decisions-surface.md) puts decision ops on every profile that needs them, with authority from the decision's class plus a credential's `decide` capability, director mode no longer depends on it.
 
 Distinct from: director mode, which is a session state, and the director layer.
 In code: `ToolProfile.DIRECTOR`.
@@ -177,7 +177,7 @@ The named kind a decision is raised under. It sets who may answer it (`answerers
 
 The server tests the caller's credential, never its role.
 
-In code: `decision_classes:`, `DecisionRequestAnswerers`. Today `director-or-human` is tested by "served on the director profile without a seat token" (`DecisionCommands.kt`). Once decisions are role-neutral, it becomes a human, or a caller without a seat token whose credential carries the answer capability.
+In code: `decision_classes:`, `DecisionRequestAnswerers`. `director-or-human` admits a human, or a seat-less caller whose credential grants decide (`DecisionCallers.of`). A class also carries `autonomy` (`answer` or `ask`), the director's own answer-or-ask posture, recorded as `withinAutonomy`.
 
 ### Escalation
 

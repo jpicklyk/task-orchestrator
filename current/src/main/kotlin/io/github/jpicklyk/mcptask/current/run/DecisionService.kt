@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.run.DecisionAnswerBasis
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAutonomy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionDecidedBy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswer
@@ -298,11 +299,12 @@ class DecisionService(
             if (!decision.answerers.admits(caller)) return@write err(refuse(decision.answerers.required()))
             if (!decision.status.isPending) return@write err(decisionClosed(decision))
 
-            val freeform = classes(decision.rootId)[decision.decisionClass]?.freeform == true
+            val decisionClass = classes(decision.rootId)[decision.decisionClass]
+            val freeform = decisionClass?.freeform == true
             val violations = answerViolations(decision, command, freeform)
             if (violations.isNotEmpty()) return@write err(invalidFields(violations, "The answer is invalid"))
             val decided =
-                when (val derived = derivedProvenance(decision, command, caller)) {
+                when (val derived = derivedProvenance(decision, command, caller, decisionClass?.autonomy ?: DecisionAutonomy.ASK)) {
                     is Derivation.Refused -> return@write err(invalidFields(listOf(derived.violation), "The answer is invalid"))
                     is Derivation.Decided -> derived
                 }
@@ -450,14 +452,17 @@ class DecisionService(
     /**
      * The decision provenance of an answer by [caller], derived from its seat and credential kind and the request's
      * routing, never from the serving profile (the MCP and REST rows must match). A human decided as the user; a seat
-     * records none; any other caller is the director (it is not the user), deciding within its autonomy, or by
-     * delegation when the request waits on the director, unless it says it relayed the user's decision. A claim the
-     * credential contradicts is refused, and while the request waits on the user only the user may answer it.
+     * records none; a seat-less caller without the decide capability records none and may claim nothing; any other
+     * caller is the director (it is not the user): by delegation when the request waits on the director (within its
+     * autonomy), within its autonomy when the class is [autonomy] `answer`, and otherwise without a basis (an ask class
+     * the director answered itself), unless it says it relayed the user's decision. A claim the credential contradicts
+     * is refused, and while the request waits on the user only the user may answer it.
      */
     private fun derivedProvenance(
         decision: DecisionRequest,
         command: DecisionAnswerCommand,
-        caller: DecisionCaller
+        caller: DecisionCaller,
+        autonomy: DecisionAutonomy
     ): Derivation {
         val claimed = command.decidedBy
         val derived =
@@ -470,16 +475,21 @@ class DecisionService(
                     if (claimed != null) return refusedClaim("a seat answer records no decidedBy")
                     Derivation.Decided(null, null, null, null)
                 }
+                !caller.isDirector() -> {
+                    if (claimed != null) return refusedClaim("a caller without the decide capability records no decidedBy")
+                    Derivation.Decided(null, null, null, null)
+                }
                 claimed == DecisionDecidedBy.USER ->
                     Derivation.Decided(DecisionDecidedBy.USER, DecisionAnswerBasis.RELAYED, relayed = true, withinAutonomy = null)
                 else -> {
-                    val within = withinAutonomy(decision)
-                    Derivation.Decided(
-                        DecisionDecidedBy.DIRECTOR,
-                        if (within) DecisionAnswerBasis.DELEGATION else DecisionAnswerBasis.AUTONOMY,
-                        relayed = false,
-                        withinAutonomy = within
-                    )
+                    val delegated = decision.waitingOn == DecisionWaitingOn.DIRECTOR
+                    val basis =
+                        when {
+                            delegated -> DecisionAnswerBasis.DELEGATION
+                            autonomy == DecisionAutonomy.ANSWER -> DecisionAnswerBasis.AUTONOMY
+                            else -> null
+                        }
+                    Derivation.Decided(DecisionDecidedBy.DIRECTOR, basis, relayed = false, withinAutonomy = basis != null)
                 }
             }
         if (decision.waitingOn == DecisionWaitingOn.USER && derived.decidedBy != DecisionDecidedBy.USER) {
@@ -489,9 +499,6 @@ class DecisionService(
     }
 
     private fun refusedClaim(reason: String): Derivation.Refused = Derivation.Refused(FieldViolation(FIELD_DECIDED_BY, reason))
-
-    /** Whether the director answers [decision] within its autonomy: today, when the request was delegated to it. */
-    private fun withinAutonomy(decision: DecisionRequest): Boolean = decision.waitingOn == DecisionWaitingOn.DIRECTOR
 
     private fun mayWithdraw(
         decision: DecisionRequest,

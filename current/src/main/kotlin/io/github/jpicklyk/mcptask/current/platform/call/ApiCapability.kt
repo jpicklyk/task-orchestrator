@@ -28,10 +28,10 @@ enum class ApiCapability {
     /** Every `docs_write` op (plans, rules, pages). */
     WRITE_DOCS,
 
-    /** Run tools. Parseable and grantable; no consumer enforces it yet. */
+    /** Run tools. */
     RUNS,
 
-    /** Decision answering. Parseable and grantable; no consumer enforces it yet. */
+    /** Decision answering: with no seat token, the credential that makes a call the director (see `DecisionCallers`). */
     DECIDE,
 
     /** Operator-only endpoints; also implies every capability above. */

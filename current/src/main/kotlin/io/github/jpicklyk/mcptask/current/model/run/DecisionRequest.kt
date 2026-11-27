@@ -43,8 +43,8 @@ enum class DecisionRequestSeverity(
 
 /**
  * Who may answer (and acknowledge) a decision request (plan section 3.3). [HUMAN_ONLY]: a human credential without a
- * seat token and with a real proof; [DIRECTOR_OR_HUMAN]: that, or a call served by the director profile without a seat
- * token; [ANY_ACTOR]: every principal. The predicate itself lives with the caller type in the application layer.
+ * seat token and with a real proof; [DIRECTOR_OR_HUMAN]: that, or a call with no seat token whose credential grants
+ * decide; [ANY_ACTOR]: every principal. The predicate itself lives with the caller type in the application layer.
  */
 enum class DecisionRequestAnswerers(
     val wire: String
@@ -55,6 +55,21 @@ enum class DecisionRequestAnswerers(
 
     companion object {
         fun fromWire(value: String): DecisionRequestAnswerers? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/**
+ * Whether the director may answer a decision class itself ([ANSWER]) or should ask the user ([ASK], the default). It is
+ * recorded as `withinAutonomy` on a director answer and never enforced; a human-only class is always [ASK].
+ */
+enum class DecisionAutonomy(
+    val wire: String
+) {
+    ANSWER("answer"),
+    ASK("ask");
+
+    companion object {
+        fun fromWire(value: String): DecisionAutonomy? = entries.firstOrNull { it.wire == value }
     }
 }
 

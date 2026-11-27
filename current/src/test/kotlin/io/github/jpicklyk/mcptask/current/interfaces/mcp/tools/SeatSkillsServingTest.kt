@@ -88,7 +88,10 @@ class SeatSkillsServingTest {
             "seatWrites",
             "orchestratorNotes",
             "resumeGate",
-            "answerProvenance"
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority"
         )
 
     private fun world(block: suspend (SeatWorld) -> Unit) =
