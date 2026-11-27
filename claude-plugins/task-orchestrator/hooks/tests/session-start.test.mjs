@@ -1838,3 +1838,91 @@ test('a877f204 T4: orchestration-only registration, role-bearing config -> the o
   assert.ok(ctx.includes('`list`, `search`, `context`, `next` and `blocked`'));
   assert.ok(!ctx.includes(KNOWLEDGE_BULLETS[1]));
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// 1c25ff10 S1-S6: knowledge mechanics bullets. Oracles: specification D1 (exact bullets B4-B6) and
+// hooks/lib/tool-catalog.json (via assertKnowledgeGuidance), never the hook's output.
+// ─────────────────────────────────────────────────────────────────────────
+
+const KNOWLEDGE_MECHANICS_BULLETS = [
+  '- Delete an item, a note or a page (`items_write` op `delete`, `notes_write` op `delete`, `docs_write` op `delete`) only after the user\'s explicit yes to that deletion. To prune, prefer archiving: `docs_write` op `archive` for a page, and for an item a tag added with `items_write` op `update`, sending the item\'s current tags plus that tag: the maturity rule\'s archive tag when the root has one, else a tag the user names.',
+  '- Once per session, before you retrieve or prune, read the root\'s maturity rule with `docs_read` select `get` (`kind: "rule"`, `slug: "maturity"`); `not_found` means the root has none. When it exists, leave items carrying one of its hidden tags (`items_read` select `list` with `tags` finds them) out of what you show unless the user asks for them, and apply its archive tag instead of a delete.',
+  '- Before writing up what an item covers, read its schema (`items_read` select `schema` with `itemId` and `fields: ["guidance"]`): when a note entry\'s guidance makes it the note for that write-up, write it there beside the page, and when the entry names a `skill`, invoke that skill before you write the note.',
+];
+const KNOWLEDGE_FULL_PREFIX = '## Task Orchestrator — Session Context\n\n'
+  + [...KNOWLEDGE_BULLETS, ...KNOWLEDGE_MECHANICS_BULLETS].join('\n');
+
+function assertMechanicsBullets(ctx) {
+  for (const b of KNOWLEDGE_MECHANICS_BULLETS) assert.ok(ctx.includes(b), `missing: ${b}\n---\n${ctx}`);
+}
+
+test('1c25ff10 S1: knowledge registration, project state -> header, B1-B3 then B4-B6, before Project Scope', () => {
+  const dir = trackedTmp('to-ss-kmech-');
+  writeConfig(dir, 'project:\n  rootId: kb-root-1\n  name: "KB"\n');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX + '\n'), ctx);
+  const scope = ctx.indexOf('## Project Scope');
+  assert.ok(scope > KNOWLEDGE_FULL_PREFIX.length, ctx);
+});
+
+test('1c25ff10 S2: knowledge registration, user state -> B4-B6 present', () => {
+  const dir = trackedTmp('to-ss-kmech-u-');
+  const toHome = trackedTmp('to-ss-kmech-uh-');
+  writeConfig(toHome, 'project:\n  rootId: personal-kb\n');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir, { toHome })).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
+});
+
+test('1c25ff10 S2: knowledge registration, no config -> B4-B6 then Setup Status', () => {
+  const dir = trackedTmp('to-ss-kmech-n-');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
+  assert.ok(ctx.indexOf('## Setup Status') > KNOWLEDGE_FULL_PREFIX.length, ctx);
+});
+
+test('1c25ff10 S2: knowledge registration, project block without rootId -> B4-B6 then Setup Status', () => {
+  const dir = trackedTmp('to-ss-kmech-nr-');
+  writeConfig(dir, 'project:\n  name: "KB"\n');
+  writeProjectMcpJson(dir, KNOWLEDGE_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), ctx);
+  assert.ok(ctx.indexOf('## Setup Status') > KNOWLEDGE_FULL_PREFIX.length, ctx);
+});
+
+test('1c25ff10 S3: lifecycle-free config with an orchestration registration -> B4-B6 present', () => {
+  const dir = trackedTmp('to-ss-kmech-lf-');
+  writeConfig(dir, 'project:\n  rootId: kb-root-2\nwork_item_schemas:\n  page:\n    lifecycle: none\n');
+  writeProjectMcpJson(dir, ORCHESTRATION_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assertKnowledgeGuidance(ctx);
+  assertMechanicsBullets(ctx);
+});
+
+test('1c25ff10 S4: orchestration-only registration, role-bearing config -> none of B4-B6', () => {
+  const dir = trackedTmp('to-ss-kmech-orch-');
+  writeConfig(dir, 'project:\n  rootId: sw-root-1\nwork_item_schemas:\n  bug:\n    lifecycle: auto\n');
+  writeProjectMcpJson(dir, ORCHESTRATION_REG);
+  const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes('These are orchestration-profile tools'));
+  for (const b of KNOWLEDGE_MECHANICS_BULLETS) assert.ok(!ctx.includes(b), b);
+});
+
+test('1c25ff10 S6: knowledge registration, SessionStart source compact and resume -> B4-B6 present', () => {
+  for (const source of ['compact', 'resume']) {
+    const dir = trackedTmp('to-ss-kmech-src-');
+    writeConfig(dir, 'project:\n  rootId: kb-root-1\n  name: "KB"\n');
+    writeProjectMcpJson(dir, KNOWLEDGE_REG);
+    const r = runHook(dir, { input: JSON.stringify({ session_id: 'kb-s', source }) });
+    assert.equal(r.status, 0, source);
+    const ctx = parse(r).hookSpecificOutput.additionalContext;
+    assertKnowledgeGuidance(ctx);
+    assert.ok(ctx.startsWith(KNOWLEDGE_FULL_PREFIX), `${source}\n${ctx}`);
+  }
+});
