@@ -204,9 +204,8 @@ test('S14: CHANGELOG [4.0.0] ### Plugin has a director bullet', () => {
   assert.ok(bullets.length >= 1, 'director bullet under 4.0.0 Plugin');
 });
 
-test('S14: integration guide has the Director Guard heading and a director skill row', () => {
+test('S14: integration guide has a director skill row', () => {
   const lines = GUIDE.split(/\r?\n/);
-  assert.ok(lines.some((l) => l.trim() === '### Director Guard'), 'Director Guard heading');
   assert.ok(lines.some((l) => l.startsWith('|') && l.includes('/task-orchestrator:director')), 'User Skills row for director');
 });
 

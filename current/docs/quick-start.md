@@ -88,7 +88,7 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read`, `runs_write` and `decisions_write`.
+You should see `mcp-task-orchestrator` listed as connected, with its tools available.
 
 Two things to know before you read any example in this guide:
 
@@ -364,97 +364,17 @@ treated as implicit AND. Pass plain terms — special characters are automatical
 That is a `deps_read` call. It returns all edges that point at the given item. Useful for impact
 analysis and tracing who depends on what. For everything related to an item (edges, links, shared tags and similar text), use `items_read` `{"select": "related", "itemId": "3d7e91ab"}`.
 
-For the full FTS5 architecture, score interpretation, and `explain=true` usage, see
-[`search-and-discovery.md`](./search-and-discovery.md).
-
 ---
 
 ## Step 8: Note schemas
 
-> **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.
-
-Note schemas enforce per-phase documentation requirements. When an item's `type` resolves to a schema, `advance` gates progression until the required notes are filled.
-
-Create `.taskorchestrator/config.yaml` in your project root:
-
-```yaml
-# Preferred format — supports lifecycle and traits fields
-work_item_schemas:
-  task-implementation:
-    lifecycle: auto          # auto (default), manual, permanent, or none (lifecycle-free)
-    notes:
-      - key: acceptance-criteria
-        role: queue
-        required: true
-        description: "Testable acceptance criteria for this task."
-      - key: done-criteria
-        role: work
-        required: true
-        description: "What does done look like? How was it verified?"
-```
-
-> The legacy `note_schemas:` flat-list format is still accepted and fully backward-compatible. New configs should prefer `work_item_schemas:`.
-
-Items whose `type` is `task-implementation` will require an `acceptance-criteria` note before an `advance` `transition` with `trigger: "start"` advances them to work, and a `done-criteria` note before one with `trigger: "complete"` closes them. Tags never select a schema.
-
-The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, validating, and auditing schemas without editing YAML directly.
-
-After adding or editing this file, reconnect the MCP server:
-
-```
-/mcp  (disconnect and reconnect mcp-task-orchestrator)
-```
-
-> **Docker:** To read this config file, mount the `.taskorchestrator/` folder into the container. Add this to your project-level `.mcp.json` (not the global CLI registration — a globally-registered server should not have its schema config vary per project):
-> ```json
-> {
->   "mcpServers": {
->     "mcp-task-orchestrator": {
->       "command": "docker",
->       "args": [
->         "run", "--rm", "-i",
->         "-v", "mcp-task-data:/app/data",
->         "-v", "/absolute/path/to/your/project/.taskorchestrator:/project/.taskorchestrator:ro",
->         "-e", "AGENT_CONFIG_DIR=/project",
->         "ghcr.io/jpicklyk/task-orchestrator:latest"
->       ]
->     }
->   }
-> }
-> ```
-> Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted. Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
-
-
----
-
-## Key concepts
-
-| Concept | Description |
-|---------|-------------|
-| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), a required `type` (e.g. `feature`, `task`, `bug`; it must be declared in your config), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
-| `Note` | Key-value text attached to an item. Has a `role` indicating which workflow phase it belongs to. |
-| `Dependency` | Directed edge between items: `blocks` or `relates_to`. Name the blocker as `from`; the 3.x `is_blocked_by` alias is not accepted. |
-| Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (queue/work/review→terminal — not from blocked; `resume` first), `block`/`hold` (queue/work/review→blocked), `resume` (blocked→previous), `cancel` (any non-terminal→terminal, including blocked). |
-| Note schema gating | When enabled, `advance` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then the `default` schema; tags never select one. |
+Note schemas gate each phase transition on the notes an agent must fill. Writing one, mounting it into the container and reloading it are in [Note Schemas](integration-guides/note-schemas.md), and `/task-orchestrator:manage-schemas` builds them interactively.
 
 ---
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
-| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations on startup; `validate` runs no migrate and fails startup on a pending or future version; it is not read-only (it takes the lock file, may create an empty DB file on a missing path, and runs the FTS integrity check, which may rebuild). An invalid value fails startup even with `FLYWAY_REPAIR=true`. `USE_FLYWAY` is removed and ignored with a WARN. |
-| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Takes precedence over a valid `SCHEMA_MODE`. |
-| `AGENT_CONFIG_DIR` | `/project` in the Docker image (working directory when run from the JAR) | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
-| `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
-| `LOG_FILE` | _(unset)_ | Opt-in log file path (e.g. `/app/data/logs/task-orchestrator.log`). Unset means no file logging. |
-
-Logs are JSON, one object per line, written to stderr — stdout is reserved exclusively for MCP
-JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `level`,
-`loggerName`, `threadName`, `formattedMessage`, and an `mdc` object with correlation fields
-(`transport`, `tool`/`httpPath`, `requestId`, `sessionId`, etc. — see
-[fleet-deployment.md](fleet-deployment.md) for the full field list).
+Server variables, their defaults and their meanings are in the [Environment Variable Reference](fleet-deployment.md#environment-variable-reference).
 
 **Client-side variables** (read by the plugin hooks on your machine, not by the server):
 
@@ -464,8 +384,6 @@ JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `
 | `TASK_ORCHESTRATOR_HOME` | _(your home directory)_ | `TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it. |
 | `TASK_ORCHESTRATOR_CEILING` | _(unset)_ | `TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use. |
 | `TASK_ORCHESTRATOR_SETUP_HINT` | _(on)_ | Set to `off` to silence the once-per-day init hint shown at session start. |
-
----
 
 ---
 
@@ -719,5 +637,5 @@ Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the he
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
-- [workflow-guide.md](workflow-guide.md) - note schemas, phase gates, dependency patterns, and lifecycle examples; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
+- [workflow-guide.md](workflow-guide.md) - phase gates and dependency patterns; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
 - [reporting.md](reporting.md) - the `report` tool: usage, gates, contention, waste and run rollups

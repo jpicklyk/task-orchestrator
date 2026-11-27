@@ -57,60 +57,11 @@ On all surfaces:
 
 ## What it does
 
-### Work graph pane: `/to-graph`
-
-- With no argument it shows the scope of the latest transition under the project: the nearest feature, or the item itself for work under a container such as Bugs. It falls back to the most recently modified feature in work when that read fails. Other arguments are `root` or an item id.
-- The scope is auto or pinned. A bare `/to-graph`, or the band opening the pane, starts in auto: while the pane is open, a TO call or a spawned agent that names an item outside the graph moves the pane to that item's owning scope. An id argument, `root`, `This feature`, `Whole project`, a breadcrumb, `Open graph` or a click on a box pins the scope, and a pinned scope never moves; the `Follow` button (shown only while pinned) or a bare `/to-graph` returns to auto. Besides this session's own activity, an item transition made by another session in this project (an `item.advanced` event outside this session's echo window) moves an auto pane after a 3 second pause, when this session has been quiet for 30 seconds.
-- A scope toggle switches between `This feature` and `Whole project`. The whole-project view is an overview of the root's children with role roll-ups, from a single call limited to 100 children; past that it shows "More children than shown."
-- Items are drawn top-down as state-filled boxes. An amber dashed box has an open blocker. Plan badges come from the item's `properties.planLabel` (1 to 12 characters).
-- Phase and seat text, a legend, and a `Show done steps` / `Hide done steps` toggle.
-- A clickable breadcrumb. `Loading ...` shows while the scope switches.
-- Clicking a box opens a detail panel with Copy UUID and an Open graph drill-down.
-- The critical path (the longest open chain of two or more items) gets a purple stripe and heavy edges. It is not drawn on the overview.
-- `stalled` marks an item whose last move was 30 minutes ago or more. `gate:` marks this session's gate-blocked advance and is kept for 10 minutes.
-- A worker line shows `seat · model`. A star marks a recent change. A `?` marks an item with an open decision (from `decision.*` events on the live stream; an answered or withdrawn decision clears it).
-- The header shows `runs: <n> open, <m> paused` while the project has open or paused runs (from `run.*` events on the live stream).
-- Graph items are keyed by their 8-character short ids, as the 4.0 compact views return them; Copy UUID copies the full id from the item's `get` view.
-- Keyboard: one focus stop per box; Enter opens the detail.
-- Size limits: a scope with more children than the draw limit shows "Too large to draw" with the count and asks you to open a smaller scope. Below a card-count threshold the whole box is clickable; above it, each box gets one button. A subtree snapshot keeps only the shallowest items. `Reconnect` shows only when live updates are degraded.
-
-### Band and status line
-
-- On a scoped graph the band reads `item-id · done/total done · ready: ... · waiting: ...`. Otherwise it shows the in-flight item and its gate.
-- Pressing the band opens the pane. `/to-band` hides or shows it.
-- The status line shows `TO`, the item id prefix and a finished/remaining count.
-- The band subscribes once per session, so the live source (one `curl` stream, or a 15 second poll) runs for the whole session.
-
-### Toasts
-
-Opt-in through `graphToasts`. A toast appears when an item completes, becomes ready, is sent back from review to work, or one of this session's advances is gate-blocked. At most three toasts are shown per snapshot.
-
-### Cross-session change marks
-
-A change made by another session, seen over the live stream outside a short window after your own writes, is marked in the graph. Poll mode never marks changes.
-
-### In-process retrospective
-
-The mod offers the session retrospective itself, by spawning the retrospective agent, when the session is not headless, a config is readable (at `AGENT_CONFIG_DIR` or the working directory) and `extensions.claude-code.retrospective.mode` is not `off`. It follows run marks, like the command hooks: a retrospective is owed per closed run on the project root that is not marked `retro`, and only to the session that opened or closed it. Every successful `runs_write` `open` and `close` (a subagent's included) is recorded in the session's state. On a successful `runs_write` `close` (and again at Stop) it lists the root's closed, unmarked runs of the last 24 hours that this session opened or closed, reads each run's terminal count, and in `dispatch` mode at or above `dispatchThreshold` tries to win the run's `retro` mark (first write wins, so two sessions never both dispatch) before spawning one agent for `/session-retrospective --run <runId>`; otherwise it nudges. In a subagent, or without a project `rootId`, the close is recorded and the Stop nudges once. Test-kit verified, not live-verified.
-
-The `mark` goes over the REST API (the server serves `runs_write` `mark` over REST only): it needs the server's REST API enabled (`API_ENABLED=true`), `curl` on PATH, and the same API URL and token resolution as live updates. The token is passed to curl on stdin, never on the command line. Without the REST API, or when the mark fails, every dispatch-eligible run is nudged instead of dispatched.
-
-### Phase guard
-
-An in-process version of the phase guard that blocks a sub-agent from stopping with its phase notes unfilled. It records the items an `advance` call entered (a transition, or a `gate_blocked` element), reads each item's gate with `items_read` `context`, and never records a call made under a run `seatToken` or blocks a workflow subagent. Test-kit verified, not live-verified.
-
-### Call-shape rewrites
-
-Test-kit verified, not live-verified. The mod repairs common call shapes before the server sees them, and logs one transcript line `call-shape: <tool> <rule>` for each rule it applied. An input already in the 4.0 shape is passed through unchanged.
-
-- R1: it injects `ancestorId=<project rootId>` into `items_read` `list`, `next`, `blocked` and item-less `context` calls. It applies only when all of these hold: `ancestorId` is absent, there is no `parentId`, a `list` has depth other than 0, there is no `tags`, `type` or `traits` filter, and a root id resolves.
-- R2: `ancestorId: ""` is the opt-out: the mod removes it and injects nothing.
-- W1: a write call with a top-level `op` and no `ops` is wrapped into `ops[0]` (`atomic` and `seatToken` stay at the top).
-- W2: a 3.x `transitions[]` on `advance` or `notes[]` on `notes_write` becomes `ops[]`, each element given `op: "transition"` or `op: "upsert"` when it has none.
-- W3: a top-level `actor` and an `actor` on any `ops` element are removed (4.0 takes the caller from the transport and refuses a body `actor`).
-- W4: on `items_write` `create` and `update`, `properties.traits` moves to the op's `traits` (dropped when the op already has `traits`).
-
-The mod never guesses a missing `type`: the server's `schema_violation` lists the available types.
+- `/to-graph` opens a work graph pane for the nearest feature or a pinned scope, with the critical path, stalled and gate-blocked marks and a detail panel.
+- A band and status line show the scoped graph or the in-flight item and its gate; `/to-band` hides or shows the band.
+- Opt-in toasts (`graphToasts`) and cross-session change marks follow the live stream.
+- The mod offers the session retrospective in process, and runs an in-process phase guard that blocks a sub-agent from stopping with its phase notes unfilled.
+- It repairs common 3.x call shapes before the server sees them (`items_read` `ancestorId`, a top-level `op`, `transitions[]` and `notes[]`, an `actor`, `properties.traits`) and logs one transcript line `call-shape: <tool> <rule>` per rewrite; it never guesses a missing `type`.
 
 ## Dedupe with the task-orchestrator command hooks
 
@@ -169,7 +120,7 @@ Set these from the plugin's config menu rows, or in settings under `pluginConfig
   - `items_read` `next`: work outside the root is not offered.
 
   The skills are not changed by the mod.
-- Open decisions and runs are known only from the events this session's live stream has seen since it started; there is no snapshot read behind them (`runs_read` `decisions` is director-only).
+- Open decisions and runs are known only from the events this session's live stream has seen since it started.
 - `/to-graph <prefix>` needs at least 8 hex characters on a 4.0 server.
 
 ## For maintainers

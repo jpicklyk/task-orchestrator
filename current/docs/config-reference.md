@@ -14,21 +14,7 @@ file, never the file itself.
 
 Every top-level key has one owner. The server validates what it owns and stores the rest without reading it.
 
-| Key | Owner | Server file | Per-root push | Notes |
-|-----|-------|-------------|---------------|-------|
-| `work_item_schemas` | server | yes | yes | Note schemas by item `type`: `lifecycle`, `default_traits`, `notes`, `seats`, `builds`. |
-| `note_schemas` | server | yes | yes | The legacy 3.x form of `work_item_schemas`. Cannot appear in the same document as `work_item_schemas`. |
-| `traits` | server | yes | yes | Composable signals: `notes`, `resources`, `dispatch`, `seats`, `builds`, and the text fields `description` and `applies_when`. |
-| `note_limits` | server | yes | yes | `mode`: `warn` or `reject`. |
-| `status_labels` | server | yes | yes | Trigger to label map; an explicit `null` clears a label. |
-| `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
-| `runs` | server | yes | yes | Run settings: `stall_after` and the `budgets` ceilings (`attempts_per_seat`, `max_active_seats`). Resolved per field. See [Runs](#runs-runs). |
-| `decision_classes` | server | yes | yes | Decision classes by name. A per-root entry replaces the server entry of that name. See [Decision classes](#decision-classes-decision_classes). |
-| `project` | server (per-root) | `rootId` retargets the import to that root (see Parse modes); `name` ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
-| `resources` | server only | yes | rejected | The resource registry is one per server. |
-| `actor_authentication` | removed | fails startup | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
-| `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
-| `schema_resolution` | removed | warning | rejected | Removed in 4.0; schemas resolve by one fixed precedence rule. |
+Where each key may appear (the server file, a per-root push or both) is in `config` `validate`. `resources` is server-file only: a per-root document that carries it is rejected. Plugin settings go under `extensions.<tool>`, which the server stores and never reads.
 
 ### `extensions`
 
@@ -264,26 +250,7 @@ none. The built-in classes are unaffected, because their answerers are `director
 ## Strict validation
 
 A pushed document is validated before it is stored, and nothing is stored if any error is found. Validation has
-three parts, merged into one result:
-
-1. **Structure.** The document is checked against the JSON Schema. Every modeled level sets
-   `additionalProperties: false`, so an unknown key is an error at the unknown key's own path.
-2. **The parser's findings.** Everything the 3.x parser used to skip with a warning is an error: a note entry with no
-   `role` or an invalid one, an invalid `lifecycle` (including the removed `auto-reopen`), a seat with no `name`, an
-   invalid dispatch `effort`, a `maxHolders` above 1, a reserved budget key, and so on. Enumerated values are
-   case-sensitive and lowercase (`lifecycle: auto`, resource `mode: exclusive`); values 3.x accepted in other
-   cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors. A note entry's
-   `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean. A note entry's `skill` must be a string or a list of strings, `skill_mode` one of `invoke` or
-   `method-on-diff` and only with a `skill`, and `lane` only on a review note with a known `output`; a trait's
-   `description` and `applies_when` must be strings; a seat's `rules` must be a list of rule keys and its `skills` a list of non-blank strings. Under `MIGRATION`
-   each of these is dropped with a warning. A seat's
-   `transitions` must be a list of `complete`, `block`, `hold`, `resume`, `cancel` or `reopen` (`start` is
-   governed by `enters`); outside strict validation a non-list is ignored and a bad element is dropped, with a warning.
-3. **Semantics.** `resources` is rejected in a per-root document; `work_item_schemas` and
-   `note_schemas` cannot be combined; every `default_traits` entry must name a trait defined in the document or in
-   the server config; every trait `resources[].key` must be declared in the server resource registry; a
-   `lifecycle: none` schema may not declare `seats` (error at `/work_item_schemas/<type>/seats`) nor a note with
-   `required: true` (error at `/work_item_schemas/<type>/notes/<i>/required`).
+three parts, merged into one result: the structure (the JSON Schema; an unknown key is an error at its own path), the parser's findings (everything 3.x skipped with a warning, such as an invalid `role`, `lifecycle` or `effort`, is now an error, and enumerated values are case-sensitive and lowercase) and the semantics (for example `resources` in a per-root document, or `work_item_schemas` together with `note_schemas`).
 
 A structural error in the seat declarations (two seats entering one phase, a duplicate or reserved seat name, an
 entering seat whose `transitions` lists `complete` or `cancel`, an `after` cycle) is fatal in every mode and is
@@ -296,15 +263,9 @@ reason). `path` is an RFC 6901 JSON Pointer into the document you sent: `/work_i
 The root is the empty string. A key containing `/` or `~` is escaped as `~1` and `~0`
 (`a/b~c` becomes `a~1b~0c`). An unknown key is reported at the key itself.
 
-Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
-likely), a seat entry named `orchestrator` or `coordinator`, a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
-trait after an earlier trait whose override for the same seat is not model-selecting (see "Seat dispatch precedence").
+Warnings never reject a push; `config` `validate` and a successful push list them.
 
-How a rejection reaches you:
-
-| Surface | Rejection |
-|---------|-----------|
-| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid`, and `detail.errors` holds the `{path, reason}` list. The call answers it as every batch does (see [Batch answers](api-reference.md#response-envelope)): `422` on an atomic call, otherwise `207 partial_failure`, with the code and its detail shape in the [error catalog](api-reference.md#error-catalog). Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
+A `push` that fails validation fails `config_invalid` with `detail.errors` holding the `{path, reason}` list (see the [error catalog](api-reference.md#error-catalog)).
 
 `force` bypasses the rootId-mismatch and older-content guards (the latter is `version_conflict` otherwise). It does not bypass validation or `expectedVersion`.
 
@@ -316,24 +277,7 @@ version: `{types, traits, settings}`, each with `added`, `removed` and `changed`
 when its canonical JSON differs. With no head (or a reset head) everything is `added`. A problem (including a parse
 failure) comes back in the result as `valid: false`, not as an error.
 
-A valid document also reports `affectedInFlight`: `{count, sample}` for the in-flight items (queue, work, review,
-blocked, and lifecycle-free) of the root that the caller can see and whose resolved schema would change on a repin after the push. Pinned
-items are compared at their pin, unpinned items at the heads, against the candidate over the current server config. Only
-gate-relevant changes count (a note key added or removed, or its role or required flag changed, a different base schema
-or a different lifecycle mode); guidance and description edits do not. `sample` holds the first 20 of them as
-`{itemId, changedNotes, schema?, lifecycle?}` objects (see the `config` `validate` section of `api-reference.md`).
-
-`validate` also returns `lint`, a list of `{path, reason}` findings about schema quality. It is separate from `errors`
-and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
-does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
-resolution and comparison only. The checks: a seat that owns no note of its phase; an optional note with no seat on a
-schema or trait that declares seats (a required unseated note is reported in `warnings`); the same guidance on several
-notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
-`rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; on a schema or trait that declares seats, an optional
-note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns,
-and an `independent_of` or seat `after` name no seat declares; a trait `dispatch` seat override no seat declares for its
-phase. Every finding is
-a point to consider, not a defect.
+A valid document also reports `affectedInFlight` (how many in-flight items a repin after the push would change, with a sample) and `validate` returns `lint`, advisory schema-quality findings that never change `valid`; the fields are in the `config` `validate` section of `api-reference.md`.
 
 ## Parse modes
 
