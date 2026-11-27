@@ -291,6 +291,7 @@ Create, update and delete work items or whole trees, one ops[] element each.
 | `statusLabel` | string | no | Status label. |
 | `priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `complexity` | integer | no | 1 to 10. |
+| `rank` | integer | no | Order in next; lower first. |
 | `requiresVerification` | boolean | no | Completion needs verification. |
 | `metadata` | string | no | Metadata text. |
 | `tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
@@ -316,12 +317,13 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `statusLabel` | string | no | Status label. |
 | `priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `complexity` | integer | no | 1 to 10. |
+| `rank` | integer | no | Order in next; lower first. |
 | `requiresVerification` | boolean | no | Completion needs verification. |
 | `metadata` | string | no | Metadata text. |
 | `tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
 | `traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
 | `properties` | object | no | JSON object; no traits key. |
-| `clear` | array of string: description \| statusLabel \| metadata \| complexity \| properties \| parentId | no | Update only: optional fields to set to null. |
+| `clear` | array of string: description \| statusLabel \| metadata \| complexity \| rank \| properties \| parentId | no | Update only: optional fields to set to null. |
 
 Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
@@ -370,6 +372,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `children[].description` | string | no | Long description. |
 | `children[].statusLabel` | string | no | Status label. |
 | `children[].complexity` | integer | no | 1 to 10. |
+| `children[].rank` | integer | no | Order in next; lower first. |
 | `children[].requiresVerification` | boolean | no | Completion needs verification. |
 | `children[].metadata` | string | no | Metadata text. |
 | `children[].properties` | object | no | JSON object; no traits key. |
@@ -755,7 +758,7 @@ a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool items_read -->
-Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail).
+Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item, or the declared types), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail).
 
 **`items_read` select `get`** (knowledge, orchestration and director profiles; capability `read`): One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.
 
@@ -794,13 +797,13 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`items_read` select `schema`** (knowledge and orchestration profiles; capability `read`): The note schema of a type or of an item; schemaFree when none matches; guidance only with fields.
+**`items_read` select `schema`** (knowledge and orchestration profiles; capability `read`): The note schema of a type or of an item, or with neither the declared types and their lifecycle; schemaFree when no schema matches; guidance only with fields.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | string | no | list: only items of this type. schema: the type whose schema to return. |
 | `itemId` | string | no | Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. |
-| `rootId` | string | no | With type: the project root whose config resolves it (UUID or 8-32 hex). |
+| `rootId` | string | no | With type, or with neither type nor itemId: the project root whose config resolves it (UUID or 8-32 hex). |
 | `fields` | array of string | no | Extra members. get: createdAt, modifiedAt, roleChangedAt, ancestors. list: the same plus summary. schema: guidance. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
@@ -878,7 +881,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 | `modifiedBefore` | string (date-time) | no | Modified at or before (ISO 8601). |
 | `roleChangedAfter` | string (date-time) | no | Role changed at or after (ISO 8601). |
 | `roleChangedBefore` | string (date-time) | no | Role changed at or before (ISO 8601). |
-| `orderBy` | string: priority \| oldest \| newest | no | Ranking: priority (default: high first, then lower complexity), oldest or newest first. |
+| `orderBy` | string: priority \| oldest \| newest | no | Ranking: priority (default: high first, then lower rank, unranked last, then lower complexity), oldest or newest first. |
 | `includeClaimed` | boolean | no | Also list items under an active claim, each with isClaimed; default false. |
 | `includeParents` | boolean | no | Also list parent items; default false. |
 | `limit` | integer | no | Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. |

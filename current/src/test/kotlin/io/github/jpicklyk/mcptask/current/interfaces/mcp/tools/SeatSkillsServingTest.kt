@@ -92,7 +92,10 @@ class SeatSkillsServingTest {
             "decisionTools",
             "waitingOn",
             "decisionAuthority",
-            "profileSets"
+            "profileSets",
+            "rank",
+            "createTreeExistingDeps",
+            "declaredTypes"
         )
 
     private fun world(block: suspend (SeatWorld) -> Unit) =

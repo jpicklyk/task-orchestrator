@@ -18,6 +18,13 @@ A recorded pointer from an item, note or document to another that orders nothing
 Distinct from: a dependency edge (`blocks` or `relates_to`), which `deps_write` records between items. A `relates_to` edge is a dependency edge, not a link.
 In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derived_from`).
 
+### Rank
+
+An item's optional integer place in an order the user or a plan stated among items of equal priority: `next` hands out a smaller rank first and unranked items last. It never holds an item back: it adds no edge and no gate, and `blocked` ignores it.
+
+Distinct from: a `blocks` dependency edge, which holds the blocked item back; priority, which rank orders within; and the priority rank, role rank and FTS `rank` score of the store's sorts, which are not item data.
+In code: `WorkItem.rank` (column `work_items.rank`).
+
 ## Seats and notes
 
 ### Seat

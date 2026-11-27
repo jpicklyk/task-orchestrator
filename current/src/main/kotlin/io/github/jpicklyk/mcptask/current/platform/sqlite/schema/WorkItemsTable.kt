@@ -58,6 +58,9 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     // V38: the pinned builds flag (NULL = schema-free or pinned before V38, read as "builds").
     val builds = boolSqlite("builds").nullable()
 
+    // V40: the sibling rank (NULL = unranked; orders next among items of equal priority).
+    val rank = integer("rank").nullable()
+
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)

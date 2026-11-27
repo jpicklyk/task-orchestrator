@@ -1,12 +1,15 @@
 package io.github.jpicklyk.mcptask.current.lifecycle.internal.wire
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.Reply
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.irApp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.short
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -23,8 +26,8 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item 450aa813) for `items_read` select `schema`: scenario S4, the schema part of S9 /
  * S13 and the schema probes of the frozen test-plan (NEW-SURFACE), through the production REST topology.
  *
- * Oracles: task-scope item 6 (`schema {type? XOR itemId?, rootId? (type only), fields?}`: neither or both is
- * `invalid_request`; the body carries the schema notes with `description`, `skill`, `maxLength` per entry and the per-note
+ * Oracles: task-scope item 6 (`schema {type? XOR itemId?, rootId? (not with itemId), fields?}`: both is
+ * `invalid_request`, neither lists the declared types (S63); the body carries the schema notes with `description`, `skill`, `maxLength` per entry and the per-note
  * `guidance` only with `fields: ["guidance"]`; no schema is an ok `{schemaFree: true}`), D6 (an unknown type is never an
  * error), D2 (`itemId` and `rootId` are TARGET ids: scope-guarded, `forbidden` before anything else), and the
  * dispatcher's strictness. The exact member names of the schema view are not declared, so the tests locate the schema text
@@ -144,19 +147,128 @@ class ItemsReadSchemaTest {
     // ------------------------------------------------------------------ S9 / S13 (schema)
 
     @Test
-    fun `S13 type and itemId are exclusive and one of them is required`(): Unit =
+    fun `S13 type and itemId are exclusive and neither lists the declared types`(): Unit =
         irApp(db.db, dir, yaml = yaml) { rig ->
             val typed = rig.make("Typed", type = "feature-task")
 
             val neither = select(schema(""))
-            assertEquals("invalid_request", neither.code, neither.raw)
-            assertEquals(400, neither.status)
+            assertEquals(200, neither.status, neither.raw)
+            assertTrue("types" in neither.data, neither.raw)
+
+            val rootWithItem = select(schema(""","itemId":"${typed.id}","rootId":"$r1""""))
+            assertEquals("invalid_request", rootWithItem.code, rootWithItem.raw)
+            assertEquals(400, rootWithItem.status)
+            assertTrue("/rootId" in rootWithItem.fields(), "${rootWithItem.fields()}")
 
             val both = select(schema(""","type":"feature-task","itemId":"${typed.id}""""))
             assertEquals("invalid_request", both.code, both.raw)
             assertEquals(400, both.status)
 
             assertEquals(200, select(schema(""","type":"feature-task"""")).status, "control: either one alone is fine")
+        }
+
+    // ------------------------------------------------------------------ S63 declared types
+
+    private fun typeRows(r: Reply): List<Pair<String, String>> =
+        r.data
+            .getValue("types")
+            .jsonArray
+            .map {
+                it.jsonObject
+                    .getValue("type")
+                    .jsonPrimitive.content to
+                    it.jsonObject
+                        .getValue("lifecycle")
+                        .jsonPrimitive.content
+            }
+
+    @Test
+    fun `DT1 neither lists the declared types and their lifecycle without any config body`(): Unit =
+        irApp(db.db, dir, yaml = yaml) { rig ->
+            rig.make("Project root", id = r1)
+            for (extra in listOf("", ""","rootId":"$r1"""")) {
+                val r = select(schema(extra))
+                assertEquals(200, r.status, r.raw)
+                assertTrue(r.ok)
+                assertEquals(listOf("feature-task" to "auto", "test-item" to "auto"), typeRows(r), r.raw)
+                assertFalse("notes" in r.data, r.raw)
+                assertFalse("schemaFree" in r.raw, r.raw)
+                for (text in listOf("SPEC-DESC-QQ", "spec-quality", "777")) assertFalse(text in r.raw, "$text leaks: ${r.raw}")
+            }
+        }
+
+    @Test
+    fun `DT2 each lifecycle mode is listed and an unset one is auto`(): Unit =
+        irApp(
+            db.db,
+            dir,
+            yaml =
+                "work_item_schemas:\n" +
+                    "  a-none:\n    lifecycle: none\n    notes: []\n" +
+                    "  b-manual:\n    lifecycle: manual\n    notes: []\n" +
+                    "  c-permanent:\n    lifecycle: permanent\n    notes: []\n" +
+                    "  d-unset:\n    notes: []\n"
+        ) { _ ->
+            val r = select(schema(""))
+            assertEquals(
+                listOf("a-none" to "none", "b-manual" to "manual", "c-permanent" to "permanent", "d-unset" to "auto"),
+                typeRows(r),
+                r.raw
+            )
+        }
+
+    @Test
+    fun `DT3 a root with no pushed config lists the server types`(): Unit =
+        irApp(db.db, dir, yaml = yaml) { rig ->
+            val root = rig.make("Project root", id = r1)
+            val r = select(schema(""","rootId":"${root.id}""""))
+            assertEquals(200, r.status, r.raw)
+            assertEquals(listOf("feature-task" to "auto", "test-item" to "auto"), typeRows(r), r.raw)
+        }
+
+    @Test
+    fun `DT4 under a root scope a foreign rootId is forbidden and an own or absent rootId lists`(): Unit =
+        irApp(db.db, dir, scopeRootIds = setOf(r1), yaml = yaml) { rig ->
+            val mine = rig.make("Mine", id = r1)
+            val foreign = rig.make("Foreign", id = r2)
+
+            val denied = select(schema(""","rootId":"${foreign.id}""""), TEST_TOKEN)
+            assertEquals(403, denied.status, denied.raw)
+            assertEquals("forbidden", denied.code)
+            assertFalse("feature-task" in denied.raw, "no type name leaks with the denial: ${denied.raw}")
+
+            assertEquals(200, select(schema(""","rootId":"${mine.id}""""), TEST_TOKEN).status)
+            assertEquals(200, select(schema(""), TEST_TOKEN).status)
+        }
+
+    @Test
+    fun `DT5 no declared schema lists no types and is not schemaFree`(): Unit =
+        irApp(db.db, dir, yaml = "work_item_schemas: {}\n") { _ ->
+            val r = select(schema(""))
+            assertEquals(200, r.status, r.raw)
+            assertEquals(emptyList(), typeRows(r), r.raw)
+            assertFalse("schemaFree" in r.raw, r.raw)
+        }
+
+    @Test
+    fun `DT6 fields guidance is accepted with neither and changes nothing`(): Unit =
+        irApp(db.db, dir, yaml = yaml) { _ ->
+            val r = select(schema(""","fields":["guidance"]"""))
+            assertEquals(200, r.status, r.raw)
+            assertEquals(listOf("feature-task" to "auto", "test-item" to "auto"), typeRows(r), r.raw)
+        }
+
+    @Test
+    fun `DT7 the declared-types answer advertises declaredTypes once as the last feature`(): Unit =
+        irApp(db.db, dir, yaml = yaml) { _ ->
+            val features =
+                select(schema(""))
+                    .data
+                    .getValue("features")
+                    .jsonArray
+                    .map { it.jsonPrimitive.content }
+            assertEquals("declaredTypes", features.last(), "$features")
+            assertEquals(1, features.count { it == "declaredTypes" }, "$features")
         }
 
     @Test

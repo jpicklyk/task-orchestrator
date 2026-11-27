@@ -28,6 +28,8 @@ import java.util.UUID
  * for a pinned item (never for the type-only form); `configFingerprint` is then the PINNED layer's fingerprint. Every field beyond the pre-A1 set
  * (`seats`, `dispatchBySeat`, per-note `seat`/`independentOf`) is present only for a seat-aware
  * schema, EXCEPT `features`, which is always present (A1 task-scope §6, §9 "Alternatives" (f)).
+ *
+ * A third form, [buildDeclaredTypesJson], answers `{ types: [{type, lifecycle}], features }` for neither type nor item.
  */
 object ItemSchemaView {
     /**
@@ -67,6 +69,30 @@ object ItemSchemaView {
         return buildSchemaJson(resolved, dispatchByRole, resourcesList, dispatchBySeat)
     }
 
+    /**
+     * The third form of the schema view: `{types: [{type, lifecycle}], features}` for the types declared under [rootId]
+     * (server types alone when null), in key order; no notes, seats, dispatch or fingerprint. `lifecycle` is the
+     * supplying layer's raw mode, lowercased. `types` is empty when nothing is declared.
+     */
+    suspend fun buildDeclaredTypesJson(
+        rootId: UUID?,
+        resolver: EffectiveConfigResolver
+    ): JsonObject {
+        val types =
+            resolver.declaredTypeLifecycles(rootId).map { (type, mode) ->
+                buildJsonObject {
+                    put("type", JsonPrimitive(type))
+                    put("lifecycle", JsonPrimitive(mode.name.lowercase()))
+                }
+            }
+        return buildJsonObject {
+            put("types", JsonArray(types))
+            put("features", featuresJson())
+        }
+    }
+
+    private fun featuresJson(): JsonArray = JsonArray(ServerFeatures.ADVERTISED.map { JsonPrimitive(it) })
+
     private fun buildSchemaJson(
         resolved: SchemaMatch,
         dispatchByRole: Map<Role, DispatchProfile>,
@@ -89,7 +115,7 @@ object ItemSchemaView {
                 buildSeatsJson(schema.seats)?.let { put("seats", it) }
                 buildDispatchBySeatJson(dispatchBySeat)?.let { put("dispatchBySeat", it) }
             }
-            put("features", JsonArray(ServerFeatures.ADVERTISED.map { JsonPrimitive(it) }))
+            put("features", featuresJson())
         }
     }
 

@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.config.internal.app.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.config.internal.app.LayeredConfig
 import io.github.jpicklyk.mcptask.current.config.internal.app.PinnedBase
 import io.github.jpicklyk.mcptask.current.config.internal.app.TraitResolver
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
@@ -187,6 +188,15 @@ class EffectiveConfigResolver private constructor(
      * keys, sorted (see [LayeredConfig.typeKeys]). Empty when no schema is configured.
      */
     suspend fun availableTypes(rootId: UUID?): List<String> = layered(rootId).typeKeys()
+
+    /**
+     * Each key of [availableTypes] with the lifecycle mode of the schema that declares it (the per-root entry when it
+     * declares the key, else the server's), in key order. One read of the layered heads.
+     */
+    suspend fun declaredTypeLifecycles(rootId: UUID?): Map<String, LifecycleMode> {
+        val layered = layered(rootId)
+        return layered.typeKeys().mapNotNull { key -> layered.resolveTypeSchema(key)?.let { key to it.schema.lifecycleMode } }.toMap()
+    }
 
     /** True when [item]'s resolved schema has a REVIEW phase; false when no schema matches. */
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false

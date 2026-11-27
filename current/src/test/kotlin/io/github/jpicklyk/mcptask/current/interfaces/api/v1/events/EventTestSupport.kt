@@ -122,6 +122,7 @@ internal fun patchOf(
         statusLabel = item.statusLabel,
         priority = item.priority,
         complexity = item.complexity,
+        rank = item.rank,
         requiresVerification = item.requiresVerification,
         metadata = item.metadata,
         tags = item.tags,

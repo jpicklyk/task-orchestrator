@@ -189,8 +189,8 @@ interface ClaimStore {
      *   disqualifying holder (any holder when [EligibilityQuery.requestingAgentId] is null, otherwise
      *   any holder other than the pair ([EligibilityQuery.requestingAgentId], [EligibilityQuery.requestingAssignmentId])).
      *
-     * Ordered by [EligibilityQuery.orderBy] (priority rank then complexity ascending with nulls
-     * last; or `createdAt` ascending; or `createdAt` descending), then `id` ascending, so offset
+     * Ordered by [EligibilityQuery.orderBy] (priority rank, then rank ascending with nulls last, then
+     * complexity ascending with nulls last, then `createdAt` ascending; or `createdAt` ascending; or `createdAt` descending), then `id` ascending, so offset
      * pages are disjoint and stable. An empty (non-null) [EligibilityQuery.rootIds] selects nothing.
      *
      * Only items visible under [scope] are listed or counted (the predicates of `ItemStore.find`, in SQL, before paging);

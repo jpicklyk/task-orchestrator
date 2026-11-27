@@ -621,7 +621,7 @@ Profiles: knowledge, orchestration.
 await tools['mcp__mcp-task-orchestrator__items_write']({ops: [{op: 'create', title, type}]});
 ```
 
-Optional: `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `links`, `idempotencyKey`.
+Optional: `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `rank`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `links`, `idempotencyKey`.
 
 Required nested: `links[].to`.
 
@@ -636,7 +636,7 @@ Profiles: knowledge, orchestration.
 await tools['mcp__mcp-task-orchestrator__items_write']({ops: [{op: 'update', id}]});
 ```
 
-Optional: `expectedVersion`, `title`, `type`, `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `clear`, `idempotencyKey`.
+Optional: `expectedVersion`, `title`, `type`, `parentId`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `rank`, `requiresVerification`, `metadata`, `tags`, `traits`, `properties`, `clear`, `idempotencyKey`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#items_write-update).
 

@@ -30,6 +30,9 @@ enum class ClearField {
     @SerialName("complexity")
     COMPLEXITY,
 
+    @SerialName("rank")
+    RANK,
+
     @SerialName("properties")
     PROPERTIES,
 
@@ -48,6 +51,7 @@ internal object ItemDocs {
     const val STATUS_LABEL = "Status label."
     const val PRIORITY = "Create defaults to medium."
     const val COMPLEXITY = "1 to 10."
+    const val RANK = "Order in next; lower first."
     const val REQUIRES_VERIFICATION = "Completion needs verification."
     const val METADATA = "Metadata text."
     const val TAGS = "Lowercase, hyphenated. Update: [] clears."

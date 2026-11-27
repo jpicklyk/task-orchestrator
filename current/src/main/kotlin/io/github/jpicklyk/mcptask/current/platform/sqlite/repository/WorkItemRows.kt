@@ -52,6 +52,7 @@ internal object WorkItemRows {
                 previousRole = row[WorkItemsTable.previousRole]?.let { Role.fromString(it) },
                 priority = Priority.fromString(row[WorkItemsTable.priority]) ?: Priority.MEDIUM,
                 complexity = row[WorkItemsTable.complexity],
+                rank = row[WorkItemsTable.rank],
                 requiresVerification = row[WorkItemsTable.requiresVerification],
                 depth = row[WorkItemsTable.depth],
                 metadata = row[WorkItemsTable.metadata],
