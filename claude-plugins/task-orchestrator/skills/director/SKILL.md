@@ -94,7 +94,7 @@ seat is still active, and a close leaves open decisions open (its snapshot's `op
 the orchestration one. Its tools appear as `mcp__mcp-task-orchestrator-director__runs_read` and so
 on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 
-This skill uses `decisions_read` and `decisions_write` when the director connection lists `decisions_read`. When it does not (an older server), use the equivalents with the same arguments: `runs_read` `decisions` (no status filter: keep `open` and `acknowledged` yourself) and `decision`; `runs_write` `answer`, `ack` and `withdraw`.
+This skill uses `decisions_read` and `decisions_write` when the director connection lists `decisions_read`. When it does not (an older server), use the equivalents: `runs_read` `decisions` (no status filter: keep `open` and `acknowledged` yourself) and `decision`; `runs_write` `answer`, `ack` and `withdraw`.
 
 That connection uses the server's director profile (`/mcp/director` over HTTP, or
 `MCP_TOOL_PROFILE=director` on stdio), which has no body read, so the server enforces the rule there.
@@ -189,7 +189,7 @@ Then ask the user which decision to take, or stop if none is open.
 Read the one decision request in full (the other body you may read):
 
 ```to-call
-{"tool": "decisions_read", "select": "list", "args": {"decisionIds": ["3f2a9c1e"], "includeContext": true}, "profile": "director"}
+{"tool": "decisions_read", "select": "list", "args": {"decisionIds": ["3f2a9c1e-7b4d-4c1a-9e2f-5a8b6c0d1e23"], "includeContext": true}, "profile": "director"}
 ```
 
 Show the question, the options and any context it carries, and ask the user. Never answer on the

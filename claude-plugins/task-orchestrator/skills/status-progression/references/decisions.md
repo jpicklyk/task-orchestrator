@@ -6,7 +6,7 @@ exists in config), **see** (the board shows it), **answer** (a director or human
 orchestrator side (the orchestration connection). The director side is in
 `/task-orchestrator:director`.
 
-Where the server does not advertise `decisionTools` (`items_read` `schema` features), use `runs_write` `raise` and `withdraw` and `runs_read` `decision` with the same arguments.
+Where the server does not advertise `decisionTools` (`items_read` `schema` features), use `runs_write` `raise` and `withdraw`.
 
 ## 1. Who does what
 
