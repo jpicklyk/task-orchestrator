@@ -173,7 +173,14 @@ class ItemsReadSchemaTest {
         r.data
             .getValue("types")
             .jsonArray
-            .map { it.jsonObject.getValue("type").jsonPrimitive.content to it.jsonObject.getValue("lifecycle").jsonPrimitive.content }
+            .map {
+                it.jsonObject
+                    .getValue("type")
+                    .jsonPrimitive.content to
+                    it.jsonObject
+                        .getValue("lifecycle")
+                        .jsonPrimitive.content
+            }
 
     @Test
     fun `DT1 neither lists the declared types and their lifecycle without any config body`(): Unit =
@@ -254,7 +261,12 @@ class ItemsReadSchemaTest {
     @Test
     fun `DT7 the declared-types answer advertises declaredTypes once as the last feature`(): Unit =
         irApp(db.db, dir, yaml = yaml) { _ ->
-            val features = select(schema("")).data.getValue("features").jsonArray.map { it.jsonPrimitive.content }
+            val features =
+                select(schema(""))
+                    .data
+                    .getValue("features")
+                    .jsonArray
+                    .map { it.jsonPrimitive.content }
             assertEquals("declaredTypes", features.last(), "$features")
             assertEquals(1, features.count { it == "declaredTypes" }, "$features")
         }

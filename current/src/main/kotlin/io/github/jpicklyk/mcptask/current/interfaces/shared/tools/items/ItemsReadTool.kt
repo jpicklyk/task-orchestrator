@@ -23,7 +23,8 @@ object ItemsReadTool {
     /** The knowledge selects, the opening every profile's text shares (select enumeration only: doc single-source policy). */
     private const val KNOWLEDGE_SELECTS =
         "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an " +
-            "item, or the declared types), search (full text over item, note and document content), overview (a hierarchy summary), related " +
+            "item, or the declared types), search (full text over item, note and document content), " +
+            "overview (a hierarchy summary), related " +
             "(items and documents related to an item by dependencies, links, shared tags and similar text)"
 
     /** The shared (full) description, served to orchestration and REST: every select. */

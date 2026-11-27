@@ -45,7 +45,9 @@ object ItemsReadSchema {
     val select =
         SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "schema",
-            doc = "The note schema of a type or of an item, or with neither the declared types and their lifecycle; schemaFree when no schema matches; guidance only with fields.",
+            doc =
+                "The note schema of a type or of an item, or with neither the declared types and their lifecycle; " +
+                    "schemaFree when no schema matches; guidance only with fields.",
             profiles = knowledge(),
             services = LifecycleToolServices::class,
             request = serializer<Request>(),
