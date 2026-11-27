@@ -208,7 +208,7 @@
       },
       "orderBy": {
         "type": "string",
-        "description": "Ranking: priority (default: high first, then lower complexity), oldest or newest first. [select: next]",
+        "description": "Ranking: priority (default: high first, then lower rank, unranked last, then lower complexity), oldest or newest first. [select: next]",
         "enum": [
           "priority",
           "oldest",

@@ -57,7 +57,9 @@
             "decisionTools",
             "waitingOn",
             "decisionAuthority",
-            "profileSets"
+            "profileSets",
+            "rank",
+            "createTreeExistingDeps"
         ]
     },
     "metadata": {
