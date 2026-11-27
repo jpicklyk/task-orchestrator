@@ -291,7 +291,7 @@ test('S4: named spot checks from the plan (notes_write.upsert, items_write.compl
   assert.equal(catalogFile.tools.notes_write.entries.delete.destructive, true);
   assert.deepEqual(catalogFile.tools.items_write.entries.complete_tree.profiles, ['orchestration']);
   assert.deepEqual(catalogFile.tools.runs_write.entries.mark.profiles, []);
-  assert.deepEqual(catalogFile.tools.report.entries.usage.profiles, ['director']);
+  assert.deepEqual(catalogFile.tools.report.entries.usage.profiles, ['director', 'orchestration']);
   const tr = catalogFile.tools.advance.entries.transition;
   assert.equal(tr.capability, 'advance');
   assert.deepEqual(Object.keys(tr.fields).sort(), ['credentialRefs', 'decisionId', 'itemId', 'reason', 'summary', 'trigger']);

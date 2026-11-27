@@ -113,10 +113,10 @@ test('S7: AC probe - swapping the real phase-guard-record matcher back to advanc
   assert.ok(v.some((x) => x.tool === 'advance_item'));
 });
 
-test('S7: a tool valid in the director profile but absent from the orchestration set (report) is a violation', () => {
-  assert.ok(!ORCHESTRATION_TOOLS.includes('report'), 'fixture precondition: report is not an orchestration tool');
-  const v = checkMatchers(configWith('PostToolUse', orchestratorToolMatcher(['report'])), ORCHESTRATION_TOOLS);
-  assert.ok(v.some((x) => x.tool === 'report'), JSON.stringify(v));
+test('S7: a tool outside the orchestration set (query_items) is a violation', () => {
+  assert.ok(!ORCHESTRATION_TOOLS.includes('query_items'), 'fixture precondition: query_items is not an orchestration tool');
+  const v = checkMatchers(configWith('PostToolUse', orchestratorToolMatcher(['query_items'])), ORCHESTRATION_TOOLS);
+  assert.ok(v.some((x) => x.tool === 'query_items'), JSON.stringify(v));
 });
 
 test('S7: a token-bearing matcher that is not the builder spelling is a violation even when its tool is allowed', () => {
