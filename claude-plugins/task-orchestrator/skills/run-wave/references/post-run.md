@@ -125,7 +125,11 @@ deferral stops the lower-priority item for this run, which is heavier than a loc
 exception is `appendOnlyFiles` (profile globs): a pair of claims that are equal (case-insensitive),
 glob-free, not whole-tree, and match one of those patterns is a merge-time conflict, not an overlap,
 so it never defers; any other conflicting pair still does. The reason names the files:
-`overlap <short> on <f1>, <f2>` (an unrooted claim prints as `**`). The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
+`overlap <short> on <f1>, <f2>` (an unrooted claim prints as `**`). Across runs, `plan` applies the same rule
+before launch, in both worktree modes (two runs never share a worktree, so no lock spans them): a candidate that is a
+member of another open or paused run defers `member of run <label>`, and one whose files overlap a member's claims
+defers `overlap <short> on <files> (run <label>)`; the candidate always yields, and its dependents defer cross-run
+(see snapshot.md `otherRuns`). The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
 existingTestEdits, each double-quoted with `:(literal)` or (for a glob) `:(glob)` magic; entries
 outside both roots are named on an `UNROOTED (not in pathspec): ...` line instead, and when any
 entry names the whole tree the diff has no pathspec at all.
@@ -355,8 +359,8 @@ the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs 
 children is one agent labelled for the first child in plan order, so its `reviewer:<model>` row goes on that child only), and re-upsert the item's
 `delegation-metadata` under the run token; write each `orchestrator-confirmation` and advance under the
 run token while the run is open; then run Step 7 to close. The costs, stated plainly: the root has an open
-run for the whole length of the review; one wave runs per root, so a new run-wave on that root resumes this run
-(`SKILL.md` Step 0 F7) until the close; and a Fail waiting on a human keeps the run open. The project's review step
+run for the whole length of the review; a new run-wave on this run's own target resumes this run
+(`SKILL.md` Step 0 F7) until the close, and a wave on another target defers what this run holds; and a Fail waiting on a human keeps the run open. The project's review step
 owns merge arming; do not arm auto-merge from post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
