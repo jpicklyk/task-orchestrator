@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.run
 
+import io.github.jpicklyk.mcptask.current.model.run.DecisionDecidedBy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
@@ -100,9 +101,13 @@ data class DecisionRaiseResult(
 
 /**
  * Answers a decision request with an [option] key and/or free [text] (freeform classes only), and a [rationale].
+ * [decidedBy] is what the caller claims about who decided (null: derive it); the service records the derived value and
+ * refuses a claim the caller's credential contradicts. [links] is the evidence cited, checked like a raise's links.
  */
 data class DecisionAnswerCommand(
     val option: String? = null,
     val text: String? = null,
-    val rationale: String? = null
+    val rationale: String? = null,
+    val decidedBy: DecisionDecidedBy? = null,
+    val links: List<RunSeatLink> = emptyList()
 )

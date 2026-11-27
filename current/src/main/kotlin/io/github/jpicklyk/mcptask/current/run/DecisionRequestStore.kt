@@ -24,7 +24,7 @@ interface DecisionRequestStore : DecisionReads {
     ): DecisionRequest?
 
     /**
-     * Writes the mutable fields of [decision] (status, acknowledgement, answer) when the stored version is still
+     * Writes the mutable fields of [decision] (status, routing, acknowledgement, answer) when the stored version is still
      * [expectedVersion], bumping it to `expectedVersion + 1`. Returns the request as stored, or null when it is gone or
      * its version moved.
      */

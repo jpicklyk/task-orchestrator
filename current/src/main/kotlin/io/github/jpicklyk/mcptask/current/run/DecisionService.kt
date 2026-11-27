@@ -9,9 +9,14 @@ import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAnswerBasis
+import io.github.jpicklyk.mcptask.current.model.run.DecisionDecidedBy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswer
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.model.run.DecisionWaitingOn
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
 import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -37,6 +42,11 @@ import java.util.UUID
  * ACKNOWLEDGED (an acknowledged request is returned unchanged). [answer] moves OPEN or ACKNOWLEDGED to ANSWERED, once
  * and for good. [withdraw] moves OPEN or ACKNOWLEDGED to WITHDRAWN. Acknowledging, answering or withdrawing an
  * ANSWERED or WITHDRAWN request is `decision_closed`. Every write bumps the version.
+ *
+ * [delegate] and [escalate] route a pending request ([DecisionRequest.waitingOn] director or user) without changing its
+ * status; a repeat of the same routing is returned unchanged (no event). An answer or a withdrawal clears the routing.
+ * An answer records its provenance, derived from the caller's seat and credential kind (never the serving profile):
+ * who decided ([DecisionDecidedBy]) and why ([DecisionAnswerBasis]); a seat answer records none.
  *
  * ## Who
  *
@@ -190,6 +200,85 @@ class DecisionService(
         }
 
     // -------------------------------------------------------------------------
+    // delegate and escalate
+    // -------------------------------------------------------------------------
+
+    /**
+     * Routes pending request [decisionId] to the director (`waitingOn` director, no reason). The caller must be admitted
+     * by the request's answerers and the class must let the director answer (a human-only class cannot be delegated:
+     * `invalid_request /decisionId`). Already delegated: returned unchanged, no event.
+     */
+    suspend fun delegate(
+        decisionId: UUID,
+        caller: DecisionCaller
+    ): Outcome<DecisionRequest> =
+        unitOfWork.write(OP_DELEGATE) {
+            val decision = store.getById(decisionId) ?: return@write err(decisionNotFound(decisionId))
+            if (!decision.answerers.admits(caller)) return@write err(refuse(decision.answerers.required()))
+            if (!decision.status.isPending) return@write err(decisionClosed(decision))
+            if (decision.answerers == DecisionRequestAnswerers.HUMAN_ONLY) {
+                return@write err(
+                    invalid(FIELD_DECISION_ID, "is human-only; the director could not answer it, so it cannot be delegated", decisionId)
+                )
+            }
+            if (decision.waitingOn == DecisionWaitingOn.DIRECTOR) return@write Outcome.Ok(decision)
+            val stored =
+                store.update(decision.copy(waitingOn = DecisionWaitingOn.DIRECTOR, waitingReason = null), decision.version)
+                    ?: return@write err(conflictAfterRead(decision))
+            events.record(
+                DomainEvent.DecisionDelegated(
+                    stored.id,
+                    stored.rootId,
+                    stored.decisionClass,
+                    stored.severity,
+                    stored.runId,
+                    stored.itemId,
+                    stored.dedupeKey,
+                    DecisionWaitingOn.DIRECTOR.wire
+                )
+            )
+            Outcome.Ok(stored)
+        }
+
+    /**
+     * Routes pending request [decisionId] to the user (`waitingOn` user) with [reason]. The caller must be admitted by
+     * the request's answerers, or be the director (it may hand a human-only decision to the user). The same routing with
+     * the same reason is returned unchanged, no event; a different reason updates it.
+     */
+    suspend fun escalate(
+        decisionId: UUID,
+        reason: String,
+        caller: DecisionCaller
+    ): Outcome<DecisionRequest> =
+        unitOfWork.write(OP_ESCALATE) {
+            val decision = store.getById(decisionId) ?: return@write err(decisionNotFound(decisionId))
+            if (!decision.answerers.admits(caller) && !caller.isDirector()) return@write err(refuse(decision.answerers.required()))
+            if (!decision.status.isPending) return@write err(decisionClosed(decision))
+            if (reason.isBlank() || reason.length > DecisionRequest.MAX_WAITING_REASON_LENGTH) {
+                return@write err(
+                    invalid(FIELD_REASON, "must be 1 to ${DecisionRequest.MAX_WAITING_REASON_LENGTH} characters", reason.length)
+                )
+            }
+            if (decision.waitingOn == DecisionWaitingOn.USER && decision.waitingReason == reason) return@write Outcome.Ok(decision)
+            val stored =
+                store.update(decision.copy(waitingOn = DecisionWaitingOn.USER, waitingReason = reason), decision.version)
+                    ?: return@write err(conflictAfterRead(decision))
+            events.record(
+                DomainEvent.DecisionEscalated(
+                    stored.id,
+                    stored.rootId,
+                    stored.decisionClass,
+                    stored.severity,
+                    stored.runId,
+                    stored.itemId,
+                    stored.dedupeKey,
+                    DecisionWaitingOn.USER.wire
+                )
+            )
+            Outcome.Ok(stored)
+        }
+
+    // -------------------------------------------------------------------------
     // answer
     // -------------------------------------------------------------------------
 
@@ -197,7 +286,7 @@ class DecisionService(
      * Answers request [decisionId] for [caller] with [command]. The option must be a key of the request's options; free
      * text is accepted only for a freeform class (resolved now; a class no longer configured is not freeform), which
      * needs an option or a text, while any other class needs an option. The answer records the caller's provenance;
-     * a caller without one is `unauthenticated`.
+     * a caller without one is `unauthenticated`. Provenance is derived ([derivedProvenance]); an answer clears the routing.
      */
     suspend fun answer(
         decisionId: UUID,
@@ -212,6 +301,11 @@ class DecisionService(
             val freeform = classes(decision.rootId)[decision.decisionClass]?.freeform == true
             val violations = answerViolations(decision, command, freeform)
             if (violations.isNotEmpty()) return@write err(invalidFields(violations, "The answer is invalid"))
+            val decided =
+                when (val derived = derivedProvenance(decision, command, caller)) {
+                    is Derivation.Refused -> return@write err(invalidFields(listOf(derived.violation), "The answer is invalid"))
+                    is Derivation.Decided -> derived
+                }
             val provenance = caller.provenance ?: return@write err(unauthenticated())
 
             val answeredAt = now
@@ -229,9 +323,15 @@ class DecisionService(
                     seat = provenance.seat,
                     profile = provenance.profile,
                     answeredAt = answeredAt,
-                    afterExpiry = decision.expiresAt != null && !answeredAt.isBefore(decision.expiresAt)
+                    afterExpiry = decision.expiresAt != null && !answeredAt.isBefore(decision.expiresAt),
+                    decidedBy = decided.decidedBy,
+                    basis = decided.basis,
+                    relayed = decided.relayed,
+                    withinAutonomy = decided.withinAutonomy,
+                    links = command.links
                 )
-            val changed = decision.copy(status = DecisionRequestStatus.ANSWERED, answer = answer)
+            val changed =
+                decision.copy(status = DecisionRequestStatus.ANSWERED, answer = answer, waitingOn = null, waitingReason = null)
             val stored = store.update(changed, decision.version) ?: return@write err(conflictAfterRead(decision))
             effects.onAnsweredOrRefuse(stored)?.let { return@write err(it) }
             events.record(
@@ -247,7 +347,11 @@ class DecisionService(
                     afterExpiry = answer.afterExpiry,
                     kind = answer.answeredByKind,
                     proofStatus = answer.answeredByProof,
-                    profile = answer.profile
+                    profile = answer.profile,
+                    decidedBy = answer.decidedBy?.wire,
+                    basis = answer.basis?.wire,
+                    relayed = answer.relayed,
+                    withinAutonomy = answer.withinAutonomy
                 )
             )
             Outcome.Ok(stored)
@@ -269,9 +373,8 @@ class DecisionService(
             val decision = store.getById(decisionId) ?: return@write err(decisionNotFound(decisionId))
             if (!mayWithdraw(decision, caller)) return@write err(refuse(WITHDRAW_REQUIRED))
             if (!decision.status.isPending) return@write err(decisionClosed(decision))
-            val stored =
-                store.update(decision.copy(status = DecisionRequestStatus.WITHDRAWN), decision.version)
-                    ?: return@write err(conflictAfterRead(decision))
+            val withdrawn = decision.copy(status = DecisionRequestStatus.WITHDRAWN, waitingOn = null, waitingReason = null)
+            val stored = store.update(withdrawn, decision.version) ?: return@write err(conflictAfterRead(decision))
             events.record(
                 DomainEvent.DecisionWithdrawn(
                     stored.id,
@@ -329,6 +432,66 @@ class DecisionService(
     // -------------------------------------------------------------------------
     // Checks
     // -------------------------------------------------------------------------
+
+    /** What an answer records about who decided: [Decided] (every member null for a seat answer), or a [Refused] claim. */
+    private sealed interface Derivation {
+        data class Decided(
+            val decidedBy: DecisionDecidedBy?,
+            val basis: DecisionAnswerBasis?,
+            val relayed: Boolean?,
+            val withinAutonomy: Boolean?
+        ) : Derivation
+
+        data class Refused(
+            val violation: FieldViolation
+        ) : Derivation
+    }
+
+    /**
+     * The decision provenance of an answer by [caller], derived from its seat and credential kind and the request's
+     * routing, never from the serving profile (the MCP and REST rows must match). A human decided as the user; a seat
+     * records none; any other caller is the director (it is not the user), deciding within its autonomy, or by
+     * delegation when the request waits on the director, unless it says it relayed the user's decision. A claim the
+     * credential contradicts is refused, and while the request waits on the user only the user may answer it.
+     */
+    private fun derivedProvenance(
+        decision: DecisionRequest,
+        command: DecisionAnswerCommand,
+        caller: DecisionCaller
+    ): Derivation {
+        val claimed = command.decidedBy
+        val derived =
+            when {
+                caller.isHuman() -> {
+                    if (claimed == DecisionDecidedBy.DIRECTOR) return refusedClaim("a human answers as the user")
+                    Derivation.Decided(DecisionDecidedBy.USER, null, relayed = false, withinAutonomy = null)
+                }
+                caller.seat != null -> {
+                    if (claimed != null) return refusedClaim("a seat answer records no decidedBy")
+                    Derivation.Decided(null, null, null, null)
+                }
+                claimed == DecisionDecidedBy.USER ->
+                    Derivation.Decided(DecisionDecidedBy.USER, DecisionAnswerBasis.RELAYED, relayed = true, withinAutonomy = null)
+                else -> {
+                    val within = withinAutonomy(decision)
+                    Derivation.Decided(
+                        DecisionDecidedBy.DIRECTOR,
+                        if (within) DecisionAnswerBasis.DELEGATION else DecisionAnswerBasis.AUTONOMY,
+                        relayed = false,
+                        withinAutonomy = within
+                    )
+                }
+            }
+        if (decision.waitingOn == DecisionWaitingOn.USER && derived.decidedBy != DecisionDecidedBy.USER) {
+            return refusedClaim("the request waits on the user; delegate it to the director first, or answer as the user")
+        }
+        return derived
+    }
+
+    private fun refusedClaim(reason: String): Derivation.Refused = Derivation.Refused(FieldViolation(FIELD_DECIDED_BY, reason))
+
+    /** Whether the director answers [decision] within its autonomy: today, when the request was delegated to it. */
+    private fun withinAutonomy(decision: DecisionRequest): Boolean = decision.waitingOn == DecisionWaitingOn.DIRECTOR
 
     private fun mayWithdraw(
         decision: DecisionRequest,
@@ -398,10 +561,21 @@ class DecisionService(
         if (recommended != null && options.none { it.key == recommended }) {
             out += FieldViolation("/recommended", "must be the key of one of the options", recommended.take(TRUNCATE))
         }
-        if (command.links.size > RunSeat.MAX_LINKS) {
-            out += FieldViolation("/links", "at most ${RunSeat.MAX_LINKS} links", command.links.size.toString())
+        out += linkViolations(command.links)
+        val context = command.context
+        if (context != null && context.length > DecisionRequest.MAX_CONTEXT_LENGTH) {
+            out += FieldViolation("/context", "must be at most ${DecisionRequest.MAX_CONTEXT_LENGTH} characters", context.length.toString())
         }
-        command.links.forEachIndexed { i, link ->
+        return out
+    }
+
+    /** The limits of a raise's or an answer's links, as JSON-pointer violations; empty when every link is valid. */
+    private fun linkViolations(links: List<RunSeatLink>): List<FieldViolation> {
+        val out = mutableListOf<FieldViolation>()
+        if (links.size > RunSeat.MAX_LINKS) {
+            out += FieldViolation("/links", "at most ${RunSeat.MAX_LINKS} links", links.size.toString())
+        }
+        links.forEachIndexed { i, link ->
             if (link.kind !in RunSeat.LINK_KINDS) {
                 out +=
                     FieldViolation("/links/$i/kind", "must be one of: ${RunSeat.LINK_KINDS.joinToString(", ")}", link.kind.take(TRUNCATE))
@@ -409,10 +583,6 @@ class DecisionService(
             if (link.ref.isBlank() || link.ref.length > RunSeat.MAX_LINK_REF_LENGTH) {
                 out += FieldViolation("/links/$i/ref", "must be 1 to ${RunSeat.MAX_LINK_REF_LENGTH} characters", link.ref.take(TRUNCATE))
             }
-        }
-        val context = command.context
-        if (context != null && context.length > DecisionRequest.MAX_CONTEXT_LENGTH) {
-            out += FieldViolation("/context", "must be at most ${DecisionRequest.MAX_CONTEXT_LENGTH} characters", context.length.toString())
         }
         return out
     }
@@ -451,6 +621,7 @@ class DecisionService(
                     rationale.length.toString()
                 )
         }
+        out += linkViolations(command.links)
         return out
     }
 
@@ -482,9 +653,14 @@ class DecisionService(
         private const val OP_ACK = "DecisionService.acknowledge"
         private const val OP_ANSWER = "DecisionService.answer"
         private const val OP_WITHDRAW = "DecisionService.withdraw"
+        private const val OP_DELEGATE = "DecisionService.delegate"
+        private const val OP_ESCALATE = "DecisionService.escalate"
 
         private const val FIELD_ITEM_ID = "/itemId"
         private const val FIELD_CLASS = "/class"
+        private const val FIELD_DECISION_ID = "/decisionId"
+        private const val FIELD_REASON = "/reason"
+        private const val FIELD_DECIDED_BY = "/decidedBy"
 
         /** How much of an offending value a violation echoes back. */
         private const val TRUNCATE = 100

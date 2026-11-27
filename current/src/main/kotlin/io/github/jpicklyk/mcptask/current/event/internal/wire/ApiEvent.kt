@@ -89,7 +89,8 @@ object SyncLostReason {
  *   run lifecycle, streamed under their domain names (`DomainEvent.RUN_TYPES`) with [ApiEvent.runId] set.
  * - `seat.ended` -- a seat ended its own assignment (`runs_write end_seat`), with [ApiEvent.runId] and the member item's
  *   [ApiEvent.itemId] (item-scoped visibility, like `note.*`).
- * - `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` -- decision lifecycle
+ * - `decision.raised`, `decision.acknowledged`, `decision.delegated`, `decision.escalated`, `decision.answered`,
+ *   `decision.withdrawn` -- decision lifecycle
  *   (`DomainEvent.DECISION_TYPES`), with [ApiEvent.decisionId], [ApiEvent.decisionClass] and [ApiEvent.severity] and the
  *   decision's [ApiEvent.runId] / [ApiEvent.itemId] when it names them; never an actor. An item-less one is anchored to
  *   its root like `run.*`.

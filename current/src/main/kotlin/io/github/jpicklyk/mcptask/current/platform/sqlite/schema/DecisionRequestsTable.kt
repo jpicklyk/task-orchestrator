@@ -8,7 +8,8 @@ import org.jetbrains.exposed.v1.core.Table
  * (its partial unique index on `(root_id, scope_key, dedupe_key)` and its CHECKs live there).
  *
  * [runId] has no foreign key on purpose (see the migration). [decisionClass], [answerers], [severity], [status] and
- * [onExpiry] hold wire strings; [options] and [links] are JSON text parsed in Kotlin.
+ * [onExpiry], [waitingOn], [answerDecidedBy] and [answerBasis] hold wire strings; [options], [links] and [answerLinks]
+ * are JSON text parsed in Kotlin. V39 added the last seven columns (routing and answer provenance, all nullable).
  */
 object DecisionRequestsTable : Table("decision_requests") {
     val id = javaUuidSqlite("id")
@@ -49,6 +50,13 @@ object DecisionRequestsTable : Table("decision_requests") {
     val answeredAt = utcTimestampText("answered_at").nullable()
     val afterExpiry = boolSqlite("after_expiry").default(false)
     val version = long("version").default(1)
+    val waitingOn = text("waiting_on").nullable()
+    val waitingReason = text("waiting_reason").nullable()
+    val answerDecidedBy = text("answer_decided_by").nullable()
+    val answerBasis = text("answer_basis").nullable()
+    val answerRelayed = boolSqlite("answer_relayed").nullable()
+    val answerWithinAutonomy = boolSqlite("answer_within_autonomy").nullable()
+    val answerLinks = text("answer_links").nullable()
 
     override val primaryKey = PrimaryKey(id)
 
