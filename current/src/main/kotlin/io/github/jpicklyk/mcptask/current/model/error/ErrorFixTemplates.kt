@@ -20,7 +20,8 @@ object ErrorFixTemplates {
                 "Use a new idempotencyKey for a different payload, or resend the original payload for {idempotencyKey}.",
             ErrorCode.INVALID_TRANSITION to
                 "Item {itemId} cannot apply {trigger} from {fromRole}; use one of the allowed triggers.",
-            ErrorCode.GATE_BLOCKED to "Fill the missing notes for item {itemId} with notes.write, or settle what detail.violations names, then retry advance.",
+            ErrorCode.GATE_BLOCKED to
+                "Fill the missing notes for item {itemId} with notes.write, or settle what detail.violations names, then retry advance.",
             ErrorCode.DEPENDENCY_UNMET to "Complete the blocking items of {itemId}, then retry.",
             ErrorCode.CYCLE_DETECTED to "Remove one dependency along the reported path to break the cycle.",
             ErrorCode.CLAIM_HELD to "Retry claiming item {itemId} after the claim expires.",
