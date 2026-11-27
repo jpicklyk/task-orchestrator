@@ -323,6 +323,14 @@ test('[08c8b0eb] S13: worktreeConflicts returns one message per clash and nothin
   assert.equal(worktreeConflicts(items, [other({ worktree: 'C:/other', branch: 'feat/one' })]).length, 1);
 });
 
+test('[08c8b0eb] O7: a branch differing from another open run branch only by letter case is refused, worktrees distinct', () => {
+  const items = [{ worktree: 'C:/repo/wt/one', branch: 'Feat/x' }];
+  assert.deepEqual(worktreeConflicts(items, [other({ worktree: 'C:/other/wt', branch: 'feat/x' })]), [
+    'plan: worktree C:/repo/wt/one (branch Feat/x) is in use by open run L; pass --worktree and --branch with a distinct pair, or --mode per-item'
+  ]);
+  assert.deepEqual(worktreeConflicts(items, [other({ worktree: 'C:/other/wt', branch: 'feat/y' })]), []);
+});
+
 // ---- S18 (AC6): the one-wave-per-root wording is gone from the docs ----
 
 const ONE_WAVE = /one wave( runs)? per (project )?root/i;
