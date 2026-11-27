@@ -438,7 +438,7 @@ class DirectorOpsRouteTest {
     @Test
     fun `S10 every registered tool outside the director set is forbidden director on the director path`() {
         val registry = ToolRegistry(buildToolSpecs())
-        val directorSet = setOf("items_read", "deps_read", "report", "runs_read", "runs_write")
+        val directorSet = setOf("items_read", "deps_read", "report", "runs_read", "runs_write", "decisions_read", "decisions_write")
         val outside = registry.tools.map { it.name }.filter { it !in directorSet }
         assertTrue(outside.isNotEmpty(), "fixture: the production registry has tools outside the director set")
         assertTrue(

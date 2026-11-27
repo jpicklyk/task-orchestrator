@@ -44,7 +44,10 @@ class WasteToolClassificationTest {
     fun `S18 the three classes hold exactly the tools of the task-scope`() {
         assertEquals(setOf("items_read", "notes_read", "docs_read", "deps_read"), WasteToolClasses.READ)
         assertEquals(setOf("items_write", "notes_write", "deps_write", "docs_write", "advance"), WasteToolClasses.WRITE)
-        assertEquals(setOf("report", "config", "runs_read", "runs_write"), WasteToolClasses.EXCLUDED)
+        assertEquals(
+            setOf("report", "config", "runs_read", "runs_write", "decisions_read", "decisions_write"),
+            WasteToolClasses.EXCLUDED
+        )
     }
 
     @Test

@@ -54,9 +54,9 @@ function frozenList(source, name) {
 
 const constants = text(join(MOD, 'src', 'shared', 'constants.ts'));
 
-test('S17: the catalog is the 13 tools, 7 of them write (ops) tools', () => {
-  assert.equal(CATALOG_TOOLS.length, 13);
-  assert.deepEqual(CATALOG_WRITE, ['advance', 'config', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
+test('S17: the catalog is the 15 tools, 8 of them write (ops) tools', () => {
+  assert.equal(CATALOG_TOOLS.length, 15);
+  assert.deepEqual(CATALOG_WRITE, ['advance', 'config', 'decisions_write', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
   assert.deepEqual(CATALOG_TOOLS, [...TOOLS], 'tool-names.mjs TOOLS agrees with the catalog');
   assert.deepEqual(CATALOG_WRITE, [...WRITE_TOOLS], 'tool-names.mjs WRITE_TOOLS agrees with the catalog');
 });

@@ -14,7 +14,7 @@ const TO = 'mcp__mcp-task-orchestrator__'
 const ACTOR = { id: 'implementer:x', kind: 'subagent', parent: 'workflow:r-1' }
 
 /** The tool names of the 4.0 catalog (claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json). */
-const CATALOG_TOOLS = ['advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write']
+const CATALOG_TOOLS = ['advance', 'config', 'decisions_read', 'decisions_write', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write']
 
 const unchanged = (tool: string, input: Record<string, unknown>, root: string | null = ROOT) => {
   const r = rewriteCall(tool, input, root)

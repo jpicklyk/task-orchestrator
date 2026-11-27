@@ -14,10 +14,10 @@ export const TO_TOOL = /^mcp__.*task-orchestrator.*__/
  * The 4.0 TO tool names, sorted. Kept equal to the task-orchestrator plugin's generated catalog
  * (hooks/lib/tool-catalog.json) by its mod-contract test; the mod cannot import that file.
  */
-export const TO_TOOLS: readonly string[] = Object.freeze(['advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write'])
+export const TO_TOOLS: readonly string[] = Object.freeze(['advance', 'config', 'decisions_read', 'decisions_write', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write'])
 
 /** The 4.0 TO tools whose call shape is `ops[]` (the catalog's `kind: ops`), sorted. */
-export const TO_WRITE_TOOLS: readonly string[] = Object.freeze(['advance', 'config', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write'])
+export const TO_WRITE_TOOLS: readonly string[] = Object.freeze(['advance', 'config', 'decisions_write', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write'])
 
 /**
  * Field a `classic.<Event>` hook adds to the event before `next`, so a TO command hook reading it

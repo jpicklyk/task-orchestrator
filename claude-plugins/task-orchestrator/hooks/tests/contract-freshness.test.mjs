@@ -217,7 +217,7 @@ test('S2 probe: inconsistent inputs exit 2 (golden property missing; API profile
 
 test('S3: TOOLS equals the distinct golden tool basenames and contains runs_read, runs_write, report', () => {
   const derived = Object.keys(GOLDENS).sort();
-  assert.equal(derived.length, 13);
+  assert.equal(derived.length, 15);
   assert.deepEqual([...TOOLS], derived);
   for (const t of ['runs_read', 'runs_write', 'report']) assert.ok(TOOLS.includes(t), `${t} missing from TOOLS`);
   assert.ok(Object.isFrozen(TOOLS));
@@ -238,7 +238,7 @@ test('S3: PROFILES[p] is the sorted list of tools with a <tool>.<p>.json golden;
 test('S3: WRITE_TOOLS is the sorted set of tools whose golden has ops; frozen', () => {
   const expected = Object.keys(GOLDENS).filter((t) => Object.values(GOLDENS[t]).some((r) => r.kind === 'ops')).sort();
   assert.deepEqual([...WRITE_TOOLS], expected);
-  assert.deepEqual(expected, ['advance', 'config', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
+  assert.deepEqual(expected, ['advance', 'config', 'decisions_write', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
   assert.ok(Object.isFrozen(WRITE_TOOLS));
 });
 
@@ -255,10 +255,10 @@ test('S3: ERROR_KINDS maps every API error-catalog code to its kind; frozen', ()
 
 // ---- S4 ----------------------------------------------------------------------------------
 
-test('S4: catalog has exactly the 74 API entries, each with profiles derived from the goldens (REST-only = [])', () => {
-  assert.equal(API.entries.length, 74);
+test('S4: catalog has exactly the 81 API entries, each with profiles derived from the goldens (REST-only = [])', () => {
+  assert.equal(API.entries.length, 81);
   const catalogCount = Object.values(catalogFile.tools).reduce((n, t) => n + Object.keys(t.entries).length, 0);
-  assert.equal(catalogCount, 74);
+  assert.equal(catalogCount, 81);
   assert.deepEqual(Object.keys(catalogFile.tools).sort(), Object.keys(GOLDENS).sort());
   for (const e of API.entries) {
     const got = catalogFile.tools[e.tool].entries[e.name];

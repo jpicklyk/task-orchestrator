@@ -55,7 +55,9 @@ class DirectorVisibilityGuardTest {
             "deps_read" to setOf("list", "graph"),
             "report" to setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             "runs_read" to setOf("get", "list", "frontier", "decisions", "decision"),
-            "runs_write" to setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw")
+            "runs_write" to setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            "decisions_read" to setOf("list"),
+            "decisions_write" to setOf("ack", "delegate", "escalate", "answer", "withdraw")
         )
 
     @Serializable
@@ -142,7 +144,10 @@ class DirectorVisibilityGuardTest {
         val production = ToolRegistry(buildToolSpecs())
         assertEquals(emptyList(), violations(production))
         val directorTools = production.visible(ToolProfile.DIRECTOR).map { it.name }.toSet()
-        assertEquals(setOf("items_read", "deps_read", "report", "runs_read", "runs_write"), directorTools)
+        assertEquals(
+            setOf("items_read", "deps_read", "report", "runs_read", "runs_write", "decisions_read", "decisions_write"),
+            directorTools
+        )
         for (tool in listOf("notes_read", "notes_write", "docs_read", "docs_write", "advance", "config", "items_write", "deps_write")) {
             assertTrue(
                 tool !in directorTools,

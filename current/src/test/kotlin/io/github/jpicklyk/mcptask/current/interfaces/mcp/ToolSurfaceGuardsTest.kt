@@ -35,8 +35,8 @@ import kotlin.test.assertTrue
  * budget and documentation guards (the 3.x ToolTokenBudgetTest and ToolDocumentationConsistencyTest are gone).
  *
  * Oracles: task-scope D11 (budgets measure the compact `tools/list` entry of `toolFor(spec, profile)`: per tool at most 9,000
- * characters in every profile, knowledge total at most 22,000, orchestration total at most 43,500, director total at most
- * 14,000 (V4 (b) of the Phase 3 plan), over the registry only), D12
+ * characters in every profile, over the registry only; the knowledge, orchestration and director total ceilings were removed
+ * by B1 stage 2, owner ruling 2026-11-27), D12
  * (every property at every depth, including `ops.items` and nested classes, has a non-blank description; every rendered tool
  * description contains `DESCRIBE_HINT`).
  *
@@ -140,56 +140,6 @@ class ToolSurfaceGuardsTest {
         )
     }
 
-    // ------------------------------------------------------------------ S15 totals
-
-    @Test
-    fun `S15 a knowledge total of 22000 passes and 22001 is flagged while orchestration stays within its ceiling`() {
-        val ok = registryOf(padded("pad_a", 7_333), padded("pad_b", 7_333), padded("pad_c", 7_334))
-        assertEquals(22_000, ToolSurfaceChecks.sizes(ok, ToolProfile.KNOWLEDGE).values.sum())
-        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
-
-        val over = registryOf(padded("pad_a", 7_333), padded("pad_b", 7_334), padded("pad_c", 7_334))
-        assertEquals(22_001, ToolSurfaceChecks.sizes(over, ToolProfile.KNOWLEDGE).values.sum())
-        val violations = ToolSurfaceChecks.budgetViolations(over)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue("total" in violations.single() && "knowledge" in violations.single(), violations.single())
-        assertTrue(ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum() <= ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
-    }
-
-    @Test
-    fun `S15 an orchestration total of 43500 passes and 43501 is flagged`() {
-        val ok = registryOf(*(1..6).map { padded("pad_$it", 7_250, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(43_500, ToolSurfaceChecks.sizes(ok, ToolProfile.ORCHESTRATION).values.sum())
-        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
-
-        val sizes = listOf(7_250, 7_250, 7_250, 7_250, 7_250, 7_251)
-        val over =
-            registryOf(*sizes.mapIndexed { i, size -> padded("pad_" + ('a' + i), size, ToolProfile.ORCHESTRATION) }.toTypedArray())
-        assertEquals(43_501, ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION).values.sum())
-        val violations = ToolSurfaceChecks.budgetViolations(over)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue("total" in violations.single() && "orchestration" in violations.single(), violations.single())
-    }
-
-    @Test
-    fun `S15 a director total of 14000 passes and 14001 is flagged for director only`() {
-        val ok = registryOf(padded("pad_a", 7_000, ToolProfile.DIRECTOR), padded("pad_b", 7_000, ToolProfile.DIRECTOR))
-        assertEquals(14_000, ToolSurfaceChecks.sizes(ok, ToolProfile.DIRECTOR).values.sum())
-        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(ok))
-
-        val over = registryOf(padded("pad_a", 7_000, ToolProfile.DIRECTOR), padded("pad_b", 7_001, ToolProfile.DIRECTOR))
-        assertEquals(14_001, ToolSurfaceChecks.sizes(over, ToolProfile.DIRECTOR).values.sum())
-        val violations = ToolSurfaceChecks.budgetViolations(over)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue("total" in violations.single() && "director" in violations.single(), violations.single())
-        assertEquals(
-            emptyMap(),
-            ToolSurfaceChecks.sizes(over, ToolProfile.ORCHESTRATION),
-            "a director-only tool adds nothing to the orchestration or knowledge totals"
-        )
-        assertEquals(emptyMap(), ToolSurfaceChecks.sizes(over, ToolProfile.KNOWLEDGE))
-    }
-
     @Test
     fun `S15 a director tool of 9001 characters is flagged by name for director`() {
         val violations = ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 9_001, ToolProfile.DIRECTOR)))
@@ -221,14 +171,8 @@ class ToolSurfaceGuardsTest {
     }
 
     @Test
-    fun `S15 the ceilings are the frozen numbers`() {
+    fun `S15 the per-tool ceiling is the frozen number`() {
         assertEquals(9_000, ToolSurfaceChecks.PER_TOOL_CEILING)
-        assertEquals(22_000, ToolSurfaceChecks.KNOWLEDGE_TOTAL_CEILING)
-        assertEquals(43_500, ToolSurfaceChecks.ORCHESTRATION_TOTAL_CEILING)
-        assertEquals(14_000, ToolSurfaceChecks.DIRECTOR_TOTAL_CEILING)
-        assertEquals(22_000, ToolSurfaceChecks.totalCeiling(ToolProfile.KNOWLEDGE))
-        assertEquals(43_500, ToolSurfaceChecks.totalCeiling(ToolProfile.ORCHESTRATION))
-        assertEquals(14_000, ToolSurfaceChecks.totalCeiling(ToolProfile.DIRECTOR))
     }
 
     // ------------------------------------------------------------------ S17 documentation
