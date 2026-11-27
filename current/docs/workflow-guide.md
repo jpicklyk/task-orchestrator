@@ -1,6 +1,6 @@
 # MCP Task Orchestrator - Workflow Guide
 
-This guide covers the role-based workflow, note schema system, dependency blocking, claims, resource leases and runs, and efficient query patterns for MCP Task Orchestrator 4.0.
+This guide covers the role-based workflow, dependency blocking and runs, and efficient query patterns for MCP Task Orchestrator 4.0.
 
 ---
 
