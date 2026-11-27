@@ -437,7 +437,9 @@ class WorkItemsV26GoldenTest {
                     "blocked_reason",
                     "blocked_ref",
                     // V38 appends the pinned builds flag (nullable INTEGER)
-                    "builds"
+                    "builds",
+                    // V40 appends the sibling rank (nullable INTEGER)
+                    "rank"
                 ),
                 cols.map { it.name },
                 "column list and order"

@@ -66,7 +66,9 @@ object SeedV26 : MigrationSeed(26) {
             "blocked_reason" to false,
             "blocked_ref" to false,
             // V38 appends the pinned builds flag (the list is checked at the latest schema)
-            "builds" to false
+            "builds" to false,
+            // V40 appends the sibling rank (the list is checked at the latest schema)
+            "rank" to false
         )
 
     private val newColumns =

@@ -83,14 +83,14 @@ class ItemsReadNextTest {
 
     /** High: b(2) f(2, later id) a(5) c(null); medium: d(1) g(3) h(null); low: e(1). */
     private suspend fun seedRanked(rig: EventLogRig): Ranked {
-        val e = rig.vwMake("e", priority = Priority.LOW, complexity = 1, id = uid(0x50))
-        val h = rig.vwMake("h", priority = Priority.MEDIUM, complexity = null, id = uid(0x40))
-        val c = rig.vwMake("c", priority = Priority.HIGH, complexity = null, id = uid(0x30))
-        val a = rig.vwMake("a", priority = Priority.HIGH, complexity = 5, id = uid(0x20))
-        val f = rig.vwMake("f", priority = Priority.HIGH, complexity = 2, id = uid(0x12))
-        val b = rig.vwMake("b", priority = Priority.HIGH, complexity = 2, id = uid(0x11))
-        val g = rig.vwMake("g", priority = Priority.MEDIUM, complexity = 3, id = uid(0x60))
-        val d = rig.vwMake("d", priority = Priority.MEDIUM, complexity = 1, id = uid(0x70))
+        val e = rig.vwMake("e", priority = Priority.LOW, complexity = 1, id = uid(0x50), at = t0)
+        val h = rig.vwMake("h", priority = Priority.MEDIUM, complexity = null, id = uid(0x40), at = t0)
+        val c = rig.vwMake("c", priority = Priority.HIGH, complexity = null, id = uid(0x30), at = t0)
+        val a = rig.vwMake("a", priority = Priority.HIGH, complexity = 5, id = uid(0x20), at = t0)
+        val f = rig.vwMake("f", priority = Priority.HIGH, complexity = 2, id = uid(0x12), at = t0)
+        val b = rig.vwMake("b", priority = Priority.HIGH, complexity = 2, id = uid(0x11), at = t0)
+        val g = rig.vwMake("g", priority = Priority.MEDIUM, complexity = 3, id = uid(0x60), at = t0)
+        val d = rig.vwMake("d", priority = Priority.MEDIUM, complexity = 1, id = uid(0x70), at = t0)
         return Ranked(b, f, a, c, d, g, h, e)
     }
 

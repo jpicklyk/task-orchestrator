@@ -43,6 +43,7 @@ data class WorkItem(
     val previousRole: Role? = null,
     val priority: Priority = Priority.MEDIUM,
     val complexity: Int? = null,
+    val rank: Int? = null,
     val requiresVerification: Boolean = false,
     val depth: Int = 0,
     val metadata: String? = null,

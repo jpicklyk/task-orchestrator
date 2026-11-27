@@ -394,7 +394,9 @@ class SqliteClaimStore(
                 NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
                     query
                         .orderBy(ItemQueries.priorityRank(), SortOrder.ASC)
+                        .orderBy(WorkItemsTable.rank, SortOrder.ASC_NULLS_LAST)
                         .orderBy(WorkItemsTable.complexity, SortOrder.ASC_NULLS_LAST)
+                        .orderBy(WorkItemsTable.createdAt, SortOrder.ASC)
                 NextItemOrder.OLDEST_FIRST -> query.orderBy(WorkItemsTable.createdAt, SortOrder.ASC)
                 NextItemOrder.NEWEST_FIRST -> query.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
             }

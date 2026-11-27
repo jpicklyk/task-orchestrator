@@ -45,6 +45,7 @@ data class UpdateItemRequest(
     @Doc(ItemDocs.STATUS_LABEL) val statusLabel: String? = null,
     @Doc(ItemDocs.PRIORITY) val priority: PriorityWire? = null,
     @Doc(ItemDocs.COMPLEXITY) val complexity: Int? = null,
+    @Doc(ItemDocs.RANK) val rank: Int? = null,
     @Doc(ItemDocs.REQUIRES_VERIFICATION) val requiresVerification: Boolean? = null,
     @Doc(ItemDocs.METADATA) val metadata: String? = null,
     @Doc(ItemDocs.TAGS) val tags: List<String>? = null,
@@ -101,6 +102,7 @@ private fun clearConflicts(req: UpdateItemRequest): List<FieldViolation> {
     conflict(ClearField.STATUS_LABEL, req.statusLabel != null)
     conflict(ClearField.METADATA, req.metadata != null)
     conflict(ClearField.COMPLEXITY, req.complexity != null)
+    conflict(ClearField.RANK, req.rank != null)
     conflict(ClearField.PROPERTIES, req.properties != null)
     conflict(ClearField.PARENT_ID, req.parentId != null)
     return out
@@ -112,6 +114,7 @@ private fun wireName(field: ClearField): String =
         ClearField.STATUS_LABEL -> "statusLabel"
         ClearField.METADATA -> "metadata"
         ClearField.COMPLEXITY -> "complexity"
+        ClearField.RANK -> "rank"
         ClearField.PROPERTIES -> "properties"
         ClearField.PARENT_ID -> "parentId"
     }
@@ -171,6 +174,7 @@ private suspend fun WriteScope<ItemWriteStoreProvider>.updateItem(
             statusLabel = if (ClearField.STATUS_LABEL in req.clear) null else req.statusLabel ?: existing.statusLabel,
             priority = req.priority?.priority ?: existing.priority,
             complexity = if (ClearField.COMPLEXITY in req.clear) null else req.complexity ?: existing.complexity,
+            rank = if (ClearField.RANK in req.clear) null else req.rank ?: existing.rank,
             requiresVerification = req.requiresVerification ?: existing.requiresVerification,
             metadata = if (ClearField.METADATA in req.clear) null else req.metadata ?: existing.metadata,
             tags = if (req.tags == null) existing.tags else joinTags(req.tags),

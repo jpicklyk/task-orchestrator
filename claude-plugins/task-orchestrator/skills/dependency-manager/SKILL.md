@@ -77,9 +77,11 @@ Pick the shape from what the user described:
 | Situation | Op | Fields |
 |---|---|---|
 | Two items | `create` | `from` (the blocker), `to`, `type?`, `unblockAt?` |
-| A sequence A then B then C | `linear` | `ids: [A, B, C]` |
+| A chain: each item needs the one before it done | `linear` | `ids: [A, B, C]` |
 | One item blocks many | `fan_out` | `from`, `toIds` |
 | Many items block one | `fan_in` | `fromIds`, `to` |
+
+An order the user states among items that do not need each other done (A, then B, then C) takes no edge. When `items_read` `schema` on one of the items lists `rank` in `features`, give each its `rank` with `items_write` `update` (`id`, `rank`: 10, 20, 30, smaller first) and report the ranks; otherwise send it as a `linear` chain as before. Ask when the words do not say which.
 
 A pattern is one unit: all its edges are created or none (a duplicate or a cycle anywhere leaves nothing written). Confirm the derived edges first ("About to create A -> B -> C -> D as a chain. Proceed?"). `type` is lowercase `blocks` (default) or `relates_to`; the old `IS_BLOCKED_BY` alias is rejected, so name the blocker as `from`.
 
@@ -182,7 +184,7 @@ Then point to the fix: `/status-progression` on the blocker, or fill its missing
 | `terminal` (default) | finishes entirely |
 | `review` | enters review |
 | `work` | starts work |
-| `queue` | exists (ordering only) |
+| `queue` | exists |
 
 ## Troubleshooting
 
@@ -212,7 +214,7 @@ Then point to the fix: `/status-progression` on the blocker, or fill its missing
 | What an item blocks | `deps_read list`, `direction: outgoing` |
 | Full chain | `deps_read graph` |
 | Link two items | `deps_write create` |
-| Sequential list | `deps_write linear` |
+| Dependency chain | `deps_write linear` |
 | One before many | `deps_write fan_out` |
 | Many before one | `deps_write fan_in` |
 | Remove a link | list, confirm, `deps_write delete` |

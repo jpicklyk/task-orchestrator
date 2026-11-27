@@ -73,7 +73,8 @@ class WorkViewQueriesTest {
         parent: WorkItem? = null,
         claimedBy: String? = null,
         claimExpiresAt: Instant? = null,
-        tags: String? = null
+        tags: String? = null,
+        createdAt: Instant = Instant.now()
     ): WorkItem {
         val claimedAt = claimExpiresAt?.minusSeconds(60)
         return repo.create(
@@ -85,6 +86,7 @@ class WorkViewQueriesTest {
                 parentId = parent?.id,
                 depth = (parent?.depth ?: -1) + 1,
                 tags = tags,
+                createdAt = createdAt,
                 claimedBy = claimedBy,
                 claimedAt = claimedAt,
                 claimExpiresAt = claimExpiresAt,
@@ -206,7 +208,7 @@ class WorkViewQueriesTest {
         runBlocking {
             val tied = mutableSetOf<UUID>()
             db.unitOfWork().inUnit {
-                repeat(7) { i -> tied += make("tied $i", priority = Priority.MEDIUM, complexity = 4).id }
+                repeat(7) { i -> tied += make("tied $i", priority = Priority.MEDIUM, complexity = 4, createdAt = t).id }
             }
             val dbIdOrder =
                 transaction(db = db.database) {

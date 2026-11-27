@@ -104,7 +104,10 @@
             "decisionTools",
             "waitingOn",
             "decisionAuthority",
-            "profileSets"
+            "profileSets",
+            "rank",
+            "createTreeExistingDeps",
+            "declaredTypes"
         ]
     },
     "metadata": {

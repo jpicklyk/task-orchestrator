@@ -212,6 +212,8 @@ object BaselineDataset {
             "blocked_ref" to if (name == "task1") id("blocked-ref:$name") else null,
             // V38: one row's pin says it does not build, so the column is non-default in some row (dropped below V38).
             "builds" to if (name == "task5") 0 else null,
+            // V40: one row is ranked (dropped below V40, where the column does not exist yet).
+            "rank" to if (name == "task6") 20 else null,
             // V26 lifecycle and pin set on EVERY row (absent below V26, so insert drops them): see pinColumns.
             *pinColumns()
         )

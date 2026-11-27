@@ -57,6 +57,10 @@
               "type": "integer",
               "description": "1 to 10. [ops: create, update]"
             },
+            "rank": {
+              "type": "integer",
+              "description": "Order in next; lower first. [ops: create, update]"
+            },
             "requiresVerification": {
               "type": "boolean",
               "description": "Completion needs verification. [ops: create, update]"
@@ -124,6 +128,7 @@
                   "statusLabel",
                   "metadata",
                   "complexity",
+                  "rank",
                   "properties",
                   "parentId"
                 ]
@@ -293,6 +298,10 @@
                   "complexity": {
                     "type": "integer",
                     "description": "1 to 10."
+                  },
+                  "rank": {
+                    "type": "integer",
+                    "description": "Order in next; lower first."
                   },
                   "requiresVerification": {
                     "type": "boolean",

@@ -4,7 +4,7 @@ package io.github.jpicklyk.mcptask.current.model.item
  * Ordering strategy for [io.github.jpicklyk.mcptask.current.claim.ClaimStore.findEligible].
  *
  * - [PRIORITY_THEN_COMPLEXITY] - the `items_read` `next` ranking (default): HIGH > MEDIUM > LOW,
- *   then complexity ascending (quick wins first).
+ *   then rank ascending with unranked last, then complexity ascending (quick wins first), then createdAt ascending.
  * - [OLDEST_FIRST] — createdAt ASC; useful for FIFO queue drain (Ralph-style).
  * - [NEWEST_FIRST] — createdAt DESC; useful for recency-biased selection.
  */

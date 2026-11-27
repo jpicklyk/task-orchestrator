@@ -352,6 +352,7 @@ private fun childInput(
         description = child.description,
         statusLabel = child.statusLabel,
         complexity = child.complexity,
+        rank = child.rank,
         requiresVerification = child.requiresVerification,
         metadata = child.metadata,
         properties = child.properties?.toString(),

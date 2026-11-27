@@ -24,6 +24,13 @@ The rule document under key `maturity` that names the tags retrieval leaves out 
 
 Distinct from: archiving a document (`docs_write` `archive`, a stored state search skips); an item has no archive state.
 
+### Rank
+
+An item's optional integer place in an order the user or a plan stated among items of equal priority: `next` hands out a smaller rank first and unranked items last. It never holds an item back: it adds no edge and no gate, and `blocked` ignores it.
+
+Distinct from: a `blocks` dependency edge, which holds the blocked item back; priority, which rank orders within; and the priority rank, role rank and FTS `rank` score of the store's sorts, which are not item data.
+In code: `WorkItem.rank` (column `work_items.rank`).
+
 ## Seats and notes
 
 ### Seat

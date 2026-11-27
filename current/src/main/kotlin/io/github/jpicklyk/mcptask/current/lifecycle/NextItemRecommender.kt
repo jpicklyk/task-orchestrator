@@ -93,7 +93,7 @@ class NextItemRecommender(
 
     /**
      * Returns the top [limit] eligible work items that match [criteria]: no active claim, no ancestor claim by a
-     * disqualifying agent, no unsatisfied blocking dependency, ranked by [Criteria.orderBy] (ties by id).
+     * disqualifying agent, no unsatisfied blocking dependency, ranked by [Criteria.orderBy] (the default: priority, rank, complexity, `createdAt`; ties by id).
      */
     suspend fun recommend(
         criteria: Criteria,

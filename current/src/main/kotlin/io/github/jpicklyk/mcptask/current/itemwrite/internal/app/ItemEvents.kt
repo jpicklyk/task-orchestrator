@@ -21,6 +21,7 @@ internal fun itemChangedFields(
         if (old.previousRole != new.previousRole) add("previousRole")
         if (old.priority != new.priority) add("priority")
         if (old.complexity != new.complexity) add("complexity")
+        if (old.rank != new.rank) add("rank")
         if (old.requiresVerification != new.requiresVerification) add("requiresVerification")
         if (old.rootId != new.rootId) add("rootId")
         if (old.depth != new.depth) add("depth")

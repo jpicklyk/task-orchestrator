@@ -25,8 +25,8 @@ import kotlinx.serialization.serializer
 
 /**
  * `items_read` select `schema`: the resolved note schema of a type ([Request.type], optionally under [Request.rootId])
- * or of an item ([Request.itemId]), built by [ItemSchemaView]. Exactly one of `type` and `itemId`; `rootId` only with
- * `type`. Ids are resolved under D2 and scope-checked. No matching schema is not an error: `{schemaFree: true}`
+ * or of an item ([Request.itemId]), built by [ItemSchemaView]; with neither, the declared types and their lifecycle
+ * (S63). At most one of `type` and `itemId`; `rootId` not with `itemId`. Ids are resolved under D2 and scope-checked. No matching schema is not an error: `{schemaFree: true}`
  * (D6). Per-note `guidance` is stripped unless `fields: ["guidance"]`.
  */
 object ItemsReadSchema {
@@ -37,7 +37,7 @@ object ItemsReadSchema {
     data class Request(
         @Doc(ItemsReadDocs.TYPE) val type: String? = null,
         @Doc(ItemsReadDocs.ITEM_ID) val itemId: IdRef? = null,
-        @Doc("With type: the project root whose config resolves it (UUID or 8-32 hex).")
+        @Doc("With type, or with neither type nor itemId: the project root whose config resolves it (UUID or 8-32 hex).")
         val rootId: IdRef? = null,
         @Doc(ItemsReadDocs.FIELDS) val fields: List<String>? = null,
     )
@@ -45,7 +45,9 @@ object ItemsReadSchema {
     val select =
         SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "schema",
-            doc = "The note schema of a type or of an item; schemaFree when none matches; guidance only with fields.",
+            doc =
+                "The note schema of a type or of an item, or with neither the declared types and their lifecycle; " +
+                    "schemaFree when no schema matches; guidance only with fields.",
             profiles = knowledge(),
             services = LifecycleToolServices::class,
             request = serializer<Request>(),
@@ -53,43 +55,49 @@ object ItemsReadSchema {
             handler = handler@{ env, ctx, req ->
                 acceptFields(req.fields, FIELDS)?.let { return@handler Outcome.Err(it) }
                 val faults = ArrayList<FieldViolation>()
-                if ((req.type == null) == (req.itemId == null)) {
-                    faults.add(FieldViolation(pointer("type"), "exactly one of type and itemId is required"))
+                if (req.type != null && req.itemId != null) {
+                    faults.add(FieldViolation(pointer("type"), "give at most one of type and itemId"))
                 }
-                if (req.rootId != null && req.type == null) {
-                    faults.add(FieldViolation(pointer("rootId"), "is allowed only with type"))
+                if (req.rootId != null && req.itemId != null) {
+                    faults.add(FieldViolation(pointer("rootId"), "is not allowed with itemId"))
                 }
                 if (faults.isNotEmpty()) return@handler Outcome.Err(invalidFields(faults))
 
-                val schema =
-                    if (req.type != null) {
-                        val rootId =
-                            if (req.rootId == null) {
-                                null
-                            } else {
-                                when (val r = resolveTarget(env, ctx, req.rootId, "rootId")) {
-                                    is Outcome.Err -> return@handler r
-                                    is Outcome.Ok -> r.value
-                                }
-                            }
-                        ItemSchemaView.buildTypeSchemaJson(req.type, rootId, env.configResolver)
-                    } else {
-                        val id =
-                            when (val r = resolveTarget(env, ctx, req.itemId!!, "itemId")) {
+                if (req.itemId == null) {
+                    val rootId =
+                        if (req.rootId == null) {
+                            null
+                        } else {
+                            when (val r = resolveTarget(env, ctx, req.rootId, "rootId")) {
                                 is Outcome.Err -> return@handler r
                                 is Outcome.Ok -> r.value
                             }
-                        val item = env.workItemRepository().getById(id) ?: return@handler Outcome.Err(itemNotFound(id))
-                        ItemSchemaView.buildItemSchemaJson(item, env.configResolver)
-                    }
-                if (schema == null) {
-                    Outcome.Ok(buildJsonObject { put("schemaFree", true) })
-                } else {
-                    Outcome.Ok(if ("guidance" in req.fields.orEmpty()) schema else withoutGuidance(schema))
+                        }
+                    if (req.type == null) return@handler Outcome.Ok(ItemSchemaView.buildDeclaredTypesJson(rootId, env.configResolver))
+                    val typed = ItemSchemaView.buildTypeSchemaJson(req.type, rootId, env.configResolver)
+                    return@handler Outcome.Ok(schemaOrFree(typed, req.fields))
                 }
+                val id =
+                    when (val r = resolveTarget(env, ctx, req.itemId, "itemId")) {
+                        is Outcome.Err -> return@handler r
+                        is Outcome.Ok -> r.value
+                    }
+                val item = env.workItemRepository().getById(id) ?: return@handler Outcome.Err(itemNotFound(id))
+                Outcome.Ok(schemaOrFree(ItemSchemaView.buildItemSchemaJson(item, env.configResolver), req.fields))
             },
             data = { it }
         )
+
+    /** [schema], guidance stripped unless asked for, or `{schemaFree: true}` when no schema matches. */
+    private fun schemaOrFree(
+        schema: JsonObject?,
+        fields: List<String>?
+    ): JsonObject =
+        when {
+            schema == null -> buildJsonObject { put("schemaFree", true) }
+            "guidance" in fields.orEmpty() -> schema
+            else -> withoutGuidance(schema)
+        }
 
     /** [schema] with the `guidance` member removed from every entry of `notes`. */
     private fun withoutGuidance(schema: JsonObject): JsonObject {

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.config
 
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlSchemaParser
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
@@ -775,6 +776,41 @@ class PrecedenceTableTest {
                 resolver.availableTypes(UUID.randomUUID()),
                 "a root with no per-root row sees the server keys only"
             )
+        }
+
+    // ------------------------------------------------------------------
+    // S63 - declaredTypeLifecycles
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `S63 declaredTypeLifecycles is the sorted union and a shared key takes the per-root lifecycle`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val prDoc =
+                ConfigDocument(
+                    linkedMapOf(
+                        "zeta" to WorkItemSchema(type = "zeta", notes = emptyList(), lifecycleMode = LifecycleMode.NONE),
+                        "shared" to WorkItemSchema(type = "shared", notes = emptyList(), lifecycleMode = LifecycleMode.MANUAL)
+                    ),
+                    emptyMap()
+                )
+            val svDoc =
+                ConfigDocument(
+                    linkedMapOf(
+                        "shared" to WorkItemSchema(type = "shared", notes = emptyList(), lifecycleMode = LifecycleMode.PERMANENT),
+                        "alpha" to WorkItemSchema(type = "alpha", notes = emptyList())
+                    ),
+                    emptyMap()
+                )
+            val resolver = serverResolver(svDoc, rootId, prDoc)
+
+            assertEquals(
+                listOf("alpha" to LifecycleMode.AUTO, "shared" to LifecycleMode.MANUAL, "zeta" to LifecycleMode.NONE),
+                resolver.declaredTypeLifecycles(rootId).toList()
+            )
+            val serverOnly = listOf("alpha" to LifecycleMode.AUTO, "shared" to LifecycleMode.PERMANENT)
+            assertEquals(serverOnly, resolver.declaredTypeLifecycles(null).toList())
+            assertEquals(serverOnly, resolver.declaredTypeLifecycles(UUID.randomUUID()).toList(), "an unpushed root sees the server types")
         }
 
     // ------------------------------------------------------------------
