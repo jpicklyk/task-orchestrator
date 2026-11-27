@@ -2,6 +2,8 @@
 
 **Status:** Accepted | **Date:** 2026-11-26 | **Source:** Boundary analysis 2026-11-26, owner answers (plans/boundaries/README.md, not tracked), decisions 2, 3, 4, 5, 6, 7, 8 and N-b as revised after the simplicity review; supersedes the 2026-11-23 ruling "keep the `orchestrator` seat" in [glossary-alignment.md](../glossary-alignment.md) (section S, and row S2)
 
+**Amended 2026-11-26:** the server side is advertised by one feature string per facet (`seatWrites`, `orchestratorNotes`), not a single flag covering the whole change set. Why: the facets land in separate changes, and a plugin that reads one string for all of them cannot tell which behaviour the server has.
+
 ## Decision
 
 A seat entry gains an optional `writes` (default true in the work phase, false elsewhere), and the plugin chooses a seat's protocol rule from the served `enters` and `writes` only: `protocol.entry-seat` when it enters, else `protocol.in-phase-seat` when it writes, else `protocol.read-only-agent`. The dispatch lists the seat's effective triggers and every protocol rule says to send only those. Rule and skill defaults are keyed by seat name, and a seat whose name has no defaults row gets none.
@@ -28,10 +30,10 @@ The 2026-11-23 glossary-alignment ruling kept the `orchestrator` seat because it
 ## Consequences
 
 - The planner seat, which declares no `writes`, moves from `protocol.in-phase-seat` to `protocol.read-only-agent` (decision 4). Every writing seat also gets `protocol.commit`; the two rule classes that leaves are recorded in [0018](0018-content-placement.md).
-- A seat whose name has no defaults row gets no rule or skill defaults and a lint advisory; its dispatch class keeps the phase fallback (decision 6). Review lanes and ralph take seat names from the declared seats.
+- A seat whose name has no defaults row gets no rule or skill defaults; its dispatch class keeps the phase fallback (decision 6). Review lanes and ralph take seat names from the declared seats.
 - `assign` needs no new refusal for `orchestrator` (decision 8): only declared names, or the default seats on a seat-less item, are assignable, and no seat of that name can be declared. The existing refusal of the stored `coordinator` value stays.
-- The accept skill acting on an open-run member uses the run token from the run files or hands the step to that run's orchestrator; `seat_forbidden` and `note_owned_by_other` gain a `fixArgs` hint naming the run (decision 7). Who may answer the acceptance decision still follows [0003](0003-role-neutral-decisions-surface.md).
-- Behaviour change, behind one server feature flag for the whole seat-model change set (P9 in [architecture-breakdown.md](../architecture-breakdown.md)): in a seat-aware schema with no declared `orchestrator` entry, `seat: orchestrator` notes go from unowned to run-token-only inside open runs. No migration. The wire `seat: orchestrator` on note entries, `orchestratorToken` and the stored `coordinator` value are unchanged ([0005](0005-renames-with-deprecated-aliases.md)).
+- The accept skill acting on an open-run member uses the run token from the run files or hands the step to that run's orchestrator; `seat_forbidden` and `note_owned_by_other` name the run (decision 7). Who may answer the acceptance decision still follows [0003](0003-role-neutral-decisions-surface.md).
+- Behaviour change, advertised by one feature string per facet, `seatWrites` and `orchestratorNotes` (P9 in [architecture-breakdown.md](../architecture-breakdown.md)): in a seat-aware schema with no declared `orchestrator` entry, `seat: orchestrator` notes go from unowned to run-token-only inside open runs. No migration. The wire `seat: orchestrator` on note entries, `orchestratorToken` and the stored `coordinator` value are unchanged ([0005](0005-renames-with-deprecated-aliases.md)).
 - The dogfood config drops its two phased `orchestrator` seat entries. The glossary replaces "Orchestrator seat" with "Orchestrator note", adds "Run token" and "Writing seat", and drops the Seat entry's exception, when the code lands. [0001](0001-two-session-layers.md)'s reserved-name statement stays true; [0012](0012-acceptance-gate-note-form.md)'s "who writes it" reads as an orchestrator note.
 - The design is in [seat-model.md](../seat-model.md).
 

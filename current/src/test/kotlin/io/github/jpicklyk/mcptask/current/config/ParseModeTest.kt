@@ -228,6 +228,7 @@ class ParseModeTest {
             val found = seatNameWarnings(doc)
             assertEquals(listOf("/work_item_schemas/bug-fix/seats/0/name"), found.map { it.path }, "$mode: ${doc.warningViolations}")
             assertTrue(found.single().reason.contains("'coordinator', a retired name"), found.single().reason)
+            assertTrue(found.single().reason.contains("will be refused"), found.single().reason)
             assertEquals(
                 listOf("coordinator"),
                 doc.workItemSchemas
@@ -259,7 +260,7 @@ class ParseModeTest {
     }
 
     @Test
-    fun `the seat names orchestrator, Coordinator and planner draw no error and no seat warning`() {
+    fun `the seat name orchestrator warns that it will be refused while Coordinator and planner draw no warning`() {
         val yaml =
             """
             work_item_schemas:
@@ -273,7 +274,10 @@ class ParseModeTest {
             val doc = parsed(yaml, mode)
 
             assertEquals(emptyList(), doc.errors, "$mode")
-            assertEquals(emptyList(), seatNameWarnings(doc), "$mode: ${doc.warningViolations}")
+            val found = seatNameWarnings(doc)
+            assertEquals(listOf("/work_item_schemas/bug-fix/seats/0/name"), found.map { it.path }, "$mode: ${doc.warningViolations}")
+            assertTrue(found.single().reason.contains("will be refused"), found.single().reason)
+            assertTrue(found.single().reason.contains("reserved note owner"), found.single().reason)
             assertEquals(
                 3,
                 doc.workItemSchemas

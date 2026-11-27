@@ -13,7 +13,38 @@
 import { isOrchestratorServerKey } from '../hooks/registration.mjs';
 import { forClass } from './lib/dispatch-policy.mjs';
 import { SEAT_SKILLS_FEATURE, seatSkillsFor, loadSeatSkillDefaults } from '../hooks/lib/seat-skills.mjs';
-import { loadSeatRules, seatRoleOf, seatRulesFor } from '../hooks/lib/seat-rules.mjs';
+import { loadSeatRules, seatRoleOf, seatRulesFor, seatProtocolFor, seatDefaultsRoleFor } from '../hooks/lib/seat-rules.mjs';
+
+/** The server features the served path reads: per-seat writes and transitions, and the served note owner. */
+export const SEAT_WRITES_FEATURE = 'seatWrites';
+export const ORCHESTRATOR_NOTES_FEATURE = 'orchestratorNotes';
+
+/**
+ * The triggers (other than start) a seat may send when its declaration lists none. The server serves a seat's
+ * transitions only when declared; this mirrors SeatDefinition.kt DEFAULT_TRANSITIONS (a parity test reads that line).
+ */
+export const SERVER_DEFAULT_TRANSITIONS = Object.freeze(['block', 'hold']);
+
+/** The seat that owns a note: the served owner (owningSeat) when served, else the note's own seat. */
+function noteOwnerOf(n, served) {
+  const v = served ? n.owningSeat : n.seat;
+  return v === undefined ? null : v;
+}
+
+/**
+ * laneSeatOf(note, schema, served) -> the review lane seat of a review-role note: its owner (served: owningSeat,
+ * else seat), else its reviewer, else the schema's one declared review-phase seat when exactly one, else
+ * 'reviewer' (the server default seat).
+ */
+export function laneSeatOf(note, schema, served) {
+  const n = note && typeof note === 'object' ? note : {};
+  const owner = noteOwnerOf(n, served);
+  if (typeof owner === 'string' && owner) return owner;
+  if (n.reviewer) return n.reviewer;
+  const reviewSeats = ((schema && schema.seats) || []).filter((x) => x && x.phase === 'review' && x.name !== 'orchestrator');
+  if (reviewSeats.length === 1) return reviewSeats[0].name;
+  return 'reviewer';
+}
 
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
@@ -576,8 +607,8 @@ function noteLimitsOf(keys, notes) {
  * skill of a note the seat `seatName` owns, in schema order. Computed from the schema, so a resumed item
  * whose queue stages are skipped still names them.
  */
-function testPlanInputsOf(notes, seatName) {
-  const skills = new Set(notes.filter((n) => n.seat === seatName).flatMap(noteSkills));
+function testPlanInputsOf(notes, seatName, served) {
+  const skills = new Set(notes.filter((n) => noteOwnerOf(n, served) === seatName).flatMap(noteSkills));
   return notes.filter((n) => n.role === 'queue' && noteSkills(n).some((s) => skills.has(s))).map((n) => n.key);
 }
 
@@ -592,8 +623,9 @@ function noteSkills(n) {
  * ownership(schema, phases) -> {unowned:string[], orchestratorNotes:string[]}
  * In schema note order (notes scoped to `phases`); `unowned` lists only REQUIRED notes whose
  * seat is null, names an undeclared seat, or names a seat declared for a different phase.
+ * served (the server advertises orchestratorNotes): ownership reads each note's served owningSeat instead.
  */
-export function ownership(schema, phases) {
+export function ownership(schema, phases, served = false) {
   const declaredSeatsByPhase = {};
   for (const s of (schema && schema.seats) || []) {
     if (!declaredSeatsByPhase[s.phase]) declaredSeatsByPhase[s.phase] = new Set();
@@ -604,6 +636,13 @@ export function ownership(schema, phases) {
   const orchestratorNotes = [];
   for (const note of (schema && schema.notes) || []) {
     if (!phases.includes(note.role)) continue;
+    if (served) {
+      // served owner: the server resolved each note's owning seat (orchestrator in any phase, null when unowned)
+      if (note.owningSeat === 'orchestrator') orchestratorNotes.push(note.key);
+      else if (typeof note.owningSeat !== 'string' && note.required) unowned.push(note.key);
+      continue;
+    }
+    // old path: remove one release after orchestratorNotes
     // A note with seat `orchestrator` is orchestrator-owned whenever the schema declares that seat in
     // ANY phase (it is commonly declared for work only while its notes sit in review).
     if (note.seat === 'orchestrator' && orchestratorDeclared) {
@@ -706,13 +745,13 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
  * reviewSeatSkillsOf(schema, skillOpts) -> {<lane seat>: [skills]} | null
  * Over the same lane seats as reviewRulesOf; a seat with no skills is omitted, null when none has any.
  */
-function reviewSeatSkillsOf(schema, skillOpts) {
+function reviewSeatSkillsOf(schema, skillOpts, served) {
   const out = {};
   const declaredSeats = schema.seats || [];
   const seen = new Set();
   for (const n of schema.notes || []) {
-    if (!n || n.role !== 'review' || n.seat === 'orchestrator') continue;
-    const seat = n.seat || n.reviewer || 'reviewer';
+    if (!n || n.role !== 'review' || noteOwnerOf(n, served) === 'orchestrator') continue;
+    const seat = laneSeatOf(n, schema, served);
     if (seen.has(seat)) continue;
     seen.add(seat);
     const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
@@ -722,32 +761,56 @@ function reviewSeatSkillsOf(schema, skillOpts) {
   return Object.keys(out).length ? out : null;
 }
 
+/** The advisory for a served seat whose name has no defaults row and that does not declare both rules and skills. */
+function noDefaultsAdvisory(seat, schema) {
+  return `seat ${seat} of ${schema.type} has no defaults row: no rule or skill defaults (declare rules: and skills:)`;
+}
+
+/** The lane seats of the schema's review-role notes in first-seen order (orchestrator-owned notes excluded). */
+function reviewSeatsOf(schema, served) {
+  const out = [];
+  for (const n of schema.notes || []) {
+    if (!n || n.role !== 'review' || noteOwnerOf(n, served) === 'orchestrator') continue;
+    const seat = laneSeatOf(n, schema, served);
+    if (!out.includes(seat)) out.push(seat);
+  }
+  return out;
+}
+
 /**
  * reviewRulesOf(schema, servedKeys) -> {reviewRules, degradations}
  * reviewRules is {<lane seat>: [keys]} over the seats of the schema's review-role notes (the lane seat expression
  * reviewWaveArgs uses), omitted keys with no rule; the seat's declared `rules` or the review-v1 defaults. null when no lane has one.
  */
-function reviewRulesOf(schema, servedKeys, table) {
+function reviewRulesOf(schema, servedKeys, table, served, seatsServed) {
   const out = {};
   const degradations = [];
   const declaredSeats = schema.seats || [];
-  const reviewNotes = (schema.notes || []).filter((n) => n && n.role === 'review' && n.seat !== 'orchestrator');
+  const reviewNotes = (schema.notes || []).filter((n) => n && n.role === 'review' && noteOwnerOf(n, served) !== 'orchestrator');
   const seen = new Set();
   for (const n of reviewNotes) {
-    const seat = n.seat || n.reviewer || 'reviewer';
+    const seat = laneSeatOf(n, schema, served);
     if (seen.has(seat)) continue;
     seen.add(seat);
+    // served path (seatWrites): the defaults row is keyed by the lane seat's name, the protocol is the read-only one
+    // (a review lane never writes); old path: the 'reviewer' role row (remove one release after seatWrites).
+    const laneRole = seatsServed ? seatDefaultsRoleFor(table, seat) : 'reviewer';
+    const laneProtocol = seatsServed ? seatProtocolFor(table, { enters: false, writes: false }) : undefined;
+    const laneDecl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
+    if (seatsServed && !laneRole && !(laneDecl && Array.isArray(laneDecl.rules) && Array.isArray(laneDecl.skills))) {
+      degradations.push(noDefaultsAdvisory(seat, schema));
+    }
     // The lane's review-note skills that name a served rule, read here only to report another role's protocol key:
     // review-wave args deliver a lane's note rules to it themselves.
     const laneNoteRules = [];
     for (const m of reviewNotes) {
-      if ((m.seat || m.reviewer || 'reviewer') !== seat) continue;
+      if (laneSeatOf(m, schema, served) !== seat) continue;
       for (const sk of noteSkills(m)) if (servedKeys.has(sk) && !laneNoteRules.includes(sk)) laneNoteRules.push(sk);
     }
-    const fromNotes = seatRulesFor(table, { role: 'reviewer', seat, noteRules: laneNoteRules, declared: [], served: servedKeys });
+    const fromNotes = seatRulesFor(table, { role: laneRole, seat, noteRules: laneNoteRules, declared: [], served: servedKeys, protocol: laneProtocol });
     degradations.push(...fromNotes.degradations);
     const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
-    const r = seatRulesFor(table, { role: 'reviewer', seat, declared: decl ? decl.rules : undefined, served: servedKeys });
+    const r = seatRulesFor(table, { role: laneRole, seat, declared: decl ? decl.rules : undefined, served: servedKeys, protocol: laneProtocol });
     degradations.push(...r.degradations);
     if (r.rules.length) out[seat] = r.rules;
   }
@@ -777,6 +840,11 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   };
   const servedKeys = new Set(rulesServed.map((r) => r.key));
   const seatRules = ctx.seatRules || loadSeatRules();
+  const features = Array.isArray(ctx.features) ? ctx.features : [];
+  // served path: the server advertises seatWrites and the table carries capabilities; the owner is served with
+  // orchestratorNotes. Old path (neither): remove one release after seatWrites/orchestratorNotes.
+  const seatsServed = features.includes(SEAT_WRITES_FEATURE) && !!seatRules.capabilities;
+  const ownerServed = features.includes(ORCHESTRATOR_NOTES_FEATURE);
   const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
   const degradations = [];
@@ -792,6 +860,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch({}, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    if (seatsServed) stage.protocol = seatProtocolFor(seatRules, { enters: true, writes: true });
     const freeSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
     if (freeSkills.length) stage.seatSkills = freeSkills;
     warnings.push('/manage-schemas suggestion');
@@ -820,7 +889,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   // by the implicit phase owner, not "unowned".
   let orchestratorNotes;
   if (seatAware) {
-    const own = ownership(schema, ['queue', 'work', 'review']);
+    const own = ownership(schema, ['queue', 'work', 'review'], ownerServed);
     if (own.unowned.length) {
       return {
         stages: [],
@@ -841,10 +910,13 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     // ORCHESTRATOR_OWNED_NOTES (the provenance note, orchestrator-confirmation and run-pointers): they are never
     // a seat's note, so they are pulled out of the stage notes and recorded here, whatever phase
     // (queue, work or review) they sit in.
+    // Served owner: the notes whose owningSeat is orchestrator (the key list is the old path only).
     orchestratorNotes = notes
-      .filter((n) => ['queue', 'work', 'review'].includes(n.role) && ORCHESTRATOR_OWNED_NOTES.includes(n.key))
+      .filter((n) => ['queue', 'work', 'review'].includes(n.role)
+        && (ownerServed ? n.owningSeat === 'orchestrator' : ORCHESTRATOR_OWNED_NOTES.includes(n.key)))
       .map((n) => n.key);
   }
+  const implicitNoteOwned = (n) => (ownerServed ? n.owningSeat !== 'orchestrator' : !ORCHESTRATOR_OWNED_NOTES.includes(n.key));
 
   const stages = [];
 
@@ -859,7 +931,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       if (!phases.includes(s.phase)) continue;
       if (isResumed && s.phase === 'queue') continue;
 
-      const seatNotes = notes.filter((n) => n.role === s.phase && n.seat === s.name).map((n) => n.key);
+      const seatNotes = notes.filter((n) => n.role === s.phase && noteOwnerOf(n, ownerServed) === s.name).map((n) => n.key);
 
       // Resume skip: every note this seat owns already exists and is owned by this seat (the server
       // enforces the lane, so another seat could not have written it).
@@ -871,7 +943,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       const isFirstQueue = s.phase === 'queue' && !(s.after && s.after.length) && !firstQueueAssigned;
       if (isFirstQueue) firstQueueAssigned = true;
       const enters = !!s.enters;
-      const writes = s.phase === 'work';
+      const writes = seatsServed ? s.writes === true : s.phase === 'work';
       const isTestAuthorSeat = s.name === 'test-author';
 
       let output;
@@ -894,12 +966,20 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
           dispatch: resolveDispatch(schema, EXTRACTOR_SEAT, 'work', {}),
           output: 'declarations-v1'
         });
+        if (seatsServed) stages[stages.length - 1].protocol = seatProtocolFor(seatRules, { enters: false, writes: false });
       }
 
       const rulesSkills = deriveRulesSkills(seatNotes, notes, servedKeys);
-      const role = seatRoleOf({ seat: s.name, phase: s.phase, output, enters, writes, notes: seatNotes });
+      // Served path: the protocol comes from enters and writes, the defaults row from the seat's name.
+      const protocol = seatsServed ? seatProtocolFor(seatRules, { enters, writes }) : undefined;
+      const role = seatsServed
+        ? seatDefaultsRoleFor(seatRules, s.name)
+        : seatRoleOf({ seat: s.name, phase: s.phase, output, enters, writes, notes: seatNotes });
+      if (seatsServed && !role && !(Array.isArray(s.rules) && Array.isArray(s.skills))) {
+        degradations.push(noDefaultsAdvisory(s.name, schema));
+      }
       const stageRules = seatRulesFor(seatRules, {
-        role, seat: s.name, enters, declared: s.rules, noteRules: rulesSkills.rules, served: servedKeys
+        role, seat: s.name, enters, declared: s.rules, noteRules: rulesSkills.rules, served: servedKeys, protocol
       });
       degradations.push(...stageRules.degradations);
       const dispatch = resolveDispatch(schema, s.name, s.phase, { enters, implicitOwner: false });
@@ -913,6 +993,11 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         dispatch,
         output
       };
+      if (seatsServed) {
+        stage.protocol = protocol;
+        const declaredTriggers = Array.isArray(s.transitions) ? s.transitions : SERVER_DEFAULT_TRANSITIONS;
+        stage.transitions = [...new Set([...(enters ? ['start'] : []), ...declaredTriggers])];
+      }
       const seatSkills = seatSkillsFor(s.skills, s.name, skillOpts);
       if (seatSkills.length) stage.seatSkills = seatSkills;
       const seatOptional = optionalOf(seatNotes, notes);
@@ -920,7 +1005,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       const seatLimits = noteLimitsOf(seatNotes, notes);
       if (seatLimits) stage.noteLimits = seatLimits;
       if (output === 'test-author-v1') {
-        const inputs = testPlanInputsOf(notes, s.name);
+        const inputs = testPlanInputsOf(notes, s.name, ownerServed);
         if (inputs.length) stage.inputNotes = inputs;
       }
       if (enters) stage.enters = true;
@@ -931,11 +1016,12 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   } else {
     if (phases.includes('queue') && !isResumed) {
       const queueNotes = notes
-        .filter((n) => n.role === 'queue' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
+        .filter((n) => n.role === 'queue' && implicitNoteOwned(n))
         .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
+      const plannerProtocol = seatsServed ? seatProtocolFor(seatRules, { enters: false, writes: false }) : undefined;
       const plannerRules = seatRulesFor(seatRules, {
-        role: 'planner', seat: 'planner', enters: false, noteRules: rulesSkills.rules, served: servedKeys
+        role: 'planner', seat: 'planner', enters: false, noteRules: rulesSkills.rules, served: servedKeys, protocol: plannerProtocol
       });
       degradations.push(...plannerRules.degradations);
       const plannerStage = {
@@ -948,6 +1034,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }),
         output: 'planner-v1'
       };
+      if (seatsServed) plannerStage.protocol = plannerProtocol;
       const plannerSkills = seatSkillsFor(undefined, 'planner', skillOpts);
       if (plannerSkills.length) plannerStage.seatSkills = plannerSkills;
       const plannerOptional = optionalOf(queueNotes, notes);
@@ -957,12 +1044,13 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       stages.push(plannerStage);
     }
     const workNotes = notes
-      .filter((n) => n.role === 'work' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
+      .filter((n) => n.role === 'work' && implicitNoteOwned(n))
       .map((n) => n.key);
     const rulesSkillsW = deriveRulesSkills(workNotes, notes, servedKeys);
     // The implicit implementer takes its role's defaults, like a declared one that lists no rules.
+    const implementerProtocol = seatsServed ? seatProtocolFor(seatRules, { enters: true, writes: true }) : undefined;
     const implementerRules = seatRulesFor(seatRules, {
-      role: 'implementer', seat: 'implementer', enters: true, noteRules: rulesSkillsW.rules, served: servedKeys
+      role: 'implementer', seat: 'implementer', enters: true, noteRules: rulesSkillsW.rules, served: servedKeys, protocol: implementerProtocol
     });
     degradations.push(...implementerRules.degradations);
     const implementerStage = {
@@ -977,6 +1065,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    if (seatsServed) implementerStage.protocol = implementerProtocol;
     const implementerSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
     if (implementerSkills.length) implementerStage.seatSkills = implementerSkills;
     const implementerOptional = optionalOf(workNotes, notes);
@@ -995,9 +1084,12 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     exclude = 'nothing to run';
   }
 
-  const review = hasReviewPhase ? reviewRulesOf(schema, servedKeys, seatRules) : { reviewRules: null, degradations: [] };
+  const review = hasReviewPhase
+    ? reviewRulesOf(schema, servedKeys, seatRules, ownerServed, seatsServed)
+    : { reviewRules: null, degradations: [] };
   degradations.push(...review.degradations);
-  const reviewSeatSkills = hasReviewPhase ? reviewSeatSkillsOf(schema, skillOpts) : null;
+  const reviewSeatSkills = hasReviewPhase ? reviewSeatSkillsOf(schema, skillOpts, ownerServed) : null;
+  const reviewSeats = hasReviewPhase ? reviewSeatsOf(schema, ownerServed) : null;
 
   return {
     stages,
@@ -1007,6 +1099,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     hasReviewPhase,
     reviewRules: review.reviewRules,
     reviewSeatSkills,
+    reviewSeats,
     warnings,
     degradations,
     exclude
@@ -1460,6 +1553,7 @@ export function assembleArgs(snap, planned, opts) {
       stages: derived.stages || [],
       ...(derived.reviewRules ? { reviewRules: derived.reviewRules } : {}),
       ...(derived.reviewSeatSkills ? { reviewSeatSkills: derived.reviewSeatSkills } : {}),
+      ...(derived.reviewSeats && derived.reviewSeats.length ? { reviewSeats: derived.reviewSeats } : {}),
       orchestratorNotes: derived.orchestratorNotes || [],
       unownedRequired: derived.unownedRequired || [],
       carryIns: ciKeys,

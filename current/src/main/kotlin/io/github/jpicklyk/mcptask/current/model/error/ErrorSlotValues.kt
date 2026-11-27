@@ -20,7 +20,7 @@ internal fun ErrorDetail.slotValues(): Map<String, Any?> =
         is ErrorDetail.CycleDetected -> emptyMap()
         is ErrorDetail.ClaimHeld -> mapOf("itemId" to itemId)
         is ErrorDetail.NotClaimHolder -> mapOf("itemId" to itemId)
-        is ErrorDetail.SeatForbidden -> mapOf("itemId" to itemId, "seat" to seat, "action" to action)
+        is ErrorDetail.SeatForbidden -> mapOf("itemId" to itemId, "seat" to seat, "action" to action, "runId" to runId)
         is ErrorDetail.NoteOwnedByOther -> mapOf("itemId" to itemId, "key" to key)
         is ErrorDetail.NoteTooLong -> mapOf("key" to key, "max" to max, "actual" to actual)
         is ErrorDetail.ResourceUnavailable -> mapOf("itemId" to itemId)

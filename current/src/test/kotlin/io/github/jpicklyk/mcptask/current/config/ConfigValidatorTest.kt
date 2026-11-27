@@ -51,11 +51,13 @@ class ConfigValidatorTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S1 the dogfood 4_0 fixture validates at ROOT scope with zero errors and zero warnings`() {
+    fun `S1 the dogfood 4_0 fixture validates at ROOT scope with zero errors and only the two orchestrator seat advisories`() {
         val result = validate(StrictConfigCases.dogfoodFixture, ConfigScope.ROOT, serverLayer(StrictConfigCases.floorFixture))
 
         assertEquals(emptyList(), result.errors, "dogfood-4.0.yaml must have no errors")
-        assertEquals(emptyList(), result.warnings, "dogfood-4.0.yaml must have no warnings")
+        // The fixture keeps its 4.0 shape: two `orchestrator` seats, each an advisory (reserved note owner, refused later).
+        assertEquals(2, result.warnings.size, "dogfood-4.0.yaml warnings: ${result.warnings}")
+        assertTrue(result.warnings.all { it.reason.contains("a reserved note owner") }, "${result.warnings}")
         assertTrue(result.isValid)
     }
 

@@ -1383,7 +1383,7 @@ class NoteCommandServiceTest {
     ) {
         val error = err()
         assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, error.code, "$label: ${error.message}")
-        assertEquals(ErrorDetail.NoteOwnedByOther(item.id, key, ownerSeat), error.detail, label)
+        assertEquals(ErrorDetail.NoteOwnedByOther(item.id, key, ownerSeat, seatRunId), error.detail, label)
     }
 
     @Test
@@ -1785,7 +1785,7 @@ class NoteCommandServiceTest {
         // decisive Allow
         assertEquals(SeatVerdict.Allow, verdict(build, builder), "the assigned seat on its own key")
         assertEquals(SeatVerdict.Allow, verdict(build, humanSeatCaller), "a human on a seat-owned key")
-        assertEquals(SeatVerdict.Allow, verdict(orch, coordinatorOfRun), "the run's orchestrator on an ORCHESTRATOR_WRITABLE_SEAT key")
+        assertEquals(SeatVerdict.Allow, verdict(orch, coordinatorOfRun), "the run's orchestrator on an OwningSeat.ORCHESTRATOR key")
         // Defer: rule 3 decides
         assertEquals(SeatVerdict.Defer, verdict(build, builder, openRun = null), "no open run")
         assertEquals(SeatVerdict.Defer, verdict(build, humanSeatCaller, openRun = null), "no open run, human")
@@ -1842,7 +1842,7 @@ class NoteCommandServiceTest {
         assertNull(check(orch, coordinatorOfRun))
         val onSeatKey = assertNotNull(check(build, coordinatorOfRun))
         assertEquals(ErrorCode.NOTE_OWNED_BY_OTHER, onSeatKey.code)
-        assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder"), onSeatKey.detail)
+        assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder", seatRunId), onSeatKey.detail)
 
         // everyone else
         for ((label, caller) in listOf(
@@ -1855,7 +1855,7 @@ class NoteCommandServiceTest {
             "a seat name with another case" to builder.copy(seat = "BUILDER")
         )) {
             val error = assertNotNull(check(build, caller), label)
-            assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder"), error.detail, label)
+            assertEquals(ErrorDetail.NoteOwnedByOther(itemId, "build-notes", "builder", seatRunId), error.detail, label)
         }
         // the coordinator of another run on the orchestrator key is refused too
         assertNotNull(check(orch, coordinatorOfRun.copy(runId = otherSeatRunId)))

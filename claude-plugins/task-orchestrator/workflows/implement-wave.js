@@ -24,6 +24,21 @@ const TOOL_NAMES = Object.freeze({
 // @generated:tool-names-end
 // @generated:seat-rules-begin (scripts/gen-seat-rules.mjs; do not edit, run it to refresh)
 const SEAT_RULES = Object.freeze({
+  "capabilities": {
+    "entry": "protocol.entry-seat",
+    "inPhase": "protocol.in-phase-seat",
+    "readOnly": "protocol.read-only-agent",
+    "writerChosen": [
+      "commit-discipline"
+    ],
+    "seatRows": [
+      "planner",
+      "implementer",
+      "test-author",
+      "reviewer",
+      "declarations-extractor"
+    ]
+  },
   "roles": {
     "planner": {
       "protocol": "protocol.in-phase-seat",
@@ -84,7 +99,7 @@ const SEAT_RULES = Object.freeze({
   }
 })
 /**
- * seatRoleOf(stage) -> role | null. stage = {seat, phase, output, enters, writes, notes}.
+ * seatRoleOf(stage) -> role | null (old path: a server without seatWrites; remove one release after seatWrites). stage = {seat, phase, output, enters, writes, notes}.
  * orchestrator: null; review phase: reviewer; a known output, else a known seat name (an `-a<n>` fix-cycle
  * suffix read as its base): that role; writes false with no notes: read-only; work phase: implementer when it
  * enters, else work-seat; otherwise queue-seat.
@@ -123,23 +138,49 @@ function seatRulesOwnProtocol(table, role, enters) {
   return row.protocol || null;
 }
 
+/**
+ * seatProtocolFor(table, {enters, writes}) -> the protocol key a seat gets from its served facts: the entry
+ * protocol when it enters, else the in-phase protocol when it writes, else the read-only one. null without
+ * capabilities.
+ */
+function seatProtocolFor(table, facts) {
+  const c = table && table.capabilities;
+  if (!c) return null;
+  const f = facts && typeof facts === 'object' ? facts : {};
+  if (f.enters) return c.entry;
+  return f.writes ? c.inPhase : c.readOnly;
+}
+
+/**
+ * seatDefaultsRoleFor(table, seat) -> the role whose defaults row a seat name gets (its `-a<n>` fix-cycle suffix
+ * stripped), when that name is one of capabilities.seatRows with a roles row; null (no defaults) otherwise.
+ */
+function seatDefaultsRoleFor(table, seat) {
+  const c = table && table.capabilities;
+  if (!c || typeof seat !== 'string') return null;
+  const base = seat.replace(/-a[1-9][0-9]*$/, '');
+  const roles = (table && table.roles) || {};
+  return c.seatRows.includes(base) && roles[base] ? base : null;
+}
+
 function seatRulesIsProtocol(k) {
   return typeof k === 'string' && k.indexOf('protocol.') === 0;
 }
 
 /**
- * seatRulesFor(table, {role, seat, enters, declared, noteRules, served}) -> {rules, degradations}
+ * seatRulesFor(table, {role, seat, enters, declared, noteRules, served, protocol}) -> {rules, degradations}
  * The note-derived rules first, then the seat's declared list (an array, `[]` is none) or else the role's
  * defaults, deduped with order kept. A protocol key other than the role's own is dropped and reported as
  * `seat rule <k> dropped: protocol rule of another role (<seat>)`. served (a Set) filters: an unserved
  * declared key is reported as `seat rule <k> not served (<seat>)`, an unserved default is dropped silently;
- * served null filters nothing.
+ * served null filters nothing. protocol, when a string, is the seat's own protocol key (the served path) in
+ * place of the role row's.
  */
 function seatRulesFor(table, opts) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const roles = (table && table.roles) || {};
   const row = o.role ? roles[o.role] : null;
-  const own = seatRulesOwnProtocol(table, o.role, o.enters);
+  const own = typeof o.protocol === 'string' ? o.protocol : seatRulesOwnProtocol(table, o.role, o.enters);
   const isDeclared = Array.isArray(o.declared);
   const served = o.served instanceof Set ? o.served : null;
   const seat = o.seat || o.role || 'seat';
@@ -172,6 +213,21 @@ function seatRulesFor(table, opts) {
  */
 function promptKeysFor(table, stage) {
   const s = stage && typeof stage === 'object' ? stage : {};
+  if (typeof s.protocol === 'string') {
+    // served path: the planner recorded the protocol key on the stage
+    const c = (table && table.capabilities) || null;
+    const keys = [];
+    const add = (k) => {
+      if (typeof k === 'string' && k !== '' && !keys.includes(k)) keys.push(k);
+    };
+    add(s.protocol);
+    if (s.writes) for (const k of c ? c.writerChosen : []) add(k);
+    for (const k of Array.isArray(s.rules) ? s.rules : []) {
+      if (seatRulesIsProtocol(k) && k !== s.protocol) continue;
+      add(k);
+    }
+    return keys;
+  }
   const role = seatRoleOf(s);
   const roles = (table && table.roles) || {};
   const row = role ? roles[role] : null;
@@ -527,6 +583,12 @@ function normalizeArgs(raw) {
         if (!(f in st)) return { ok: false, reason: `invalid args: stage missing ${f}` }
       }
       if (st.phase !== 'queue' && st.phase !== 'work') return { ok: false, reason: 'invalid args: bad stage phase' }
+      if ('protocol' in st && (typeof st.protocol !== 'string' || st.protocol.indexOf('protocol.') !== 0)) {
+        return { ok: false, reason: 'invalid args: bad stage protocol' }
+      }
+      if ('transitions' in st && (!Array.isArray(st.transitions) || st.transitions.some((t) => typeof t !== 'string'))) {
+        return { ok: false, reason: 'invalid args: bad stage transitions' }
+      }
     }
     items.push(
       Object.assign({}, rawItem, {
@@ -1331,6 +1393,21 @@ function promptRules(plan, stage) {
   return lines.join('\n')
 }
 
+/**
+ * Part 6b: the triggers the server accepts from this seat (served path only: the planner records
+ * stage.transitions). A ceiling the seat's protocol rule narrows.
+ */
+function promptTransitions(item, stage) {
+  if (!Array.isArray(stage.transitions)) return ''
+  if (stage.transitions.length === 0) {
+    return `TRANSITIONS: in an open run the server accepts no trigger from your seat on item ${item.short}. Send none.`
+  }
+  return (
+    `TRANSITIONS: in an open run the server accepts only these triggers from your seat on item ${item.short}: ${stage.transitions.join(', ')}. ` +
+    'Send no other; your protocol rule says which of these you send.'
+  )
+}
+
 /** Part 7: drift pin, omitted for schema-free items and read-only seats. */
 function promptDriftPin(item, stage) {
   if (item.schemaFree || isReadOnlyStage(stage)) return ''
@@ -1393,8 +1470,13 @@ function promptInlineBodies() {
 /** Part 10: commit form, writers only. The rule named is the seat role's plugin-chosen key (SEAT_RULES). */
 function promptCommitForm(item, stage) {
   if (!stage.writes) return ''
-  const row = SEAT_RULES.roles[seatRoleOf(stage)]
-  const ruleKey = row && row.pluginChosen.length ? row.pluginChosen[0] : null
+  // served path: stage.protocol is set and the key is the capabilities' writer-chosen rule; old path: the role row
+  const served = typeof stage.protocol === 'string' && SEAT_RULES.capabilities
+  // old path (the row branch): remove one release after seatWrites/orchestratorNotes
+  const row = served ? null : SEAT_RULES.roles[seatRoleOf(stage)]
+  const ruleKey = served
+    ? (SEAT_RULES.capabilities.writerChosen[0] || null)
+    : (row && row.pluginChosen.length ? row.pluginChosen[0] : null)
   return [
     (ruleKey ? `COMMIT: per rule \`${ruleKey}\`, keeping` : 'COMMIT: keeping') +
       ' the `[short]` subject tag and the `Seat:` paragraph that verify reads:',
@@ -1826,6 +1908,7 @@ function seatPrompt(plan, item, stage, outs, siblings = []) {
     promptTestPlan(plan, item, stage),
     promptCarryIns(stage, item),
     promptRules(plan, stage),
+    promptTransitions(item, stage),
     promptDriftPin(item, stage),
     promptResults(),
     promptConfigRetry(),

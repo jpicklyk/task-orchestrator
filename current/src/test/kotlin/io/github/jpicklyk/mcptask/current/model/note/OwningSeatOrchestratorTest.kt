@@ -9,10 +9,11 @@ import kotlin.test.assertNull
 
 /**
  * Independent tests (test-author seat, item 34d41fe6) for scenarios S1 to S5 of the frozen test-plan (EXISTING-SURFACE): the
- * orchestrator seat owns a note labelled with it in any phase.
+ * orchestrator owns a note labelled with it in any phase.
  *
- * Oracle: the diagnosis "Fix (frozen)" (the label equal to SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT is owned when a seat of
- * that exact name is declared, whatever its phase; seatless unchanged; every other seat stays phase-matched; keysOf inherits).
+ * Oracle: record 0016 and the task-scope D1 (the label equal to OwningSeat.ORCHESTRATOR is owned in every seat-aware schema,
+ * whatever its phase and whether or not a seat of that name is declared; seatless unchanged; every other seat stays
+ * phase-matched; keysOf inherits).
  *
  * Fixture O: seats planner@QUEUE, implementer@WORK, orchestrator@WORK, reviewer@REVIEW.
  *
@@ -46,9 +47,10 @@ class OwningSeatOrchestratorTest {
     }
 
     @Test
-    fun `S2 without an orchestrator seat the same review note is unowned`() {
+    fun `S2 without an orchestrator seat declared the same review note is still owned by orchestrator`() {
         val withoutOrchestrator = seatsO.filter { it.name != "orchestrator" }
-        assertNull(OwningSeat.of(oc, withoutOrchestrator))
+        assertEquals("orchestrator", OwningSeat.of(oc, withoutOrchestrator))
+        assertEquals(setOf("orchestrator-confirmation", "st"), OwningSeat.keysOf("orchestrator", listOf(rc, oc, st), withoutOrchestrator))
     }
 
     @Test

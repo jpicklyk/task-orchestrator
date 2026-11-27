@@ -415,7 +415,7 @@ export function buildIterationEnv(base, { seatTokenFile } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 4.0 run plumbing: one run per loop, one implementer seat per iteration.
+// 4.0 run plumbing: one run per loop, one work seat per iteration.
 // ---------------------------------------------------------------------------
 
 /** Default `--iteration-timeout`, in seconds (45 minutes). */
@@ -429,6 +429,19 @@ export const NEXT_EMPTY_WAIT_MS = 30_000;
 
 /** The seat ralph assigns per iteration. */
 export const RALPH_SEAT = "implementer";
+
+/**
+ * ralphSeatOf(schemaData) -> the seat ralph assigns for an item: the first served seat whose phase is work and
+ * that enters, else the first work-phase seat, else RALPH_SEAT (no seats, or an unreadable schema answer).
+ * schemaData is the data of an items_read schema answer.
+ */
+export function ralphSeatOf(schemaData) {
+    const seats = schemaData && typeof schemaData === "object" && Array.isArray(schemaData.seats) ? schemaData.seats : [];
+    const work = seats.filter((s) => s && typeof s === "object" && s.phase === "work" && typeof s.name === "string" && s.name !== "");
+    const entering = work.find((s) => s.enters === true);
+    if (entering) return entering.name;
+    return work.length > 0 ? work[0].name : RALPH_SEAT;
+}
 
 /** Placeholder written over every known token value in streamed child output and records. */
 export const REDACTED_TOKEN = "[redacted-token]";
@@ -633,7 +646,7 @@ export const OUTCOME_TABLE = Object.freeze([
     { code: "invalid_transition", kind: ERROR_KINDS.invalid_transition, by: "driver", status: "skip", action: "The item cannot be claimed or moved from its role (for example already terminal). Skip-listed for the rest of the loop.", loop: "skip" },
     { code: "duplicate", kind: ERROR_KINDS.duplicate, by: "driver", status: "skip", action: "update addItems found the item in another open run. Skip-listed for the rest of the loop.", loop: "skip" },
     { code: "gate_blocked", kind: ERROR_KINDS.gate_blocked, by: "iteration", status: "gate-blocked", action: "advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code.", loop: "gate" },
-    { code: "seat_forbidden", kind: ERROR_KINDS.seat_forbidden, by: "iteration", status: "gate-blocked", action: "The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it.", loop: "gate" },
+    { code: "seat_forbidden", kind: ERROR_KINDS.seat_forbidden, by: "iteration", status: "gate-blocked", action: "The item's schema does not let this seat make this move. Emit gate-blocked with code; the run's orchestrator or a human advances it.", loop: "gate" },
     { code: "note_owned_by_other", kind: ERROR_KINDS.note_owned_by_other, by: "iteration", status: "gate-blocked", action: "A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it.", loop: "gate" },
     { code: "not_claim_holder", kind: ERROR_KINDS.not_claim_holder, by: "iteration", status: "error", action: "A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code.", loop: "error" },
     { code: "unauthenticated", kind: ERROR_KINDS.unauthenticated, by: "iteration", status: "error", action: "The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the run token the loop exits 2.", loop: "error" },

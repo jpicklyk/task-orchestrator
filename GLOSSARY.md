@@ -22,10 +22,17 @@ In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derive
 
 ### Seat
 
-A named position in an item's workflow, declared in a schema for one phase, that one dispatched agent fills. The one exception is the orchestrator seat, which the orchestrator fills itself. A seat may not be named after the director, which never writes notes.
+A named position in an item's workflow, declared in a schema for one phase, that one dispatched agent fills. The orchestrator is not a seat: it writes its own notes as the reserved note owner `orchestrator`. A seat may not be named after the director, which never writes notes.
 
 Distinct from: role. A role is the phase a note belongs to; a seat is the position whose agent fills it.
-In code: `SeatDefinition`. The reserved names are `unowned` and `director` (refused) and `orchestrator` (given meaning by the server); `coordinator` loads with a warning.
+In code: `SeatDefinition`. The reserved names are `unowned` and `director` (refused); a seat named `orchestrator` or `coordinator` still loads this release, with an advisory that the name will be refused.
+
+### Writing seat
+
+A seat that changes files in the item's worktree and commits them. A seat's `writes` declares it; undeclared, a work-phase seat writes and a queue or review seat does not. The server serves the flag and never enforces it.
+
+Distinct from: entering seat. An entering seat starts the item into its phase; writing is about changing and committing files, and every seat writes its own notes.
+In code: `SeatDefinition.writes`, `SeatDefinition.effectiveWrites`.
 
 ### Seat-aware schema
 
@@ -36,19 +43,28 @@ In code: `WorkItemSchema.isSeatAware()`.
 
 ### Owning seat
 
-The seat a note belongs to: the seat its schema entry names, when that seat is declared for the note's own phase, or is the orchestrator seat declared in any phase. In a schema that is not seat-aware, the named seat stands as written. A note with no owning seat is unowned.
+The seat a note belongs to: the seat its schema entry names, when that seat is declared for the note's own phase, or is `orchestrator`, which owns its labelled notes in every seat-aware schema in any phase, declared seat or not. In a schema that is not seat-aware, the named seat stands as written. A note with no owning seat is unowned.
 
 Distinct from: note owner. The note owner is the principal whose write created or adopted the note, kept on later writes; it is not the identity that last wrote it.
 Don't call it: seat ownership.
-In code: `OwningSeat`, `WorkItemSchema.owningSeatOf()`.
+In code: `OwningSeat`, `WorkItemSchema.owningSeatOf()`; served as `owningSeat` on every note entry of `items_read` `schema`.
 
-### Orchestrator seat
+### Orchestrator note
 
-The seat named `orchestrator`, a reserved name: the position for notes the orchestrator writes itself, rather than a seat's agent. Inside a run the orchestrator writes them with the run's token; outside a run it writes them directly. It owns the notes labelled for it in any phase it is declared, not only its own. No agent is ever dispatched to it, so it is never a stage of a run.
+A note whose schema entry is labelled `seat: orchestrator`, written by the orchestrator itself rather than a seat's agent. `orchestrator` is a reserved note owner, valid in every schema without any declaration; it owns its labelled notes in any phase. Inside an open run of a seat-aware schema the orchestrator writes them with the run token; outside a run it writes them directly. No agent is ever dispatched for them, so they are never a stage of a run.
 
-Distinct from: the orchestrator, the session layer that writes this seat's notes. The seat is a position in a schema; the orchestrator is who acts.
-In code: `SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT`. The run planner skips it as a stage (`run-planner-lib.mjs`).
-Example: `session-tracking` declared with `seat: orchestrator` is written by whoever drives the item. On a run, that is the run's orchestrator; for a hand-dispatched item, it is the user's session.
+Distinct from: seat. A seat is a position a dispatched agent fills; the orchestrator is the session layer that writes these notes, and fills no seat.
+Don't call it: orchestrator seat.
+In code: `OwningSeat.ORCHESTRATOR`, served as `owningSeat: "orchestrator"`. The run planner skips these notes as a stage (`run-planner-lib.mjs`).
+Example: `session-tracking` labelled `seat: orchestrator` is written by whoever drives the item. On a run, that is the run's orchestrator; for a hand-dispatched item, it is the user's session.
+
+### Run token
+
+The credential `runs_write` `open` returns and `reissue` replaces: the server's only proof that a caller is a run's orchestrator. It may send any trigger on any member of its run, write orchestrator notes, assign seats and close the run. It fills no seat.
+
+Distinct from: seat token, which a member seat of one item holds and which `assign` returns.
+Don't call it: coordinator pseudo-seat.
+In code: `orchestratorToken` (`coordinatorToken` is its deprecated alias until 5.0), `RunSeat.ORCHESTRATOR` (its stored value is still `coordinator`), `RunPermissions`.
 
 ## Session layers
 
@@ -60,7 +76,7 @@ Distinct from: seat, a position in one item's workflow, and session mode, which 
 
 ### Orchestrator
 
-The layer that drives work forward. It plans and sizes work, dispatches seats, advances phases, resumes an item once its decision is answered, and carries decisions up. It never answers a decision. Its scope is either ad hoc items or one run; for a run it holds that run's token, which is recorded on the run as a run-scoped pseudo-seat.
+The layer that drives work forward. It plans and sizes work, dispatches seats, advances phases, resumes an item once its decision is answered, and carries decisions up. It never answers a decision. Its scope is either ad hoc items or one run; for a run it holds that run's token, the run token.
 
 Distinct from: director, which decides and never drives. The user's session is an orchestrator in orchestration mode, but a background agent handed a run is also an orchestrator, of that run.
 Don't call it: coordinator, run coordinator, lead. ("Coordinator" was the name for an orchestrator scoped to one run.)

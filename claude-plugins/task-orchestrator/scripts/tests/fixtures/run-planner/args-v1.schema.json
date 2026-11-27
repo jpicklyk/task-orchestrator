@@ -83,6 +83,8 @@
                 "skills": { "type": "array", "items": { "type": "string" } },
                 "seatSkills": { "type": "array", "items": { "type": "string" } },
                 "writes": { "type": "boolean" },
+                "protocol": { "type": "string", "pattern": "^protocol[.]" },
+                "transitions": { "type": "array", "items": { "type": "string" } },
                 "extraLockKeys": { "type": "array", "items": { "type": "string" } },
                 "dispatch": {
                   "type": "object",
@@ -97,6 +99,7 @@
               }
             }
           },
+          "reviewSeats": { "type": "array", "items": { "type": "string" } },
           "orchestratorNotes": { "type": "array", "items": { "type": "string" } },
           "unownedRequired": { "type": "array", "items": { "type": "string" } },
           "carryIns": { "type": "array", "items": { "type": "string" } },

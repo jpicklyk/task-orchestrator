@@ -368,6 +368,48 @@ class SeatPerRootResolverTest {
         )
     }
 
+    @Test
+    fun `a trait seat's declared writes is served and survives the entering-seat demotion -- via a real per-root push`(
+        @TempDir tempDir: Path,
+    ) {
+        val perRootYaml =
+            """
+            work_item_schemas:
+              bug-fix:
+                seats:
+                  - { name: implementer, phase: work, enters: true }
+                  - { name: reviewer, phase: review }
+                notes:
+                  - { key: dummy, role: work }
+            traits:
+              t1:
+                seats:
+                  - { name: fixer, phase: review, writes: true }
+                  - { name: z, phase: work, enters: true, writes: false }
+                notes:
+                  - { key: t1note, role: queue }
+            """.trimIndent()
+
+        val composition = buildComposition(tempDir, "work_item_schemas: {}\n")
+        val root = createRoot(composition, "writes root")
+        pushPerRoot(composition, root, perRootYaml)
+
+        val workItem = createChild(composition, root, "bug-fix", role = Role.WORK, traits = listOf("t1"))
+        val workSeats = getContextData(composition, workItem.id)["seats"]!!.jsonArray.map { it.jsonObject }
+        val z = workSeats.first { it["name"]!!.jsonPrimitive.content == "z" }
+        assertFalse(z.containsKey("enters"), "z is demoted: implementer already enters the work phase")
+        assertFalse(z["writes"]!!.jsonPrimitive.boolean, "the demoted seat keeps its declared writes: false")
+        val implementer = workSeats.first { it["name"]!!.jsonPrimitive.content == "implementer" }
+        assertTrue(implementer["writes"]!!.jsonPrimitive.boolean, "an undeclared work seat serves the phase default true")
+
+        val reviewItem = createChild(composition, root, "bug-fix", role = Role.REVIEW, traits = listOf("t1"))
+        val reviewSeats = getContextData(composition, reviewItem.id)["seats"]!!.jsonArray.map { it.jsonObject }
+        val fixer = reviewSeats.first { it["name"]!!.jsonPrimitive.content == "fixer" }
+        assertTrue(fixer["writes"]!!.jsonPrimitive.boolean, "a trait review seat declaring writes: true is served true")
+        val reviewer = reviewSeats.first { it["name"]!!.jsonPrimitive.content == "reviewer" }
+        assertFalse(reviewer["writes"]!!.jsonPrimitive.boolean, "an undeclared review seat serves false, not an absent member")
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // S2(b) -- the task-scope section 2 YAML, pushed as a PER-ROOT config (not the T0/A1a global-file
     // half SeatConfigParseTest already covers), gives the same merged seat order through the

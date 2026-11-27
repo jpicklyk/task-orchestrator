@@ -506,19 +506,23 @@ when given (one fixed order: per-root type, global type, per-root `default`, glo
 config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
 its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
-guidance?, skill?, skills?, skillMode?, maxLength?, seat?, independentOf?, shared?, lane?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
-`schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). Seats,
+guidance?, skill?, skills?, skillMode?, maxLength?, seat?, owningSeat, independentOf?, shared?, lane?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
+`schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). `owningSeat` is the
+entry's [owning seat](../../GLOSSARY.md#owning-seat), a string or JSON `null` (unowned), on every entry. Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
 No matching schema is not an error: the answer is `{schemaFree: true}`. Giving both or neither of `type`
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
-the served `seats` and the `callerSeat` member of `context` and `transition`.
+the served `seats` and the `callerSeat` member of `context` and `transition`. `seatWrites` advertises the `writes` member
+every served seat carries (always present: the declared value, else true in the work phase; never enforced).
+`orchestratorNotes` advertises that `orchestrator` is a reserved note owner in every seat-aware schema and that every served note entry
+carries `owningSeat`.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
 (title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
@@ -1019,7 +1023,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   principal) with its verification, on every transport; a body `actor` is `unknown_parameter`. A write under a
   `seatToken` also records that token's seat as the note's attribution seat (`notes.seat`, rewritten on every write
   like the actor, NULL without a token); the independence gate compares the attribution pair (actor, seat). Attribution (`notes.seat`) is separate from ownership (`notes.owner_seat`, below): the first changes on every write, the second only when the owner changes.
-- **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. A note created or adopted under a `seatToken` is owned by the pair (principal, seat), stored as `notes.owner_id` and `notes.owner_seat`, which are written only together (create, adoption, takeover; a takeover is never under a token, so it clears the owner seat). Another owner pair's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other` (with `ownerSeat` when the owner is a seat); only an admin `takeover` moves an owned note. `notes_read` shows `owner{id, seat?}` under the attribution rule and omits it for an unowned note.
+- **Ownership.** A note's owner is the principal whose write created it, stored apart from its attribution; a note written before 4.0 has no owner until its first 4.0 `upsert`, which makes the caller the owner and records `note.ownership_transferred` with `from: null` and `legacyActor`. A note created or adopted under a `seatToken` is owned by the pair (principal, seat), stored as `notes.owner_id` and `notes.owner_seat`, which are written only together (create, adoption, takeover; a takeover is never under a token, so it clears the owner seat). Another owner pair's `upsert` or `delete` of an owned, non-`shared` note is `note_owned_by_other` (with `ownerSeat` when the owner is a seat, and `runId` when the open run's seat rule refused the write); only an admin `takeover` moves an owned note. `notes_read` shows `owner{id, seat?}` under the attribution rule and omits it for an unowned note.
 
 ```json
 {
@@ -2030,7 +2034,7 @@ unknown run or a run of another root is `forbidden`, never `not_found`). A call 
   bound: a call that is not bound to the run (so not stamped with it) is missed.
 - **Run sections.** `run` is the run's `status`, `terminalReason`, `openedAt` and `closedAt`. `decisions` counts the
   run's decision requests still open or acknowledged (`open`), by class and by effective severity (an overdue request
-  reads one step more urgent). `seats.active` counts the run's active member seats (the `coordinator` pseudo-seat excluded),
+  reads one step more urgent). `seats.active` counts the run's active member seats (the run token's row excluded),
   `seats.stalled` lists at most 5 of those stalled under the run's `stallAfterSeconds` (silent longest first, then item
   id, then seat) and `seats.count` is the true number. `attempts` counts every member-seat assignment, ended ones
   included (`total`), and the highest attempt (`max`). There is no `budget` section: token and cost budgets were
@@ -2162,7 +2166,7 @@ removed in 5.0): `coordinatorSeenAt` and `coordinatorStalled` follow `orchestrat
 same values, present or absent together; the seat value `coordinator` and the `forbidden` `required` values keep their names.
 `usage.observedTokens` is the server's own estimate of the run's call-log response tokens and enforces nothing (the
 4.0.0 token and cost budgets and the agent-reported usage were removed in 4.0.1). `activeSeats` counts the active
-member seats (never the `coordinator` pseudo-seat) and `stalledSeats` those of them that are stalled. Under a restricted scope,
+member seats (never the run token's row) and `stalledSeats` those of them that are stalled. Under a restricted scope,
 `members`, `activeSeats` and `stalledSeats` count only the members and seats the caller's scope can see.
 
 **Stalled.** One rule for seats and the run's orchestrator: stalled when the time since last seen is strictly longer than the
@@ -2183,9 +2187,9 @@ under the run's root (the one label policy: per-root `status_labels`, then the s
 so they are counted in `counts.terminal` too; a member relabelled after its cancel is not counted. An `inFlight` entry's
 `title` is its item's title. `ready` (membership order) holds the members that are neither terminal nor
 blocked, have no active seat, no unsatisfied blocking dependency and no live claim held outside the run (a claim whose
-holder pair is not an active assignee of this run, the `coordinator` pseudo-seat included; an expired claim never counts); it is
+holder pair is not an active assignee of this run, the run token's row included; an expired claim never counts); it is
 always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
-member seats, never the `coordinator` pseudo-seat. `waiting` (membership order): a blocked member has the `reason` of its block, one of
+member seats, never the run token's row. `waiting` (membership order): a blocked member has the `reason` of its block, one of
 `manual`, `dependency`, `awaiting_decision` or `resource`, plus `decisionId` (the full UUID) whenever the block names a
 decision; a blocked member with `reason: dependency` also has `blockers`, always empty. A member that is not
 blocked but has an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
@@ -2579,8 +2583,8 @@ return `partial_failure` (the call) and `idempotency_mismatch`.
 | `cycle_detected` | permanent | 409 | `path`: array of string (UUID) |
 | `claim_held` | transient | 409 | `itemId`: string (UUID); `expiresAt`: string (ISO-8601 instant); `retryAfterMs`: integer |
 | `not_claim_holder` | permanent | 403 | `itemId`: string (UUID) |
-| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string, omitted without a token; `action`: string; `allowedSeats`: array of string |
-| `note_owned_by_other` | permanent | 403 | `itemId`: string (UUID); `key`: string; `ownerSeat`: string, optional |
+| `seat_forbidden` | permanent | 403 | `itemId`: string (UUID); `seat`: string, omitted without a token; `action`: string; `allowedSeats`: array of string; `runId`: string (UUID) |
+| `note_owned_by_other` | permanent | 403 | `itemId`: string (UUID); `key`: string; `ownerSeat`: string, optional; `runId`: string (UUID), optional: the open run whose seat owns the key |
 | `note_too_long` | permanent | 413 | `key`: string; `max`: integer; `actual`: integer |
 | `resource_unavailable` | transient | 409 | `itemId`: string (UUID); `resources`: array of {name: string, mode: string}; `retryAfterMs`: integer, optional |
 | `run_closed` | permanent | 409 | `runId`: string (UUID); `terminalReason`: string |

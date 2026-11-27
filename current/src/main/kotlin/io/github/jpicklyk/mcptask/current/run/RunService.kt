@@ -48,7 +48,7 @@ import java.util.UUID
  * ## Close cascade
  *
  * `completed` is refused while a member seat assignment is active and runs no cascade beyond ending the `coordinator`
- * pseudo-seat. Every other reason, in order: ends the active seats, the `coordinator` pseudo-seat included ([RunSeatPort.endActive],
+ * run-token row. Every other reason, in order: ends the active seats, the `coordinator` run-token row included ([RunSeatPort.endActive],
  * outcome `run_closed`); clears the member claims held by the run's seat assignees (reason `run_closed`; a claim is an
  * assignee's when BOTH its holder columns match an active assignment's (principal, assignment) pair); releases the
  * leases of every member in WORK; stores the closed run; calls [onClose]; records `run.ended`. The holders are read
@@ -77,7 +77,7 @@ class RunService(
     private val runs: RunStore get() = repositoryProvider.runStore()
     private val items get() = repositoryProvider.workItemRepository()
 
-    /** The number of member seat assignments of [runId] that are still active (the `coordinator` pseudo-seat is not counted). */
+    /** The number of member seat assignments of [runId] that are still active (the `coordinator` run-token row is not counted). */
     suspend fun activeSeats(runId: UUID): Int = seats.activeCount(runId)
 
     // -------------------------------------------------------------------------
@@ -324,7 +324,7 @@ class RunService(
             var inFlight: List<RunInFlight> = emptyList()
             var released = RunReleased.NONE
             if (reason == RunTerminalReason.COMPLETED) {
-                // No member seat is active (checked above): this ends only the `coordinator` pseudo-seat, so its token dies.
+                // No member seat is active (checked above): this ends only the `coordinator` run-token row, so its token dies.
                 seats.endActive(runId, RunSeatOutcome.RUN_CLOSED.wire)
             } else {
                 // Read the assignees before their seats end: ending them must not hide the claims they hold.

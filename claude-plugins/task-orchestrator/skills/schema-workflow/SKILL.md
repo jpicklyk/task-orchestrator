@@ -80,7 +80,7 @@ A failed transition is `ok: false` with call-level `partial_failure`; the reason
 - `resource_unavailable` (`data.results[0].error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs` and see `/status-progression`.
 - `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
 - `not_claim_holder`: someone else holds the claim; only the holder can transition.
-- `seat_forbidden`: the item is a member of an open or paused run whose schema declares seats, and your caller is not allowed that trigger (`detail.allowedSeats` lists who is; it always starts with `coordinator`). If you are the run's orchestrator, resend with the run's token as top-level `seatToken`; otherwise leave the transition to the run. Never retry it token-less.
+- `seat_forbidden`: the item is a member of an open or paused run whose schema declares seats, and your caller is not allowed that trigger (`detail.allowedSeats` lists the schema seats that may; the run token of the run named in `detail.runId` always may). If you are the run's orchestrator, resend with the run's token as top-level `seatToken`; otherwise leave the transition to the run. Never retry it token-less.
 - `run_paused`: a `start` under a token of a run that is paused on its attempt limit or a manual pause. Read `detail.pauseReason` and `detail.pauseDecisionId`; stop and never retry. A director or human answers the decision.
 - `invalid_transition`: read `detail.fromRole` and `detail.allowed`; the trigger is not valid from that role.
 

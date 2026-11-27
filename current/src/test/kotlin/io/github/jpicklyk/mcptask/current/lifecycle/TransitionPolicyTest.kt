@@ -1017,30 +1017,35 @@ class TransitionPolicyTest {
 
     @Test
     fun `R23 S7 and S8 the refusal carries the item, the presented seat, the action and the allowed seats`() {
-        // member seat on start: allowedSeats = coordinator, then the seat entering the target phase
+        // member seat on start: allowedSeats = the seat entering the target phase; the run token always may and runId names its run
         val start = seatRejected(snap(QUEUE, seat = seatFacts(memberSeat("planner"))), Trigger.User.START, "planner start")
-        assertEquals(ErrorDetail.SeatForbidden(id, "planner", "start", listOf("coordinator", "builder")), start.error.detail)
+        assertEquals(ErrorDetail.SeatForbidden(id, "planner", "start", listOf("builder"), runId), start.error.detail)
         assertTrue(start.error.message.contains("start") && start.error.message.contains(id.toString()), start.error.message)
+        assertTrue(
+            start.error.message.contains(runId.toString()),
+            "the message names the run whose token may send it: ${start.error.message}"
+        )
+        assertEquals(runId.toString(), start.error.fixArgs["runId"], "the fix hint names the run")
 
         // token-less agent: the seat is absent (null), not an empty string
         val tokenless = seatRejected(snap(QUEUE, seat = seatFacts(SeatCaller.NONE)), Trigger.User.START, "token-less start")
-        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("coordinator", "builder")), tokenless.error.detail)
+        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("builder"), runId), tokenless.error.detail)
 
         // other triggers: the seats whose effective transitions contain the trigger, in declared order
         val complete = seatRejected(snap(WORK, seat = seatFacts(memberSeat("builder"))), Trigger.User.COMPLETE, "builder complete")
-        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "complete", listOf("coordinator", "checker")), complete.error.detail)
+        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "complete", listOf("checker"), runId), complete.error.detail)
         val block = seatRejected(snap(WORK, seat = seatFacts(memberSeat("checker"))), Trigger.User.BLOCK, "checker block")
         assertEquals(
-            ErrorDetail.SeatForbidden(id, "checker", "block", listOf("coordinator", "planner", "builder", "orchestrator", "reviewer")),
+            ErrorDetail.SeatForbidden(id, "checker", "block", listOf("planner", "builder", "orchestrator", "reviewer"), runId),
             block.error.detail
         )
         val cancel = seatRejected(snap(WORK, seat = seatFacts(memberSeat("builder"))), Trigger.User.CANCEL, "builder cancel")
-        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "cancel", listOf("coordinator")), cancel.error.detail)
+        assertEquals(ErrorDetail.SeatForbidden(id, "builder", "cancel", emptyList(), runId), cancel.error.detail)
 
         // a start into review lists the reviewer
         val review =
             seatRejected(snap(WORK, schema = autoReview, seat = seatFacts(SeatCaller.NONE)), Trigger.User.START, "start into review")
-        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("coordinator", "reviewer")), review.error.detail)
+        assertEquals(ErrorDetail.SeatForbidden(id, null, "start", listOf("reviewer"), runId), review.error.detail)
     }
 
     @Test

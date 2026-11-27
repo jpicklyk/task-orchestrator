@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -149,16 +150,34 @@ class SqliteRunSeatStore(
         includeEnded: Boolean
     ): List<RunSeat> =
         databaseManager.readTx {
-            RunSeatsTable
-                .selectAll()
-                .where {
-                    var cond = RunSeatsTable.runId eq runId
-                    if (itemId != null) cond = cond and (RunSeatsTable.itemId eq itemId)
-                    if (!includeEnded) cond = cond and (RunSeatsTable.status eq RunSeatStatus.ACTIVE.wire)
-                    cond
-                }.orderBy(RunSeatsTable.assignedAt to SortOrder.ASC, RunSeatsTable.id to SortOrder.ASC)
-                .map(::toSeat)
+            selectRunSeats(runId, includeEnded) { if (itemId != null) RunSeatsTable.itemId eq itemId else null }
         }
+
+    override suspend fun memberSeats(
+        runId: UUID,
+        includeEnded: Boolean
+    ): List<RunSeat> = databaseManager.readTx { selectRunSeats(runId, includeEnded) { RunSeatsTable.seat neq RunSeat.ORCHESTRATOR } }
+
+    override suspend fun runTokens(
+        runId: UUID,
+        includeEnded: Boolean
+    ): List<RunSeat> = databaseManager.readTx { selectRunSeats(runId, includeEnded) { RunSeatsTable.seat eq RunSeat.ORCHESTRATOR } }
+
+    /** The rows of [runId] (active only unless [includeEnded]) that also match [extra], oldest first; one statement. */
+    private fun selectRunSeats(
+        runId: UUID,
+        includeEnded: Boolean,
+        extra: () -> Op<Boolean>?
+    ): List<RunSeat> =
+        RunSeatsTable
+            .selectAll()
+            .where {
+                var cond = RunSeatsTable.runId eq runId
+                extra()?.let { cond = cond and it }
+                if (!includeEnded) cond = cond and (RunSeatsTable.status eq RunSeatStatus.ACTIVE.wire)
+                cond
+            }.orderBy(RunSeatsTable.assignedAt to SortOrder.ASC, RunSeatsTable.id to SortOrder.ASC)
+            .map(::toSeat)
 
     // ---- RunSeatPort ----------------------------------------------------------------------------------------
 

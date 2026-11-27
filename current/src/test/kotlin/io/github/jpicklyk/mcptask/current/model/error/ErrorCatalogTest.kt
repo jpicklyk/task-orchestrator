@@ -81,7 +81,7 @@ class ErrorCatalogTest {
             ErrorCode.DEPENDENCY_UNMET to setOf("itemId"),
             ErrorCode.CLAIM_HELD to setOf("itemId"),
             ErrorCode.NOT_CLAIM_HOLDER to setOf("itemId"),
-            ErrorCode.SEAT_FORBIDDEN to setOf("action", "itemId"),
+            ErrorCode.SEAT_FORBIDDEN to setOf("action", "itemId", "runId"),
             ErrorCode.NOTE_OWNED_BY_OTHER to setOf("key", "itemId"),
             ErrorCode.NOTE_TOO_LONG to setOf("key", "max"),
             ErrorCode.RESOURCE_UNAVAILABLE to setOf("itemId"),

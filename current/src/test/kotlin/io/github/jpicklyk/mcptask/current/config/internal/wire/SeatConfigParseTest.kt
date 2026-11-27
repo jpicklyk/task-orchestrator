@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.config.internal.wire
 
+import io.github.jpicklyk.mcptask.current.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.config.GlobalConfigSource
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
@@ -467,6 +470,69 @@ class SeatConfigParseTest {
         val schema = parsed.workItemSchemas.getValue("bug-fix")
         assertTrue(schema.seats.isEmpty(), "phase values are case-sensitive; Work must not match work")
         assertTrue(parsed.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `writes parses to true, false and null and effectiveWrites follows the declared value, else the phase`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    seats:
+                      - { name: r, phase: review, writes: true }
+                      - { name: i, phase: work, writes: false }
+                      - { name: p, phase: queue }
+                      - { name: w, phase: work }
+                """.trimIndent()
+            )
+        val seats = parsed.workItemSchemas.getValue("bug-fix").seats
+        assertEquals(listOf(true, false, null, null), seats.map { it.writes })
+        assertEquals(listOf(true, false, false, true), seats.map { it.effectiveWrites })
+        assertTrue(parsed.warnings.isEmpty(), "writes is a known key: ${parsed.warnings}")
+        assertTrue(parsed.warningViolations.isEmpty(), "findings: ${parsed.warningViolations}")
+    }
+
+    @Test
+    fun `a non-boolean writes value is ignored with a soft finding at the writes path and the seat is kept`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    seats:
+                      - { name: a, phase: review, writes: "yes" }
+                """.trimIndent()
+            )
+        val seat =
+            parsed.workItemSchemas
+                .getValue("bug-fix")
+                .seats
+                .single()
+        assertNull(seat.writes)
+        assertFalse(seat.effectiveWrites)
+        assertTrue(
+            parsed.warningViolations.any { it.path == "/work_item_schemas/bug-fix/seats/0/writes" },
+            "findings: ${parsed.warningViolations}",
+        )
+        assertFalse(parsed.warnings.any { it.contains("unknown key") }, "warnings: ${parsed.warnings}")
+    }
+
+    @Test
+    fun `config validate rejects a non-boolean writes at its path and never calls writes an unknown key`() {
+        val yaml =
+            """
+            work_item_schemas:
+              bug-fix:
+                seats:
+                  - { name: a, phase: review, writes: "yes" }
+                notes: []
+            """.trimIndent()
+        val validator = ConfigValidator(NetworkntConfigStructuralValidator(), GlobalConfigSource { null })
+        val result = validator.validate(yaml, YamlConfigDocumentParser, ConfigScope.ROOT)
+        assertFalse(result.isValid, "errors: ${result.errors}")
+        assertTrue(result.errors.any { it.path == "/work_item_schemas/bug-fix/seats/0/writes" }, "errors: ${result.errors}")
+        assertFalse(result.errors.any { it.reason.contains("unknown key") }, "errors: ${result.errors}")
     }
 
     @Test

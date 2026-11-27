@@ -499,7 +499,6 @@ work_item_schemas:
       - { name: planner,      phase: queue }
       - { name: implementer,  phase: work, enters: true, transitions: [block, hold, resume] }
       - { name: extractor,    phase: work, after: [implementer] }
-      - { name: orchestrator, phase: work }
       - { name: reviewer,     phase: review }
     notes:
       - { key: diagnosis, role: queue, required: true, seat: planner }
@@ -541,20 +540,21 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named, and `orchestrator`, which is given a meaning: a run's token may write its note keys (see "Seat transitions"). `coordinator`, a retired name, is not reserved: it loads with a warning. |
+| `name` | yes | string | Non-blank, unique within its declaring scope (see "Structural errors" below). Seat names carry no meaning for the server, except the reserved names `unowned` (the bucket, see "The `unowned` bucket") and `director`, which a seat may never be named. A seat named exactly `orchestrator` or `coordinator` loads with an advisory at `<entry>/name` saying the name will be refused in a later release: the orchestrator is a reserved note owner, not a seat (see "Seat transitions"), so remove the entry and label its notes `seat: orchestrator`. |
 | `phase` | yes | string | `queue`, `work`, or `review` only - exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within one seats scope - see "Structural errors". A conflict discovered only at resolve time (per-item traits, or traits from a different config layer) is not fatal - see "Merge rules". |
+| `writes` | no | boolean | Whether this seat changes files in the item's worktree and commits them; notes are not covered. Absent: `true` in the `work` phase, `false` elsewhere. Served, never enforced. Advertised by the `seatWrites` feature. |
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |
 | `after` | no | list of strings | Seat names this seat's work logically follows - an ordering **hint**, not enforced by the server. A name outside the declaring scope, or naming a seat in a different phase, is served exactly as declared. |
 | `reads_exclude` | no | list of strings | Note keys this seat should **not** read - a hint powering test-author-style blindness. Parsed and served only; blindness is a process discipline, not a server-side check. Separate from a note entry's own `independent_of`. |
 | `skills` | no | list of strings | Skill names the seat should invoke, served as written. Absent: the plugin's defaults for that seat apply, from `hooks/lib/seat-skill-defaults.json`: planner `task-orchestrator:planning-standards` and `task-orchestrator:designing-modules`, implementer `task-orchestrator:implementation-standards`, reviewer `task-orchestrator:review-method`, test-author `task-orchestrator:test-authoring`. A declared list replaces the defaults and never merges with them, so a default is kept only by listing it; `[]` declares none. The plugin reads a declared list only when the server lists the `seatSkills` feature; against a server without it the defaults apply and are hinted only. Duplicates collapse. A non-list value, or a non-string or blank element, is a parser finding: an error on push (`STRICT`) and a warning only under `MIGRATION`, where a non-list value leaves the field absent (the defaults apply) and a bad element is dropped. Existence is not checked and nothing in the server enforces the list |
-| `rules` | no | list of strings | Rule keys this seat is given, on a run dispatch and in the seat hint of a hand dispatch alike. Absent: the seat role's defaults from the plugin's seat rule table (`hooks/lib/seat-rules.json`) apply; `[]` declares none. A declared list replaces the defaults only: the role's protocol rule and the rules the plugin adds for the role (both from the same table) are always given first, and no list removes them. A declared `protocol.*` key that is not the role's own is dropped and reported like an unserved key. A project may replace a protocol rule's text by serving its own copy under the same key; that copy then stops receiving plugin updates, and the manage-schemas audit reports it as project-authored. To add conduct for a seat, put a project rule on the seat's `rules` list instead. Duplicates collapse; a key that does not match the rule key grammar, or a non-string element, is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Existence is not checked, and served only when declared. Never enforced by the server: a declared key the root does not serve is a degradation the run planner reports, while a default rule the root does not serve (no `rules` list declared) is dropped silently |
+| `rules` | no | list of strings | Rule keys this seat is given, on a run dispatch and in the seat hint of a hand dispatch alike. Absent: the seat's defaults from the plugin's seat rule table (`hooks/lib/seat-rules.json`) apply; `[]` declares none. A declared list replaces the defaults only: the seat's protocol rule and the rules the plugin adds (same table) are always given first. A project may replace a protocol rule's text by serving its own copy under the same key; that copy then stops receiving plugin updates, and the manage-schemas audit reports it as project-authored. To add conduct for a seat, put a project rule on the seat's `rules` list instead. Duplicates collapse; a key that does not match the rule key grammar, or a non-string element, is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Existence is not checked, and served only when declared. Never enforced by the server: a declared key the root does not serve is a degradation the run planner reports, while a default rule the root does not serve (no `rules` list declared) is dropped silently |
 
 ### Note-entry fields (on `notes[]`)
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` - see "The `unowned` bucket". A note with no `seat`, a `seat` naming an undeclared seat, or a `seat` (other than `orchestrator`) declared for a *different* phase than the note's own `role`, is `unowned`; the `orchestrator` seat owns its labelled notes in any phase. |
+| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` - see "The `unowned` bucket". A note with no `seat`, a `seat` naming an undeclared seat, or a `seat` declared for a *different* phase than the note's own `role`, is `unowned`. The exception is `seat: orchestrator`: it is owned in every schema and every phase with no seat declared (an orchestrator note). In a schema that declares no seats the label stands as written. |
 | `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). Enforced by the attestation gate - see "Independence (A2)". |
 
 ### Seat transitions
@@ -562,10 +562,8 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 A seat token sends `start` only into the phase of a seat that sets `enters: true`; every other trigger
 it sends must be in its `transitions:` list (default `block`, `hold`). An entering seat that lists
 `complete` or `cancel` is a structural error (F5), so the seat that opens a phase cannot also close the
-item. A seat named `orchestrator` is the one seat whose note keys a run's token may write; every other
-seat-owned key needs that seat's own token (a human credential is exempt). `orchestrator`, `unowned` and `director` are the
-reserved seat names: `unowned` and `director` are refused (F3), while `orchestrator` is accepted as the owning seat of notes the orchestrator fills itself. The plugin's run planner never schedules it as a stage of a run, so no agent is dispatched to it. Enforcement applies only to
-an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other` with `detail.ownerSeat`; outside a
+item. `unowned` and `director` are reserved seat names and are refused (F3). `orchestrator` is not a seat: it is the reserved owner of the notes the orchestrator fills itself (orchestrator notes). A note labelled `seat: orchestrator` is owned in every schema, in any phase, with no seat declared. Inside an open run on a seat-aware pinned schema, only the run token of that run (or a human credential) may write such a note; a member seat token, or an agent with no token, is refused `note_owned_by_other` with `detail.ownerSeat` and `detail.runId`. Every other seat-owned key needs that seat's own token. No agent is dispatched for orchestrator notes. The server advertises this by the `orchestratorNotes` feature. Enforcement applies only to
+an item that is a member of a run that is open or paused, and a refused transition is `seat_forbidden`, and a refused note write is `note_owned_by_other`; outside a
 run the seats stay a signal. The full rules, and the interaction with run membership, are in
 [config-reference.md, Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions).
 
@@ -663,15 +661,15 @@ malformed seat entries - a missing or blank `name`, an invalid or missing `phase
 (see [Strict validation](../../../../../current/docs/config-reference.md#strict-validation)).
 
 An advisory warning, which never rejects a push, covers a schema whose effective seats are non-empty
-and which has a **required** note whose `seat` is null or names no seat of the same phase (the `orchestrator` seat matches in any phase): the note is
+and which has a **required** note whose `seat` is null or names no seat of the same phase (a note labelled `orchestrator` is owned in any phase): the note is
 served under `unowned` in `missingBySeat`.
 
-A second advisory warning covers a seat named `coordinator`, a retired name for a run's orchestrator: it loads, and the warning (at `<seats>/<i>/name`) asks for a rename.
+A second advisory warning covers a seat entry named `orchestrator` or `coordinator`: it loads, and the warning (at `<seats>/<i>/name`) says the name will be refused in a later release and asks for the entry to be removed or renamed.
 
 ### The `unowned` bucket
 
 A required note that has no seat owning it - no `seat` declared, an unknown seat name, or a `seat`
-declared for a different phase than the note's own `role` (the `orchestrator` seat is exempt: it owns its labelled notes in any phase) - is served under the reserved
+declared for a different phase than the note's own `role` (the exception is `seat: orchestrator`, owned in any phase with no seat declared) - is served under the reserved
 `"unowned"` key in `missingBySeat` (see `api-reference.md` and `api-rest.md` for the response shape).
 This is deliberate, not an error: it lets an orchestrator see at a glance which missing notes have no
 seat routing at all, so a schema can be seat-aware for *some* notes while others stay unowned.

@@ -68,6 +68,7 @@ function listData(items, reason) {
 //   update(ctx)      -> undefined (grant) | {code, detail?, retryAfterMs?} (element error); ctx {itemId, nth} (per addItems id); consulted before the duplicate check
 //   assign(ctx)      -> undefined (grant) | {code, detail?} (element error) | {http401: true}; ctx {itemId, nth}
 //   nextReason       reason string sent when the queue page is empty
+//   schema           items_read schema answer data (or fn({itemId}) -> data); absent: the read fails invalid_request
 //   completeOnDone   when true an item whose seat ends `done` leaves the queue
 //   duplicateItems   Set of ids answered `duplicate` by update addItems
 //   openError        {code, detail?} element error for open
@@ -389,6 +390,10 @@ export async function startFakeApi(opts = {}) {
         const page = queue.slice(0, Math.min(body.limit ?? 1, 200)).map((i) => ({ id: i.id, type: 'feature-task', title: i.title ?? i.id, role: 'queue', depth: 2, version: 1 }))
         const reason = !page.length && opts.nextReason ? opts.nextReason : undefined
         return [200, { ok: true, data: listData(page, reason), meta: meta() }]
+      }
+      if (body.select === 'schema' && opts.schema) {
+        const data = typeof opts.schema === 'function' ? opts.schema({ itemId: norm(body.itemId) }) : opts.schema
+        return [200, { ok: true, data, meta: meta() }]
       }
       return callError(400, 'invalid_request', `fake does not serve items_read ${body.select}`)
     }

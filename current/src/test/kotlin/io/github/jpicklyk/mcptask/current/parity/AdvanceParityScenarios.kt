@@ -356,7 +356,8 @@ work_item_schemas:
                         "\"itemId\":\"$c2\"",
                         "\"seat\":\"builder\"",
                         "\"action\":\"start\"",
-                        "\"allowedSeats\":[\"coordinator\",\"builder\"]"
+                        "\"allowedSeats\":[\"builder\"]",
+                        "\"runId\":\"$enforceRun\""
                     ),
                 absent = listOf("\"newRole\"", builderToken),
                 changed = false
@@ -372,7 +373,8 @@ work_item_schemas:
                     listOf(
                         "\"code\":\"seat_forbidden\"",
                         "\"action\":\"complete\"",
-                        "\"allowedSeats\":[\"coordinator\",\"checker\"]"
+                        "\"allowedSeats\":[\"checker\"]",
+                        "\"runId\":\"$enforceRun\""
                     ),
                 absent = listOf("\"newRole\""),
                 changed = false
@@ -406,7 +408,8 @@ work_item_schemas:
                         "\"code\":\"seat_forbidden\"",
                         "\"itemId\":\"$c1\"",
                         "\"action\":\"start\"",
-                        "\"allowedSeats\":[\"coordinator\",\"builder\"]"
+                        "\"allowedSeats\":[\"builder\"]",
+                        "\"runId\":\"$enforceRun\""
                     ),
                 // Ruling 3: the seat member is OMITTED without a token, never JSON null (the builder-token refusal carries it)
                 absent = listOf("\"newRole\"", "\"seat\":"),

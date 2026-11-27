@@ -121,16 +121,17 @@ object NoteOwnership {
         return Outcome.Err(ownedByOther(itemId, key, ownerSeat))
     }
 
-    /** The refusal of a write to a note another actor owns: `note_owned_by_other{itemId, key, ownerSeat?}`, owner-id-free. */
+    /** The refusal of a write to a note another actor owns: `note_owned_by_other{itemId, key, ownerSeat?, runId?}`, owner-id-free. */
     fun ownedByOther(
         itemId: UUID,
         key: String,
-        ownerSeat: String? = null
+        ownerSeat: String? = null,
+        runId: UUID? = null
     ): DomainError =
         DomainError(
             code = ErrorCode.NOTE_OWNED_BY_OTHER,
             message = "Note '$key' on item $itemId is owned by another actor.",
-            detail = ErrorDetail.NoteOwnedByOther(itemId, key, ownerSeat),
+            detail = ErrorDetail.NoteOwnedByOther(itemId, key, ownerSeat, runId),
             fixArgs = mapOf("key" to key, "itemId" to itemId.toString())
         )
 

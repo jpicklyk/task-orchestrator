@@ -82,7 +82,7 @@ object ItemSchemaView {
             put("configSource", JsonPrimitive(if (source == ConfigSource.PER_ROOT) "per-root" else "global"))
             pin?.let { put("schemaVersion", schemaVersionJson(it)) }
             if (pin?.stale == true) put("stale", JsonPrimitive(true))
-            put("notes", buildFullSchemaEntriesJson(schema.notes, seatAware))
+            put("notes", buildFullSchemaEntriesJson(schema.notes, schema.seats))
             buildDispatchByRoleJson(dispatchByRole)?.let { put("dispatch", it) }
             buildResourcesJson(resourcesList)?.let { put("resources", it) }
             if (seatAware) {

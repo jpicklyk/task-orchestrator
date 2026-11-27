@@ -329,7 +329,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
         configWarnings:
@@ -362,7 +362,7 @@ components:
 
     SeatDto:
       type: object
-      required: [name, phase]
+      required: [name, phase, writes]
       description: >-
         One declared orchestration seat (A1) — parsed, merged, and served, but not itself
         enforced by the server. See config-format.md "Seats (Trait & Schema Dimension)".
@@ -375,6 +375,9 @@ components:
         enters:
           type: boolean
           description: Present only when true.
+        writes:
+          type: boolean
+          description: Always present - the declared writes, else true in the work phase; served, never enforced.
         after:
           type: array
           items:
@@ -403,7 +406,7 @@ components:
 
     ItemSchemaNoteEntryDto:
       type: object
-      required: [key, role, required, description]
+      required: [key, role, required, description, owningSeat]
       description: >-
         Full note-schema entry of the item schema view (items_read select schema) — same base shape as
         NoteSchemaEntryDto, plus the A1 seat fields. A distinct schema from NoteSchemaEntryDto
@@ -444,9 +447,14 @@ components:
           type: string
           nullable: true
           description: >-
-            A1: this entry's declared owning seat. Present (possibly null) only when the schema
-            is seat-aware; omitted entirely for a seat-less schema. null means the note has no
-            owning seat and is served under "unowned" in missingBySeat.
+            A1: this entry's declared seat label, as written. Present (possibly null) only when the schema
+            is seat-aware; omitted entirely for a seat-less schema. `owningSeat` is the owner; a note with no
+            owner is served under "unowned" in missingBySeat.
+        owningSeat:
+          type: string
+          nullable: true
+          description: >-
+            This entry's owning seat (GLOSSARY.md, Owning seat), always present; null when unowned.
         independentOf:
           type: array
           items:
@@ -943,7 +951,7 @@ paths:
         Claim ownership and resource leases are enforced on this route exactly as on MCP. Inside a run that is not closed,
         whose pinned schema declares `seats`, a `transition` is also checked against the caller's seat: a caller that
         may not send the trigger to that item is `403 seat_forbidden` (`detail`: `itemId`, `seat` (omitted without a
-        token), `action`, `allowedSeats`), nothing is applied, and a human credential is exempt. A cascade into such a
+        token), `action`, `allowedSeats` (schema seats only), `runId` (the run whose token may always send it)), nothing is applied, and a human credential is exempt. A cascade into such a
         member the caller could not advance directly is not applied and is reported with `blocked: seat`.
         A terminal cascade never moves a parent in `review`: it is reported with `blocked: gate` and
         `reason: review-pending` (no `missing`). A `claim` that takes

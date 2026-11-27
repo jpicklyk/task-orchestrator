@@ -67,6 +67,8 @@ function stripText(v) {
 function projectNote(n) {
   const out = { key: n.key, role: n.role, required: n.required };
   if (n.seat !== undefined && n.seat !== null) out.seat = n.seat;
+  // the served note owner (a string or null); copied when the answer carries the member, null kept
+  if (n.owningSeat !== undefined) out.owningSeat = n.owningSeat;
   if (n.skill !== undefined) out.skill = n.skill;
   if (n.skills !== undefined) out.skills = n.skills;
   if (n.skillMode !== undefined) out.skillMode = n.skillMode;

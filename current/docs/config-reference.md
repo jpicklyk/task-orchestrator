@@ -83,22 +83,24 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
 - **Where it applies.** Seats are enforced only on an item that is a member of a run that is not closed (open or
   paused) and whose pinned schema declares seats. Outside a run they stay an orchestration signal. A refusal is
   `seat_forbidden` (see [`advance`](api-reference.md#advance)).
-- **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's orchestrator token may
-  write; every other seat-owned key needs that seat's own token (a human credential is exempt). It owns the notes labelled for it in any phase it is declared, not only its own phase.
-- **Reserved seat names.** Three seat names are reserved. `unowned` is refused: a schema or trait that
+- **Orchestrator notes.** A note labelled `seat: orchestrator` is owned in every schema and every phase, with no seat
+  declared; in a schema that declares no seats the label stands as written. Inside an open run on a seat-aware pinned
+  schema, only the run token of that run (or a human credential) may write it: a member seat token, or an agent with no
+  token, is refused `note_owned_by_other` with `detail.ownerSeat` and `detail.runId`. Every other seat-owned key needs that seat's own token.
+  The `orchestratorNotes` feature advertises this.
+- **Reserved seat names.** Two seat names are refused and two warn. `unowned` is refused: a schema or trait that
   declares a seat of that name (exact match) is a structural error, because `unowned` is the `missingBySeat` bucket that
   holds the required notes no declared seat owns. `director` is refused the same way, because the director never fills a
-  seat or writes notes. `orchestrator` is accepted and given a meaning: it is the owning seat of notes the orchestrator fills itself, and
-  the server lets the run's token write them inside a run (outside one they are written directly),
-  and the plugin's run planner never schedules the seat as a stage of a run, so no agent is dispatched to it. `coordinator`, a retired name for a run's orchestrator, is not reserved: it loads with a
-  warning.
+  seat or writes notes. A seat named exactly `orchestrator` or `coordinator` loads with an advisory at `<entry>/name` saying the name will be
+  refused in a later release: the orchestrator is a reserved note owner, not a seat, so remove the entry and label its
+  notes `seat: orchestrator`. No agent is dispatched for orchestrator notes, and a `dispatch.<phase>.seats.orchestrator`
+  override names no declared seat.
 
 ```yaml
 work_item_schemas:
   feature-task:
     seats:
       - { name: implementer, phase: work, enters: true, transitions: [block, hold, resume] }
-      - { name: orchestrator, phase: work, after: [implementer] }
 ```
 
 ### Seat dispatch precedence
@@ -157,6 +159,13 @@ ignored. The value is part of the item's [schema pin](#schema-pins): a later pus
 (`repin`), and an item pinned before the flag was stored builds until it re-pins. `config` `effective` shows `builds: false` on a schema or
 trait that sets it.
 
+### Seat writes
+
+A seat entry's optional boolean `writes` says whether the seat changes files in the item's worktree and commits them; notes
+are not covered. The field table in
+[config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seat-entry-fields-seats-schema-level-or-trait-level)
+holds the default. The `seatWrites` feature advertises it.
+
 ### Seat rules
 
 A seat entry may declare `rules`, a list of rule keys. It is absent when not declared (the plugin's defaults for that
@@ -165,9 +174,10 @@ match the rule key grammar is a parser finding and is dropped. Existence is not 
 separately: the server only serves the list, and only on a seat that declares it. Nothing in the server enforces it.
 
 The plugin gives each seat three classes of rule key, from one table (`claude-plugins/task-orchestrator/hooks/lib/seat-rules.json`):
-the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`), tool
+the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`; the role
+comes from the seat's served `enters` and `writes`, [0016](../../design/decisions/0016-seat-capability-and-orchestrator-notes.md)), tool
 mechanics the plugin chooses; the rules the plugin adds for the role (`commit-discipline` for a writing seat); and the
-role's defaults, which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
+seat's defaults (by seat name), which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
 `protocol.*` key that is not the role's own is dropped and reported. A project may still replace a protocol rule's text
 by serving its own copy under the same key: that copy stops receiving plugin updates, and the manage-schemas audit
 reports it as project-authored. Conduct for a seat is added with a project rule on the seat's `rules` list.
@@ -287,7 +297,7 @@ The root is the empty string. A key containing `/` or `~` is escaped as `~1` and
 (`a/b~c` becomes `a~1b~0c`). An unknown key is reported at the key itself.
 
 Warnings never reject a push. They are advisory: a resource key declared by three or more traits (contention is
-likely), a seat named `coordinator`, a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
+likely), a seat entry named `orchestrator` or `coordinator`, a required note that no declared seat owns, and a `default_traits` list that places a seat-only model-selecting
 trait after an earlier trait whose override for the same seat is not model-selecting (see "Seat dispatch precedence").
 
 How a rejection reaches you:
@@ -316,11 +326,11 @@ or a different lifecycle mode); guidance and description edits do not. `sample` 
 `validate` also returns `lint`, a list of `{path, reason}` findings about schema quality. It is separate from `errors`
 and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
 does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
-resolution and comparison only. The checks: a seat that owns no note of its phase (for `orchestrator`, a note labelled for it in any phase counts); an optional note with no seat on a
+resolution and comparison only. The checks: a seat that owns no note of its phase; an optional note with no seat on a
 schema or trait that declares seats (a required unseated note is reported in `warnings`); the same guidance on several
 notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
 `rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; on a schema or trait that declares seats, an optional
-note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns (`orchestrator` in any phase),
+note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns,
 and an `independent_of` or seat `after` name no seat declares; a trait `dispatch` seat override no seat declares for its
 phase. Every finding is
 a point to consider, not a defect.

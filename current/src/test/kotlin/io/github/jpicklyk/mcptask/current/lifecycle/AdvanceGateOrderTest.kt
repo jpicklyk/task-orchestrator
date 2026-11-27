@@ -728,27 +728,27 @@ class AdvanceGateOrderTest {
             val foreignRun = seedRun(d.item("other root"), emptyList())
 
             assertEquals(
-                ErrorDetail.SeatForbidden(other.id, "builder", "start", listOf("coordinator", "builder")),
+                ErrorDetail.SeatForbidden(other.id, "builder", "start", listOf("builder"), run),
                 d.refused(other, "start", memberSeat("builder", run, mine), "builder token used on another member"),
             )
             assertEquals(
-                ErrorDetail.SeatForbidden(mine.id, "planner", "start", listOf("coordinator", "builder")),
+                ErrorDetail.SeatForbidden(mine.id, "planner", "start", listOf("builder"), run),
                 d.refused(mine, "start", memberSeat("planner", run, mine), "planner start into work"),
             )
             assertEquals(
-                ErrorDetail.SeatForbidden(working.id, "builder", "complete", listOf("coordinator", "checker")),
+                ErrorDetail.SeatForbidden(working.id, "builder", "complete", listOf("checker"), run),
                 d.refused(working, "complete", memberSeat("builder", run, working), "builder complete"),
             )
             assertEquals(
-                ErrorDetail.SeatForbidden(working.id, "builder", "cancel", listOf("coordinator")),
+                ErrorDetail.SeatForbidden(working.id, "builder", "cancel", emptyList(), run),
                 d.refused(working, "cancel", memberSeat("builder", run, working), "builder cancel"),
             )
             assertEquals(
-                ErrorDetail.SeatForbidden(mine.id, "coordinator", "start", listOf("coordinator", "builder")),
+                ErrorDetail.SeatForbidden(mine.id, "coordinator", "start", listOf("builder"), run),
                 d.refused(mine, "start", coordinatorOf(foreignRun), "the coordinator token of another run"),
             )
             assertEquals(
-                ErrorDetail.SeatForbidden(mine.id, "builder", "start", listOf("coordinator", "builder")),
+                ErrorDetail.SeatForbidden(mine.id, "builder", "start", listOf("builder"), run),
                 d.refused(mine, "start", memberSeat("builder", foreignRun, mine), "a builder token of another run"),
             )
 
@@ -766,11 +766,11 @@ class AdvanceGateOrderTest {
             val d = seatDriver(dir)
             val root = d.item("root")
             val member = d.item("member", Role.QUEUE, type = "seat-task", parent = root)
-            seedRun(root, listOf(member))
+            val run = seedRun(root, listOf(member))
 
             val detail = d.refused(member, "start", SeatCaller.NONE, "token-less start")
 
-            assertEquals(ErrorDetail.SeatForbidden(member.id, null, "start", listOf("coordinator", "builder")), detail)
+            assertEquals(ErrorDetail.SeatForbidden(member.id, null, "start", listOf("builder"), run), detail)
             assertEquals(null, detail.seat, "the absent seat is null, not an empty string")
         }
 
@@ -962,7 +962,7 @@ class SeatEnforcementTokenPathTest {
             assertEquals(other.id.toString(), detail["itemId"]?.jsonPrimitive?.content)
             assertEquals("builder", detail["seat"]?.jsonPrimitive?.content)
             assertEquals("start", detail["action"]?.jsonPrimitive?.content)
-            assertEquals(listOf("coordinator", "builder"), detail["allowedSeats"]?.jsonArray?.map { it.jsonPrimitive.content })
+            assertEquals(listOf("builder"), detail["allowedSeats"]?.jsonArray?.map { it.jsonPrimitive.content })
             assertEquals(Role.QUEUE, w.roleOf(other), "nothing applied")
 
             // a token-less agent: the seat member is omitted

@@ -1067,7 +1067,7 @@ async function r9() {
   const waiting = [];
   for (const x of sent) {
     const item = plan.args.items.find((i) => i.id === x.itemId);
-    const a = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase assign --item ' + item.short + ' --seat reviewer');
+    const a = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase assign --item ' + item.short + ' --seat ' + (item.reviewSeats || ['reviewer'])[0]);
     if (a.ref) return a.ref;
     if (a.code !== 0 || !a.json) { dispatched.push({ item: item.short, failed: 'assign' }); continue; }
     const as = await call('runs_write', { ops: a.json.ops, seatToken: CT });

@@ -366,7 +366,7 @@ private fun seatMayRun(
         trigger.wire in definition.effectiveTransitions
     }
 
-/** The `seat_forbidden` rejection: `allowedSeats` lists the `coordinator` pseudo-seat, then the schema seats that may send [trigger]. */
+/** The `seat_forbidden` rejection: `allowedSeats` lists the schema seats that may send [trigger]; the run token always may and `runId` names its run. */
 private fun seatForbidden(
     facts: SeatFacts,
     trigger: User,
@@ -374,15 +374,19 @@ private fun seatForbidden(
     target: Role?
 ): Decision.Reject {
     val seat = facts.caller.seat
-    val allowedSeats = listOf(RunSeat.ORCHESTRATOR) + facts.seats.filter { seatMayRun(it, trigger, target) }.map { it.name }
+    val allowedSeats = facts.seats.filter { seatMayRun(it, trigger, target) }.map { it.name }
+    // The gate runs only for an item in an open run, so the run id is always there.
+    val runId = checkNotNull(facts.openRunId) { "seat gate without an open run" }
     val who = if (seat != null) "seat $seat" else "a caller without a seat"
     return Decision.Reject(
         GateId.SEAT,
         DomainError(
             code = ErrorCode.SEAT_FORBIDDEN,
-            message = "Trigger ${trigger.wire} on item $itemId is not allowed for $who.",
-            detail = ErrorDetail.SeatForbidden(itemId, seat, trigger.wire, allowedSeats),
-            fixArgs = mapOf("itemId" to itemId.toString(), "action" to trigger.wire)
+            message =
+                "Trigger ${trigger.wire} on item $itemId is not allowed for $who; " +
+                    "the seats in detail.allowedSeats or the run token of run $runId may send it.",
+            detail = ErrorDetail.SeatForbidden(itemId, seat, trigger.wire, allowedSeats, runId),
+            fixArgs = mapOf("itemId" to itemId.toString(), "action" to trigger.wire, "runId" to runId.toString())
         )
     )
 }

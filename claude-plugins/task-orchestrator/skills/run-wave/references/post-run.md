@@ -193,7 +193,9 @@ to another seat's key is refused `note_owned_by_other` with `ownerSeat`, a forbi
 An **optional** note (a stage's `optionalNotes`; the expected table marks it `optional: true`) that
 was never written is **not** `missing` and does not fail the item. In a seat-less plan
 `delegation-metadata` is not a seat's note: the planner lists it under the item's
-`orchestratorNotes`, no seat prompt may write it, and the orchestrator records it in Step 3.
+`orchestratorNotes`, no seat prompt may write it, and the orchestrator records it in Step 3. On a server that
+advertises `orchestratorNotes`, that list is the item's notes whose served `owningSeat` is `orchestrator`, and an
+unannotated `delegation-metadata` is then the implicit implementer's note.
 
 ---
 
@@ -342,9 +344,9 @@ no owner is not left for the reviewer to find.
 step the project names and do not dispatch the generic reviewer yourself: hand off to the skill
 `meta.review.skill` names, at `meta.review.step` when it is set (without one, the project's own review step
 in that skill). In order:
-Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
-phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the run token, its
-`seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
+Step 4 is done and the phase `review` is recorded; assign a review lane seat per advanced item that entered a review
+phase (the `run-ops --phase assign --item <short> --seat <lane>` command below, under the run token, its
+`seatToken` written to the token file `run-ops` renders); hand off to the project's review step with the run open
 (its reviewers carry the label `reviewer:<short>`, see the Label rule). The hand-off returns once the project's review
 step has a verdict for every advanced item; the advance named below is that project's
 own advance, not a second one. After the hand-off returns: run Step 0b's
@@ -358,8 +360,8 @@ run for the whole length of the review; one wave runs per root, so a new run-wav
 owns merge arming; do not arm auto-merge from post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
-reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
-<short> --seat reviewer`, sent under the run token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
+review lane like any schema seat (`<lane>` is the plan item's `reviewSeats[0]`, `reviewer` when the item has none) — `node "<helper>" run-ops --plan <plan> --phase assign --item
+<short> --seat <lane>`, sent under the run token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
 token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
 --result <scratchpad>/run-wave/<runId>/result.json` — **always pass `--result`**; without it the
@@ -372,8 +374,8 @@ itself) and never the token. Dispatch the reviewer with the Agent `description` 
 token file, and its lanes never end their seat, so run Step 0b's sweep again before Step 7.
 
 **Review wave launch.** When this post-run actor has the `Workflow` tool (re-probe F1: a background
-subagent may lack it) and the run is bound, assign each reviewer seat once (`run-ops --phase assign
---item <short> --seat reviewer`, token file written as above; on `run_at_capacity`, launch over the items already assigned, run Step 0b's sweep, then assign the rest and launch again), then `node "<helper>" review-args
+subagent may lack it) and the run is bound, assign each review lane seat once (`run-ops --phase assign
+--item <short> --seat <lane>`, token file written as above; on `run_at_capacity`, launch over the items already assigned, run Step 0b's sweep, then assign the rest and launch again), then `node "<helper>" review-args
 --plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
 --items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
 notes grouped by seat and skill, each lane carrying its declared output and order from the notes' `lane`; a note skill the root serves as a rule reaches its lane under `rules`, not `skills`; exit 2 names an item with no review notes). Call
@@ -470,7 +472,7 @@ orchestrator gives each one an owner before the next dispatch.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it, under the run token while the run is open
-(the note belongs to the orchestrator seat, so a token-less write in an open run is refused `note_owned_by_other`): one line per non-blocking
+(it is an orchestrator note, owned by the reserved `orchestrator` owner, so a token-less write in an open run is refused `note_owned_by_other`): one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review) as
 `fixed <sha>`, `follow-up <item-id>` (the item created first) or `accepted: <reason>`, ending
 `N of N disposed`. Nothing is left for the parent review to carry.

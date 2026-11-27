@@ -4,7 +4,7 @@ import java.util.UUID
 
 /**
  * Who sends a transition or a note write, as seat enforcement (R23) sees it: the seat token's [seat], [runId] and member
- * [itemId] (all null without a token; [itemId] is null for the run-scoped `coordinator` pseudo-seat), and whether the caller is a
+ * [itemId] (all null without a token; [itemId] is null for the run-token row (`coordinator`)), and whether the caller is a
  * [human] (a human credential carrying no seat token, exempt from seat enforcement).
  */
 data class SeatCaller(

@@ -23,8 +23,8 @@ import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report
 // The dispatch policy and the seat rule table are the files read outside io: reseat escalates a fix cycle's
 // effort with the policy; the review prompt and review-wave args take the reviewer's keys from the table.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
-import { policyClassFor, selectPostRunSteps } from './run-planner-lib.mjs'
-import { loadSeatRules, promptKeysFor } from '../hooks/lib/seat-rules.mjs'
+import { policyClassFor, selectPostRunSteps, laneSeatOf, ORCHESTRATOR_NOTES_FEATURE } from './run-planner-lib.mjs'
+import { loadSeatRules, promptKeysFor, seatProtocolFor } from '../hooks/lib/seat-rules.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -677,6 +677,12 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   }
 
   const stage = Object.assign({}, baseStage, { seat, enters: false })
+  // Served path: the reseat never enters, so it loses start and takes the in-phase (or read-only) protocol.
+  if (Array.isArray(baseStage.transitions)) stage.transitions = baseStage.transitions.filter((t) => t !== 'start')
+  if (typeof baseStage.protocol === 'string') {
+    const reseatProtocol = seatProtocolFor(loadSeatRules(), { enters: false, writes: Boolean(baseStage.writes) })
+    if (reseatProtocol) stage.protocol = reseatProtocol
+  }
   // The server knows only the base seat: the fix cycle reads the base seat's token file.
   const tokenFile = core.seatTokenFile(plan, item, baseStage)
   const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
@@ -684,7 +690,10 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)
-  const commitSentence = 'Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.'
+  // Only a writing seat commits; a read-only base gets the ruling clause alone.
+  const commitSentence = baseStage.writes
+    ? ' Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.'
+    : ''
   const ownedRewrites = ['implementation-notes', 'test-manifest']
     .filter((k) => Array.isArray(baseStage.notes) && baseStage.notes.includes(k))
   let rulingClause
@@ -699,7 +708,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
     rulingClause = `work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
     namedKeys = ownedRewrites
   }
-  text += `\nFIX CYCLE A${cycle}: ${rulingClause} ${commitSentence}${rewriteSentence}${noteLimitSentences(baseStage, namedKeys)}`
+  text += `\nFIX CYCLE A${cycle}: ${rulingClause}${commitSentence}${rewriteSentence}${noteLimitSentences(baseStage, namedKeys)}`
 
   const out = JSON.parse(JSON.stringify(result))
   const outItem = out.items.find((r) => r.id === item.id)
@@ -1433,16 +1442,17 @@ export function verify(doc, result, gitFacts) {
     }
     const inBoundary = (c) => boundary === Infinity || fullLog.findIndex((x) => x.sha === c.sha) <= boundary
 
-    const implStage = argItem.stages.find((s) => s.output === 'implementer-v1')
-    const authorStage = argItem.stages.find((s) => s.output === 'test-author-v1')
-    if (implStage && authorStage) {
-      const implRange = rangeByStageSeat.get(implStage.seat)
-      const authorRange = rangeByStageSeat.get(authorStage.seat)
-      if (implRange && authorRange) {
-        const implIdx = implRange.indices.filter((i) => inBoundary(itemCommits[i]))
-        const authorIdx = authorRange.indices.filter((i) => inBoundary(itemCommits[i]))
-        if (implIdx.length > 0 && authorIdx.length > 0 && authorIdx[0] <= implIdx[implIdx.length - 1]) {
-          findings.push(`test-author commit ${itemCommits[authorIdx[0]].sha.slice(0, 7)} precedes implementer`)
+    // Order: every ordered pair of writing stages (earlier, later) in plan order; the later seat's first commit
+    // must come after the earlier seat's last (a seat that runs after another commits after it).
+    const orderedWriters = argItem.stages.filter((s) => s.writes && rangeByStageSeat.get(s.seat))
+    for (let a = 0; a < orderedWriters.length; a++) {
+      for (let b = a + 1; b < orderedWriters.length; b++) {
+        const earlier = orderedWriters[a]
+        const later = orderedWriters[b]
+        const earlierIdx = rangeByStageSeat.get(earlier.seat).indices.filter((i) => inBoundary(itemCommits[i]))
+        const laterIdx = rangeByStageSeat.get(later.seat).indices.filter((i) => inBoundary(itemCommits[i]))
+        if (earlierIdx.length > 0 && laterIdx.length > 0 && laterIdx[0] <= earlierIdx[earlierIdx.length - 1]) {
+          findings.push(`${later.seat} commit ${itemCommits[laterIdx[0]].sha.slice(0, 7)} precedes ${earlier.seat}`)
         }
       }
     }
@@ -1761,8 +1771,8 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
 
 /**
  * reviewPrompt(core, doc, idOrShort, result?) -> text joined by '\n\n'.
- * On a bound run (args.serverRunId) it names the reviewer lane's token file
- * (<scratchDir>/tokens/<short>.reviewer.token) and the END SEAT call; the token itself never appears.
+ * On a bound run (args.serverRunId) it names the review lane seat's token file
+ * (<scratchDir>/tokens/<short>.<lane seat>.token) and the END SEAT call; the token itself never appears.
  * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles+
  * existingTestEdits, relativized against the worktree and args.repoRoot, as quoted ':(literal)'/
  * ':(glob)' pathspecs when a result is given, deduped after relativizePath canonicalization (so
@@ -1780,7 +1790,9 @@ export function reviewPrompt(core, doc, idOrShort, result) {
   const item = findItem(plan, idOrShort)
   const parts = []
 
-  parts.push(`SEAT: reviewer for item ${item.id} (${item.short}) "${item.title || item.short}". Run ${plan.runId}.`)
+  // The lane seat comes from the declared seats (planner reviewSeats); 'reviewer' when the plan carries none.
+  const laneSeat = (item.reviewSeats || ['reviewer'])[0]
+  parts.push(`SEAT: ${laneSeat} for item ${item.id} (${item.short}) "${item.title || item.short}". Run ${plan.runId}.`)
 
   if (result) {
     const resItem = (result.items || []).find((r) => r.id === item.id)
@@ -1843,7 +1855,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     parts.push(`SEAT SKILLS: invoke each skill below with the Skill tool, in this order, before your seat's first file edit or note write: ${seatSkillUnion.join(', ')}.`)
   }
 
-  const tokenFile = core.seatTokenFile(plan, item, { seat: 'reviewer' })
+  const tokenFile = core.seatTokenFile(plan, item, { seat: laneSeat })
   if (tokenFile) {
     parts.push(
       `SEAT TOKEN: run ${plan.serverRunId}. Your seat token is the single line in the file ${tokenFile}. Read it with your file tool, ` +
@@ -2270,6 +2282,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   if (plan.serverRunId) out.serverRunId = plan.serverRunId
   // The reviewer row of the seat rule table names the lanes' protocol key.
   const reviewerProtocol = (loadSeatRules().roles.reviewer || {}).protocol || null
+  // Served owner: the snapshot's features list orchestratorNotes (notes carry owningSeat); old path otherwise.
+  const ownerServed = Boolean(snapshot && Array.isArray(snapshot.features) && snapshot.features.includes(ORCHESTRATOR_NOTES_FEATURE))
   // Served rule keys: a note skill that names one is delivered to its lane as a rule, not a skill.
   const served = new Set(
     snapshot && Array.isArray(snapshot.rulesServed)
@@ -2282,13 +2296,14 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     // Orchestrator-owned review notes (seat orchestrator, or listed in the planned item's
     // orchestratorNotes) are written by the orchestrator: they belong to no lane and to neither list.
     const orchestratorOwned = new Set(item.orchestratorNotes || [])
+    // old path (the n.seat branch): remove one release after seatWrites/orchestratorNotes
     const reviewNotes = (schema.notes || []).filter(
-      (n) => n && n.role === 'review' && n.seat !== 'orchestrator' && !orchestratorOwned.has(n.key)
+      (n) => n && n.role === 'review' && (ownerServed ? n.owningSeat : n.seat) !== 'orchestrator' && !orchestratorOwned.has(n.key)
     )
     if (reviewNotes.length === 0) throw new Error(`invalid args: ${item.short} has no review-phase notes`)
     const groups = new Map()
     for (const n of reviewNotes) {
-      const seat = n.seat || n.reviewer || 'reviewer'
+      const seat = laneSeatOf(n, schema, ownerServed)
       const skills =
         Array.isArray(n.skills) && n.skills.length > 0
           ? n.skills.filter((s) => typeof s === 'string' && s)
@@ -2947,7 +2962,7 @@ function execDispatchMeta(argv, io) {
   const labels = []
   for (const item of doc.args.items) {
     const seats = (item.stages || []).map((s) => s.seat)
-    for (const seat of [...seats, 'planner', 'reviewer']) {
+    for (const seat of [...seats, 'planner', 'reviewer', ...(item.reviewSeats || [])]) {
       const label = `${seat}:${item.short}`
       if (!labels.includes(label)) labels.push(label)
     }

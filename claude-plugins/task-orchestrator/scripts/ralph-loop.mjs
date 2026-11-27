@@ -2,8 +2,8 @@
 // ralph-loop.mjs - Ralph-style queue drain for MCP Task Orchestrator 4.0.
 //
 // One server run per loop. Each iteration: select the oldest ready queue item with
-// `items_read next` (minus a per-loop skip list), add it to the run, assign it an `implementer`
-// seat, claim it under that seat token, hand the token to a fresh `claude -p` process (in its own
+// `items_read next` (minus a per-loop skip list), add it to the run, assign it its entering
+// work seat (`implementer` when the schema declares none), claim it under that seat token, hand the token to a fresh `claude -p` process (in its own
 // git worktree) through a 0o600 file, wait for the iteration's `RALPH_OUTCOME:` marker, and
 // end the seat. Every exit path ends any active seat first, then closes the run.
 //
@@ -37,6 +37,7 @@ import {
     DEFAULT_ITERATION_TIMEOUT_SECONDS,
     KILL_GRACE_MS,
     RALPH_SEAT,
+    ralphSeatOf,
     parseFilter,
     buildNextQuery,
     buildRunOpenOp,
@@ -707,10 +708,15 @@ async function completeReady({ itemId, token }) {
     return { status: "error", code, reason };
 }
 
-/** Assign the implementer seat; null when the item was skipped or the loop must stop. */
+/**
+ * Assign the item's entering work seat (ralphSeatOf over its schema; fail-open to the implementer seat when the
+ * schema read fails); null when the item was skipped or the loop must stop.
+ */
 async function assignSeat(itemId) {
+    const schemaRead = await op("items_read", { select: "schema", itemId }, READ_TIMEOUT_MS);
+    const seatName = schemaRead.ok ? ralphSeatOf(schemaRead.value) : RALPH_SEAT;
     for (let attempt = 0; ; attempt++) {
-        const a = await coordinatorCall("runs_write", [{ op: "assign", runId: run.runId, itemId, seat: RALPH_SEAT }]);
+        const a = await coordinatorCall("runs_write", [{ op: "assign", runId: run.runId, itemId, seat: seatName }]);
         if (a.ok) {
             const token = a.value?.seatToken;
             if (typeof token !== "string" || !token) {
@@ -1121,7 +1127,7 @@ function printHelp() {
     console.log(`Usage: node ralph-loop.mjs [options]
 
 Drain the TO queue Ralph-loop style over the 4.0 REST API. The loop opens one
-run, and per iteration assigns an implementer seat, claims the item under that
+run, and per iteration assigns the item's entering work seat, claims the item under that
 seat, and spawns a fresh 'claude -p' in its own git worktree to work it per the
 item's schema. Needs TASK_ORCHESTRATOR_API_URL (or apiUrl in client.json).
 

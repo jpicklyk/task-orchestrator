@@ -15,7 +15,7 @@ import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
  * - director: the call was served by the director profile (a profile, not a principal attribute) and carries no seat
  *   token. Director or human is the pause, resume and reissue rule: a lost run token is reissued without one.
  * - human: the credential is a human one and the call carries no seat token (a seat is always an agent).
- * - coordinator: the call carries the run token (R22): its seat is the `coordinator` pseudo-seat of THIS
+ * - coordinator: the call carries the run token (R22): its seat is the `coordinator` run-token row of THIS
  *   run. The token is the only credential for it; the opening principal is not the run's orchestrator by identity (a seat
  *   sharing the opener's stdio principal must not be one).
  * - seat: the call carries a member-seat token (`end_seat` ends the calling seat's own assignment).

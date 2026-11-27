@@ -58,12 +58,13 @@ import kotlin.test.assertTrue
  * exercises fully.
  *
  * FIXTURE SCHEMA (`SEAT_AWARE_CONFIG`) mirrors `task-scope` section 2's own worked example: a
- * `bug-fix` schema with a `queue` seat (`planner`), two `work` seats (`implementer`, entering;
- * `orchestrator`), a `review` seat (`reviewer`), and trait `needs-test-author` contributing a
+ * `bug-fix` schema with a `queue` seat (`planner`), a `work` seat (`implementer`, entering), a `review` seat
+ * (`reviewer`), a note labelled `seat: orchestrator` (no seat of that name: the orchestrator is not a seat), and
+ * trait `needs-test-author` contributing a
  * `work` seat (`test-author`) plus a `work`-phase dispatch profile with per-seat overrides. Merged
  * seat order (base schema seats, then trait seats — task-scope section 4 "Merged seats" row) is
- * therefore `[planner, implementer, orchestrator, reviewer, test-author]`; the WORK-phase subset of
- * that order is `[implementer, orchestrator, test-author]`. `SEATLESS_CONFIG`'s `plain-task` schema
+ * therefore `[planner, implementer, reviewer, test-author]`; the WORK-phase subset of
+ * that order is `[implementer, test-author]`. `SEATLESS_CONFIG`'s `plain-task` schema
  * declares no `seats:` key at all, so `WorkItemSchema.isSeatAware()` is false for it by construction
  * (oracle: task-scope section 5 `isSeatAware(): Boolean = seats.isNotEmpty()`).
  *
@@ -74,8 +75,6 @@ import kotlin.test.assertTrue
  * - `implementer` override sets only `model: sonnet` -> agent inherited from the phase default
  *   (`task-orchestrator:implementer`), model from the override (`sonnet`), effort absent (neither
  *   side sets it).
- * - `orchestrator` has no seat override at all -> the phase default itself, unmodified
- *   (`{agent: task-orchestrator:implementer}`).
  * - `test-author` override sets its own `agent` and `model` -> both come from the override, effort
  *   still absent (neither side sets it).
  */
@@ -99,7 +98,6 @@ work_item_schemas:
     seats:
       - { name: planner, phase: queue }
       - { name: implementer, phase: work, enters: true }
-      - { name: orchestrator, phase: work }
       - { name: reviewer, phase: review }
     notes:
       - { key: diagnosis, role: queue, required: true, seat: planner }
@@ -283,19 +281,23 @@ traits:
             val data = extractData(result)
 
             // Top-level `seats` — CURRENT PHASE (work) ONLY, in merged-seat order restricted to work:
-            // [implementer, orchestrator, test-author]. (Oracle: task-scope section 6 get_context row.)
+            // [implementer, test-author]. (Oracle: task-scope section 6 get_context row.)
             val seats = data["seats"]!!.jsonArray
             assertEquals(
-                listOf("implementer", "orchestrator", "test-author"),
+                listOf("implementer", "test-author"),
                 seats.map { it.jsonObject["name"]!!.jsonPrimitive.content },
                 "current-phase (work) seats only, in merged-seat order",
+            )
+            assertEquals(
+                listOf(true, true),
+                seats.map { it.jsonObject["writes"]!!.jsonPrimitive.boolean },
+                "every work-phase seat is served writes: true (the phase default, never omitted)",
             )
             val implementerSeat = seats[0].jsonObject
             assertEquals("work", implementerSeat["phase"]!!.jsonPrimitive.content)
             assertTrue(implementerSeat["enters"]!!.jsonPrimitive.boolean, "implementer seat declares enters: true")
-            val orchestratorSeat = seats[1].jsonObject
-            assertFalse(orchestratorSeat.containsKey("enters"), "enters omitted when false")
-            val testAuthorSeat = seats[2].jsonObject
+            val testAuthorSeat = seats[1].jsonObject
+            assertFalse(testAuthorSeat.containsKey("enters"), "enters omitted when false")
             assertEquals(
                 listOf("implementer"),
                 testAuthorSeat["after"]!!.jsonArray.map { it.jsonPrimitive.content },
@@ -304,7 +306,7 @@ traits:
 
             // Flat dispatchBySeat for the current (work) phase only: {seat: profile}.
             val dispatchBySeat = data["dispatchBySeat"]!!.jsonObject
-            assertEquals(setOf("implementer", "orchestrator", "test-author"), dispatchBySeat.keys)
+            assertEquals(setOf("implementer", "test-author"), dispatchBySeat.keys)
             assertEquals(
                 buildJsonObject {
                     put("agent", JsonPrimitive("task-orchestrator:implementer"))
@@ -312,11 +314,6 @@ traits:
                 },
                 dispatchBySeat["implementer"],
                 "implementer keeps the phase-default agent, override supplies model",
-            )
-            assertEquals(
-                buildJsonObject { put("agent", JsonPrimitive("task-orchestrator:implementer")) },
-                dispatchBySeat["orchestrator"],
-                "orchestrator has no seat override -> unmodified phase default",
             )
             assertEquals(
                 buildJsonObject {
@@ -344,13 +341,14 @@ traits:
             )
 
             // gateStatus.missingBySeat: implementation-notes (implementer), session-tracking
-            // (orchestrator), test-manifest (test-author, from the needs-test-author trait) are all
+            // (the orchestrator note), test-manifest (test-author, from the needs-test-author trait) are all
             // missing (no notes filled) — bucket order = merged-seat order restricted to seats that
             // actually own a missing key.
             val gateStatus = data["gateStatus"]!!.jsonObject
             assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
             val missingBySeat = gateStatus["missingBySeat"]!!.jsonObject
-            assertEquals(listOf("implementer", "orchestrator", "test-author"), missingBySeat.keys.toList())
+            // `orchestrator` is no declared seat: its bucket follows the declared seats' buckets.
+            assertEquals(listOf("implementer", "test-author", "orchestrator"), missingBySeat.keys.toList())
             assertEquals(listOf("implementation-notes"), missingBySeat["implementer"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertEquals(listOf("session-tracking"), missingBySeat["orchestrator"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertEquals(listOf("test-manifest"), missingBySeat["test-author"]!!.jsonArray.map { it.jsonPrimitive.content })
@@ -431,7 +429,38 @@ traits:
     // including a SEAT-LESS config.
     // ─────────────────────────────────────────────────────────────────────
 
-    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
+    @Test
+    fun `writes is served as a boolean on every seat of the schema by type, false included`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val data =
+                extractData(
+                    schemaView(
+                        buildJsonObject {
+                            put("operation", JsonPrimitive("schema"))
+                            put("type", JsonPrimitive("bug-fix"))
+                        },
+                        newToolContext(tempDir),
+                    ),
+                )
+            val writesBySeat =
+                data["seats"]!!.jsonArray.associate {
+                    it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject["writes"]!!.jsonPrimitive.boolean
+                }
+            assertEquals(
+                mapOf(
+                    "planner" to false,
+                    "implementer" to true,
+                    "reviewer" to false,
+                ),
+                writesBySeat,
+                "writes follows the phase when undeclared: true in work, false in queue and review (trait seats join per item)",
+            )
+        }
+
+    private val expectedFeatures =
+        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
 
     @Test
     fun `S13 - query_items schema by type reports features on both a seat-aware and a seat-less schema`(
@@ -463,6 +492,13 @@ traits:
                     .first { it.jsonObject["key"]!!.jsonPrimitive.content == "implementation-notes" }
                     .jsonObject
             assertEquals("implementer", implementerNote["seat"]!!.jsonPrimitive.content)
+            // AC2: every entry serves its computed owner; a label `orchestrator` is owned without a declared seat.
+            val owningSeatByKey =
+                seatAwareData["notes"]!!.jsonArray.associate {
+                    it.jsonObject["key"]!!.jsonPrimitive.content to it.jsonObject["owningSeat"]
+                }
+            assertEquals(JsonPrimitive("implementer"), owningSeatByKey["implementation-notes"])
+            assertEquals(JsonPrimitive("orchestrator"), owningSeatByKey["session-tracking"])
 
             val seatlessResult =
                 schemaView(
@@ -480,6 +516,11 @@ traits:
             )
             assertFalse(seatlessData.containsKey("seats"), "seat-less schema must not emit a seats key")
             assertFalse(seatlessData.containsKey("dispatchBySeat"), "seat-less schema must not emit a dispatchBySeat key")
+            // AC2: owningSeat is present on every entry of a seat-less schema, JSON null when unowned.
+            for (entry in seatlessData["notes"]!!.jsonArray) {
+                assertEquals(JsonNull, entry.jsonObject["owningSeat"], "seat-less entry $entry")
+                assertFalse(entry.jsonObject.containsKey("seat"), "seat-less entries carry no seat member")
+            }
         }
 
     @Test
@@ -616,9 +657,9 @@ traits:
             // planner (queue: diagnosis, test-plan) and implementer/orchestrator/test-author (work)
             // must ALL appear in one map -- buckets drawn from both phases, not just the current one.
             assertEquals(
-                listOf("planner", "implementer", "orchestrator", "test-author"),
+                listOf("planner", "implementer", "test-author", "orchestrator"),
                 missingBySeat.keys.toList(),
-                "bucket order = merged-seat order across BOTH phases: $missingBySeat",
+                "bucket order = merged-seat order across BOTH phases, the orchestrator notes after the declared seats: $missingBySeat",
             )
             assertEquals(
                 listOf("diagnosis", "test-plan"),
