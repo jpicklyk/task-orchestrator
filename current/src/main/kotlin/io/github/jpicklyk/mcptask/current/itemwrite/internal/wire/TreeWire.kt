@@ -111,6 +111,7 @@ data class TreeChildSpec(
     @Doc(ItemDocs.DESCRIPTION) val description: String? = null,
     @Doc(ItemDocs.STATUS_LABEL) val statusLabel: String? = null,
     @Doc(ItemDocs.COMPLEXITY) val complexity: Int? = null,
+    @Doc(ItemDocs.RANK) val rank: Int? = null,
     @Doc(ItemDocs.REQUIRES_VERIFICATION) val requiresVerification: Boolean = false,
     @Doc(ItemDocs.METADATA) val metadata: String? = null,
     @Doc(ItemDocs.PROPERTIES) val properties: JsonObject? = null,

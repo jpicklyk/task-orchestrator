@@ -22,7 +22,9 @@ package io.github.jpicklyk.mcptask.current.config
  * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases. `"decisionAuthority"`
  * advertises that director-or-human admits a seat-less caller whose credential grants decide on any profile, and that
  * decision classes carry an `autonomy`, recorded as `withinAutonomy`. `"profileSets"` advertises `decisions_read` and every
- * `report` select on the orchestration profile, and `runs_write` `open` not on the director profile.
+ * `report` select on the orchestration profile, and `runs_write` `open` not on the director profile. `"rank"` advertises the
+ * item field `rank` and its place in `next`'s default order. `"createTreeExistingDeps"` advertises that `create_tree` `deps`
+ * ends `fromId` and `toId` may name existing items.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
@@ -39,6 +41,8 @@ object ServerFeatures {
             "decisionTools",
             "waitingOn",
             "decisionAuthority",
-            "profileSets"
+            "profileSets",
+            "rank",
+            "createTreeExistingDeps"
         )
 }

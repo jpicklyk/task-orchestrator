@@ -2132,6 +2132,10 @@
               "type": "integer",
               "required": false
             },
+            "rank": {
+              "type": "integer",
+              "required": false
+            },
             "requiresVerification": {
               "type": "boolean",
               "required": false
@@ -2228,6 +2232,10 @@
               "type": "integer",
               "required": false
             },
+            "rank": {
+              "type": "integer",
+              "required": false
+            },
             "requiresVerification": {
               "type": "boolean",
               "required": false
@@ -2249,7 +2257,7 @@
               "required": false
             },
             "clear": {
-              "type": "array of string: description | statusLabel | metadata | complexity | properties | parentId",
+              "type": "array of string: description | statusLabel | metadata | complexity | rank | properties | parentId",
               "required": false
             }
           },
@@ -2438,6 +2446,10 @@
               "required": false
             },
             "children[].complexity": {
+              "type": "integer",
+              "required": false
+            },
+            "children[].rank": {
               "type": "integer",
               "required": false
             },

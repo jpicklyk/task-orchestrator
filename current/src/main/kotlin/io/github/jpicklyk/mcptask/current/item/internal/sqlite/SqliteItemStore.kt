@@ -102,6 +102,7 @@ class SqliteItemStore(
             it[previousRole] = item.previousRole?.name?.lowercase()
             it[priority] = item.priority.name.lowercase()
             it[complexity] = item.complexity
+            it[rank] = item.rank
             it[requiresVerification] = item.requiresVerification
             it[depth] = item.depth
             it[metadata] = item.metadata
@@ -182,6 +183,7 @@ class SqliteItemStore(
                     it[previousRole] = item.previousRole?.name?.lowercase()
                     it[priority] = item.priority.name.lowercase()
                     it[complexity] = item.complexity
+                    it[rank] = item.rank
                     it[requiresVerification] = item.requiresVerification
                     it[depth] = item.depth
                     it[metadata] = item.metadata

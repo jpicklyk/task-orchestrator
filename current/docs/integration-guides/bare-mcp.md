@@ -109,7 +109,7 @@ The answer holds `active`, `blocked` and `stalled` items and a `claimSummary`. A
 { "select": "next" }
 ```
 
-Returns the top unblocked, unclaimed `queue` items ranked by priority then complexity (`limit` defaults to 1). Scope the recommendation to a subtree:
+Returns the top unblocked, unclaimed `queue` items (`limit` defaults to 1). Scope the recommendation to a subtree:
 
 ```json
 { "select": "next", "parentId": "5b21c0de" }

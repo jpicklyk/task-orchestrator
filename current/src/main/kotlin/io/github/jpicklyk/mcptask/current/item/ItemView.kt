@@ -62,6 +62,7 @@ object ItemView {
             blockedMembers(item)
             put("priority", item.priority.name.lowercase())
             item.complexity?.let { put("complexity", it) }
+            item.rank?.let { put("rank", it) }
             put("depth", item.depth)
             array("tags", tags(item.tags))
             array("traits", item.traits)

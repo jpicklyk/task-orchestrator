@@ -763,6 +763,7 @@ Profiles: knowledge, orchestration; capability `write-items`.
 | `statusLabel` | string | no |
 | `priority` | string: high \| medium \| low | no |
 | `complexity` | integer | no |
+| `rank` | integer | no |
 | `requiresVerification` | boolean | no |
 | `metadata` | string | no |
 | `tags` | array of string | no |
@@ -791,12 +792,13 @@ Profiles: knowledge, orchestration; capability `write-items`.
 | `statusLabel` | string | no |
 | `priority` | string: high \| medium \| low | no |
 | `complexity` | integer | no |
+| `rank` | integer | no |
 | `requiresVerification` | boolean | no |
 | `metadata` | string | no |
 | `tags` | array of string | no |
 | `traits` | array of string | no |
 | `properties` | object | no |
-| `clear` | array of string: description \| statusLabel \| metadata \| complexity \| properties \| parentId | no |
+| `clear` | array of string: description \| statusLabel \| metadata \| complexity \| rank \| properties \| parentId | no |
 
 Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
@@ -851,6 +853,7 @@ Profiles: orchestration; capability `write-items`.
 | `children[].description` | string | no |
 | `children[].statusLabel` | string | no |
 | `children[].complexity` | integer | no |
+| `children[].rank` | integer | no |
 | `children[].requiresVerification` | boolean | no |
 | `children[].metadata` | string | no |
 | `children[].properties` | object | no |

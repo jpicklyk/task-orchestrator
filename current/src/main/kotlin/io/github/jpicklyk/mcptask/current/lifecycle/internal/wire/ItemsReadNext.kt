@@ -88,7 +88,7 @@ object ItemsReadNext {
         @Doc(ItemsReadDocs.MODIFIED_BEFORE) @Contextual val modifiedBefore: Instant? = null,
         @Doc(ItemsReadDocs.ROLE_CHANGED_AFTER) @Contextual val roleChangedAfter: Instant? = null,
         @Doc(ItemsReadDocs.ROLE_CHANGED_BEFORE) @Contextual val roleChangedBefore: Instant? = null,
-        @Doc("Ranking: priority (default: high first, then lower complexity), oldest or newest first.")
+        @Doc("Ranking: priority (default: high first, then lower rank, unranked last, then lower complexity), oldest or newest first.")
         val orderBy: OrderByWire? = null,
         @Doc("Also list items under an active claim, each with isClaimed; default false.")
         val includeClaimed: Boolean? = null,

@@ -195,6 +195,7 @@ class EventActorRootIdTest {
                         item.statusLabel,
                         item.priority,
                         item.complexity,
+                        item.rank,
                         item.requiresVerification,
                         item.metadata,
                         item.tags,
