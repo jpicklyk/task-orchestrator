@@ -356,8 +356,10 @@ async function r1() {
     runs.push(...(l.data.items || []));
   }
   const hasItems = !!(ITEM_IDS && ITEM_IDS.length);
-  // the distinct lower-case member shorts of a run's frontier (terminal members are not listed)
+  // the distinct lower-case member shorts of a run's frontier (terminal members are not listed), read once per run
+  const memberCache = new Map();
   const memberShorts = async (runId) => {
+    if (memberCache.has(runId)) return memberCache.get(runId);
     const f = await call('runs_read', { select: 'frontier', runId });
     if (!f.ok) return { stop: await stop(f) };
     const ids = [];
@@ -367,6 +369,7 @@ async function r1() {
         if (id && !ids.includes(id)) ids.push(id);
       }
     }
+    memberCache.set(runId, { ids });
     return { ids };
   };
   let pointer = null; // the run= values of the target's pointer lines, read once and only for an unclassified run

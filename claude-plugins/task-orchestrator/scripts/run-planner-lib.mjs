@@ -1497,7 +1497,7 @@ const worktreeKey = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '').toL
 
 /**
  * worktreeConflicts(items, otherRuns) -> string[]: one refusal per planned worktree path (normalized,
- * case-insensitive) or branch that another open run records in its hints.
+ * case-insensitive) or branch (case-insensitive) that another open run records in its hints.
  */
 export function worktreeConflicts(items, otherRuns) {
   const errors = [];
@@ -1505,7 +1505,7 @@ export function worktreeConflicts(items, otherRuns) {
   for (const it of items || []) {
     for (const run of otherRuns || []) {
       const samePath = typeof it.worktree === 'string' && typeof run.worktree === 'string' && worktreeKey(it.worktree) === worktreeKey(run.worktree);
-      const sameBranch = typeof it.branch === 'string' && typeof run.branch === 'string' && it.branch === run.branch;
+      const sameBranch = typeof it.branch === 'string' && typeof run.branch === 'string' && it.branch.toLowerCase() === run.branch.toLowerCase();
       if (!samePath && !sameBranch) continue;
       const msg = `plan: worktree ${it.worktree} (branch ${it.branch}) is in use by open run ${otherRunLabel(run)}; pass --worktree and --branch with a distinct pair, or --mode per-item`;
       if (!seen.has(msg)) {
