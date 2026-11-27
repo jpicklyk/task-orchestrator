@@ -18,6 +18,12 @@ A recorded pointer from an item, note or document to another that orders nothing
 Distinct from: a dependency edge (`blocks` or `relates_to`), which `deps_write` records between items. A `relates_to` edge is a dependency edge, not a link.
 In code: `Link`, `LinkRelation` (`references`, `attached`, `adopted_by`, `derived_from`).
 
+### Maturity rule
+
+The rule document under key `maturity` that names the tags retrieval leaves out and the archive tag pruning applies to an item instead of a delete.
+
+Distinct from: archiving a document (`docs_write` `archive`, a stored state search skips); an item has no archive state.
+
 ### Rank
 
 An item's optional integer place in an order the user or a plan stated among items of equal priority: `next` hands out a smaller rank first and unranked items last. It never holds an item back: it adds no edge and no gate, and `blocked` ignores it.
