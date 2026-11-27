@@ -4,7 +4,7 @@
 // (current/docs/api-reference.md "Response envelope": `{ok, data | error{code,kind,message,detail}, meta}`,
 // carried in MCP `structuredContent`; the text content is `ok` or `<code>: <message>` plus a JSON tail line), from the
 // 8-hex short-id rule ("Item views": compact views carry the first 8 hex of the UUID), and from the
-// tool catalog (claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json: 13 tools, 7 of kind `ops`).
+// tool catalog (claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json: 15 tools, 8 of kind `ops`).
 import { expect, test } from 'claude-code/testing'
 
 import { TO_TOOL, TO_TOOLS, TO_WRITE_TOOLS } from '../src/shared/constants.ts'
@@ -123,18 +123,18 @@ test('S1 shortId: the compact id of a UUID equals the short form of the same UUI
 
 // --- AC1 constants ----------------------------------------------------------------------
 
-// Oracle: tool-catalog.json (13 tools; kind `ops` = advance, config, deps_write, docs_write, items_write,
-// notes_write, runs_write; the other six are `select` tools).
-const CATALOG_TOOLS = ['advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write']
-const CATALOG_WRITE = ['advance', 'config', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']
+// Oracle: tool-catalog.json (15 tools; kind `ops` = advance, config, decisions_write, deps_write, docs_write, items_write,
+// notes_write, runs_write; the other seven are `select` tools).
+const CATALOG_TOOLS = ['advance', 'config', 'decisions_read', 'decisions_write', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write']
+const CATALOG_WRITE = ['advance', 'config', 'decisions_write', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']
 
-test('AC1 TO_TOOLS is the 13 catalog tools, sorted and frozen', () => {
+test('AC1 TO_TOOLS is the 15 catalog tools, sorted and frozen', () => {
   expect([...TO_TOOLS]).toEqual(CATALOG_TOOLS)
   expect([...TO_TOOLS]).toEqual([...TO_TOOLS].sort())
   expect(Object.isFrozen(TO_TOOLS)).toBe(true)
 })
 
-test('AC1 TO_WRITE_TOOLS is the 7 ops tools of the catalog, sorted, frozen and a subset of TO_TOOLS', () => {
+test('AC1 TO_WRITE_TOOLS is the 8 ops tools of the catalog, sorted, frozen and a subset of TO_TOOLS', () => {
   expect([...TO_WRITE_TOOLS]).toEqual(CATALOG_WRITE)
   expect([...TO_WRITE_TOOLS]).toEqual([...TO_WRITE_TOOLS].sort())
   expect(Object.isFrozen(TO_WRITE_TOOLS)).toBe(true)

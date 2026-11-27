@@ -98,7 +98,13 @@
             "rules",
             "seatSkills",
             "seatWrites",
-            "orchestratorNotes"
+            "orchestratorNotes",
+            "resumeGate",
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority",
+            "profileSets"
         ]
     },
     "metadata": {

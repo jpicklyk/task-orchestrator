@@ -308,7 +308,7 @@ data class AdvanceResult(
  * 1. **Pre-policy** — trigger parse; the item is re-read by id inside the unit (no decision on a
  *    stale copy); ownership is always enforced against the caller's principal id.
  * 2. **Snapshot** — [TransitionSnapshotLoader] loads the facts the policy reads.
- * 3. **Policy** — [TransitionPolicy.evaluate]: OWNERSHIP, TABLE, WARRANT, HOLD, DEPENDENCY, NOTE, LEASE
+ * 3. **Policy** — [TransitionPolicy.evaluate]: the gates of [TransitionPolicy.DEFAULT_GATES]
  *    in that order. A rejection records its `transition.rejected` / `lease.rejected` row through
  *    [io.github.jpicklyk.mcptask.current.platform.port.EventSink.recordRejection] (it survives the
  *    rollback) and returns the mapped [AdvanceFailure].
@@ -841,6 +841,8 @@ class AdvanceService(
             GateId.SEAT -> AdvanceFailure.SeatForbidden("Seat check failed: ${decision.error.message}", decision.error)
             GateId.TABLE, GateId.HOLD, GateId.REVIEW_PENDING ->
                 AdvanceFailure.ResolutionFailed(legacyTableMessage(item, trigger, decision), decision.error)
+            // No rejection row, as REVIEW_PENDING: the table's resume message would be wrong here.
+            GateId.DECISION_PENDING -> AdvanceFailure.ResolutionFailed(decision.error.message, decision.error)
             GateId.DEPENDENCY -> {
                 val blockers = blockerInfos(item.id, (decision.context as? RejectContext.Dependency)?.unsatisfied.orEmpty())
                 events.recordRejection(
@@ -1364,7 +1366,7 @@ class AdvanceService(
                     resourceBlocked = true,
                     contendedResources = (decision.context as? RejectContext.Lease)?.contended.orEmpty()
                 )
-            GateId.OWNERSHIP, GateId.SEAT, GateId.TABLE -> null
+            GateId.OWNERSHIP, GateId.SEAT, GateId.TABLE, GateId.DECISION_PENDING -> null
         }
     }
 

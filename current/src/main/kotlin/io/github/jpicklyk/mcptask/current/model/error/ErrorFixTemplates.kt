@@ -20,7 +20,8 @@ object ErrorFixTemplates {
                 "Use a new idempotencyKey for a different payload, or resend the original payload for {idempotencyKey}.",
             ErrorCode.INVALID_TRANSITION to
                 "Item {itemId} cannot apply {trigger} from {fromRole}; use one of the allowed triggers.",
-            ErrorCode.GATE_BLOCKED to "Fill the missing notes for item {itemId} with notes.write, then retry advance.",
+            ErrorCode.GATE_BLOCKED to
+                "Fill the missing notes for item {itemId} with notes_write, or settle what detail.violations names, then retry advance.",
             ErrorCode.DEPENDENCY_UNMET to "Complete the blocking items of {itemId}, then retry.",
             ErrorCode.CYCLE_DETECTED to "Remove one dependency along the reported path to break the cycle.",
             ErrorCode.CLAIM_HELD to "Retry claiming item {itemId} after the claim expires.",
@@ -38,7 +39,7 @@ object ErrorFixTemplates {
             ErrorCode.RUN_AT_CAPACITY to "Run {runId} has {active} of {max} seats active; retry the assign when a seat ends.",
             ErrorCode.INVALID_RUN_STATE to "Run {runId} is {status}; use one of the operations listed in detail.allowed.",
             ErrorCode.DECISION_CLOSED to
-                "Decision {decisionId} is {status} and cannot change; read it with runs_read decision, or raise a new one.",
+                "Decision {decisionId} is {status} and cannot change; read it with decisions_read list (decisionIds), or raise a new one.",
             ErrorCode.SCHEMA_VIOLATION to "Use a type and notes that satisfy the configured schema.",
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 "Item {itemId} is pinned to schema {pinnedVersion} but the current schema is {currentVersion}; refresh and retry.",

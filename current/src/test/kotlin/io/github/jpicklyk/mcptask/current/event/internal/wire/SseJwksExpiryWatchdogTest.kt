@@ -57,7 +57,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * a jwks-authenticated session instead of a bearer one. S8 mirrors the 401 assertions in
  * `EventRoutesTest.kt:143-159` and the raw-JSON-map body shape documented for this item.
  *
- * Oracle: `current/docs/api-rest.md:1477` — the SSE handler periodically checks expiry and closes
+ * Oracle: the SSE handler periodically checks expiry and closes
  * the stream on `auth.expired`, stated with no bearer-mode qualifier.
  */
 class SseJwksExpiryWatchdogTest {

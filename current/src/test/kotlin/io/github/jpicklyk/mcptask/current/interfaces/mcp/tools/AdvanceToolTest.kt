@@ -274,7 +274,7 @@ class AdvanceToolTest {
             assertEquals(
                 "api:" + agent.id,
                 twin.load(item).claimedBy,
-                "an API caller is attributed as api:<tokenId> (api-rest.md actor rule)"
+                "an API caller is attributed as api:<tokenId>"
             )
 
             val again = twin.call(agent, ops(claim(item, ""","ttlSeconds":1800"""))).element(0)

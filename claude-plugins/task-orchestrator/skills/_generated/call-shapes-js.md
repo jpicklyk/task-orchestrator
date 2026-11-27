@@ -161,6 +161,100 @@ Optional: `rootId`, `key`, `itemId`, `noteKey`, `idempotencyKey`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#config-rules).
 
+<a id="decisions_read-list"></a>
+### `decisions_read` select `list`
+
+Profiles: director, orchestration.
+
+```js
+await tools['mcp__mcp-task-orchestrator__decisions_read']({select: 'list'});
+await tools['mcp__mcp-task-orchestrator-director__decisions_read']({select: 'list'});
+```
+
+Optional: `itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `waitingOn`, `class`, `severity`, `overdue`, `includeContext`, `limit`, `cursor`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_read-list).
+
+<a id="decisions_write-raise"></a>
+### `decisions_write` op `raise`
+
+Profiles: orchestration.
+
+```js
+await tools['mcp__mcp-task-orchestrator__decisions_write']({ops: [{op: 'raise', class: classValue, question, options, dedupeKey}]});
+```
+
+Optional: `recommended`, `links`, `context`, `itemId`, `runId`, `rootId`, `severity`, `block`, `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-raise).
+
+<a id="decisions_write-ack"></a>
+### `decisions_write` op `ack`
+
+Profiles: director.
+
+```js
+await tools['mcp__mcp-task-orchestrator-director__decisions_write']({ops: [{op: 'ack', decisionId}]});
+```
+
+Optional: `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-ack).
+
+<a id="decisions_write-delegate"></a>
+### `decisions_write` op `delegate`
+
+Profiles: director, orchestration.
+
+```js
+await tools['mcp__mcp-task-orchestrator__decisions_write']({ops: [{op: 'delegate', decisionId}]});
+await tools['mcp__mcp-task-orchestrator-director__decisions_write']({ops: [{op: 'delegate', decisionId}]});
+```
+
+Optional: `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-delegate).
+
+<a id="decisions_write-escalate"></a>
+### `decisions_write` op `escalate`
+
+Profiles: director.
+
+```js
+await tools['mcp__mcp-task-orchestrator-director__decisions_write']({ops: [{op: 'escalate', decisionId, reason}]});
+```
+
+Optional: `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-escalate).
+
+<a id="decisions_write-answer"></a>
+### `decisions_write` op `answer`
+
+Profiles: director.
+
+```js
+await tools['mcp__mcp-task-orchestrator-director__decisions_write']({ops: [{op: 'answer', decisionId}]});
+```
+
+Optional: `option`, `text`, `rationale`, `decidedBy`, `links`, `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-answer).
+
+<a id="decisions_write-withdraw"></a>
+### `decisions_write` op `withdraw`
+
+Profiles: director, orchestration.
+
+```js
+await tools['mcp__mcp-task-orchestrator__decisions_write']({ops: [{op: 'withdraw', decisionId}]});
+await tools['mcp__mcp-task-orchestrator-director__decisions_write']({ops: [{op: 'withdraw', decisionId}]});
+```
+
+Optional: `idempotencyKey`.
+
+Types and nested fields: [call-shapes.md](call-shapes.md#decisions_write-withdraw).
+
 <a id="deps_read-list"></a>
 ### `deps_read` select `list`
 
@@ -655,9 +749,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#notes_write-delete).
 <a id="report-usage"></a>
 ### `report` select `usage`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'usage'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'usage'});
 ```
 
@@ -668,9 +763,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#report-usage).
 <a id="report-gates"></a>
 ### `report` select `gates`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'gates'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'gates'});
 ```
 
@@ -681,9 +777,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#report-gates).
 <a id="report-notes"></a>
 ### `report` select `notes`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'notes'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'notes'});
 ```
 
@@ -694,9 +791,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#report-notes).
 <a id="report-contention"></a>
 ### `report` select `contention`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'contention'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'contention'});
 ```
 
@@ -707,9 +805,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#report-contention).
 <a id="report-waste"></a>
 ### `report` select `waste`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'waste'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'waste'});
 ```
 
@@ -720,9 +819,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#report-waste).
 <a id="report-rollup"></a>
 ### `report` select `rollup`
 
-Profiles: director.
+Profiles: director, orchestration.
 
 ```js
+await tools['mcp__mcp-task-orchestrator__report']({select: 'rollup'});
 await tools['mcp__mcp-task-orchestrator-director__report']({select: 'rollup'});
 ```
 
@@ -814,11 +914,10 @@ Types and nested fields: [call-shapes.md](call-shapes.md#runs_read-decision).
 <a id="runs_write-open"></a>
 ### `runs_write` op `open`
 
-Profiles: director, orchestration.
+Profiles: orchestration.
 
 ```js
 await tools['mcp__mcp-task-orchestrator__runs_write']({ops: [{op: 'open', rootId}]});
-await tools['mcp__mcp-task-orchestrator-director__runs_write']({ops: [{op: 'open', rootId}]});
 ```
 
 Optional: `items`, `scopeId`, `label`, `title`, `budget`, `stallAfterSeconds`, `hints`, `idempotencyKey`.

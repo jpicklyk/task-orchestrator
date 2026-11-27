@@ -17,7 +17,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
  * Claim/release SSE event coverage for [EventPublishingRepositoryProvider] — item 646b12a6.
  *
  * Uses the SQLite test fixture because the canonical claim SQL pattern (auto-release of an
- * agent's other held claims, TTL-based eviction) uses SQLite-specific date functions. Oracles: [R] = current/docs/api-rest.md §21 "Claim/release note"; [D] = the item's
+ * agent's other held claims, TTL-based eviction) uses SQLite-specific date functions. Oracles: [D] = the item's
  * `diagnosis` note's Fix mapping.
  *
  * Every scenario subscribes, performs the write under test, then drains via [drainDelivered] —

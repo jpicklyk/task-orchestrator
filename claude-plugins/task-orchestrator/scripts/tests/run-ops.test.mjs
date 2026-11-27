@@ -7,7 +7,7 @@
 // (runs_write open/assign/end_seat/close, advance claim/heartbeat/release, the transition result and
 // cascade vocabulary). Every expected value is a literal derived from those, never from running the
 // code under test. Row shapes the declarations do not give (the runs_read seats rows, the advance
-// answer wrapper) are taken from api-reference.md / api-rest.md and recorded in the test-manifest.
+// answer wrapper) are taken from api-reference.md and recorded in the test-manifest.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

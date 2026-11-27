@@ -2362,7 +2362,7 @@ decision_classes:
  * Independent tests (test-author seat, item a53e6875, R24) for the SSE projection of the four decision events on
  * `GET /api/v1/events`: what a frame carries, and who sees it, live and on `Last-Event-ID` replay.
  *
- * Oracles (never read from a run): task-scope D11 and `api-rest.md` (the event types `decision.raised`, `decision.acknowledged`,
+ * Oracles (never read from a run): task-scope D11 (the event types `decision.raised`, `decision.acknowledged`,
  * `decision.answered` and `decision.withdrawn`; a frame carries `decisionId`, `class` and `severity`, and `itemId` / `runId` when
  * the decision names them, and never an actor, a principal id, a host, a session id, the answer text or the rationale; with an
  * `itemId` the event has item-scoped visibility like `note.*`, so a tag-scoped subscriber sees it when the item's tags are admitted;

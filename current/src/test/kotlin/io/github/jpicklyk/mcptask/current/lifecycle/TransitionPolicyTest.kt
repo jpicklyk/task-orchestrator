@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Role.REVIEW
 import io.github.jpicklyk.mcptask.current.model.item.Role.TERMINAL
 import io.github.jpicklyk.mcptask.current.model.item.Role.WORK
 import io.github.jpicklyk.mcptask.current.model.item.Trigger
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceConstraint
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
@@ -56,7 +57,8 @@ class TransitionPolicyTest {
         blockers: List<BlockerState> = emptyList(),
         ownership: OwnershipFacts = OwnershipFacts.NONE,
         lease: LeaseFacts = LeaseFacts.NONE,
-        seat: SeatFacts = SeatFacts.NONE
+        seat: SeatFacts = SeatFacts.NONE,
+        pendingDecision: PendingDecision? = null
     ) = TransitionSnapshot(
         item = ItemFacts(id, role, previousRole, parent),
         schema = schema,
@@ -67,7 +69,8 @@ class TransitionPolicyTest {
         blockers = blockers,
         ownership = ownership,
         lease = lease,
-        seat = seat
+        seat = seat,
+        pendingDecision = pendingDecision
     )
 
     private val unmet = BlockerState(BlockingEdge(blockerId, id), WORK)
@@ -1067,5 +1070,56 @@ class TransitionPolicyTest {
     fun `R23 replaying the same refused evaluation gives the same decision`() {
         val s = snap(QUEUE, seat = seatFacts(memberSeat("planner")))
         assertEquals(eval(s, Trigger.User.START), eval(s, Trigger.User.START))
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Resume gate: DECISION_PENDING (ADR 0003: a block on a pending decision does not lift by a resume)
+    // ---------------------------------------------------------------------------------------------
+
+    private val decisionId = UUID.fromString("00000000-0000-0000-0000-0000000000e1")
+
+    private fun pending(status: DecisionRequestStatus) = PendingDecision(decisionId, status)
+
+    private fun violationsOf(r: Decision.Reject): List<GateViolation> =
+        assertNotNull(assertIs<ErrorDetail.GateBlocked>(r.error.detail).violations)
+
+    @Test
+    fun `RG-P1 resume of a blocked item whose decision is open is refused by DECISION_PENDING`() {
+        val r = rejected(snap(BLOCKED, previousRole = WORK, pendingDecision = pending(DecisionRequestStatus.OPEN)), Trigger.User.RESUME)
+        assertEquals(GateId.DECISION_PENDING, r.gate)
+        assertEquals(ErrorCode.GATE_BLOCKED, r.error.code)
+        assertEquals(listOf("decision-pending"), violationsOf(r).map { it.gate })
+        assertTrue(decisionId.toString() in violationsOf(r).single().reason, "the reason names the decision")
+        assertTrue("open" in violationsOf(r).single().reason, "the reason names the status")
+    }
+
+    @Test
+    fun `RG-P2 an acknowledged decision refuses, no pending decision allows`() {
+        val ack =
+            rejected(snap(BLOCKED, previousRole = WORK, pendingDecision = pending(DecisionRequestStatus.ACKNOWLEDGED)), Trigger.User.RESUME)
+        assertEquals(GateId.DECISION_PENDING, ack.gate)
+        assertTrue("acknowledged" in violationsOf(ack).single().reason)
+        assertEquals(WORK, allowed(snap(BLOCKED, previousRole = WORK), Trigger.User.RESUME).target)
+    }
+
+    @Test
+    fun `RG-P3 a pending decision answers before an unmet blocker`() {
+        val s = snap(BLOCKED, previousRole = WORK, blockers = listOf(unmet), pendingDecision = pending(DecisionRequestStatus.OPEN))
+        assertEquals(GateId.DECISION_PENDING, rejected(s, Trigger.User.RESUME).gate)
+        assertEquals(GateId.DEPENDENCY, rejected(s.copy(pendingDecision = null), Trigger.User.RESUME).gate)
+    }
+
+    @Test
+    fun `RG-P4 the table and the seat gate answer before DECISION_PENDING`() {
+        val open = pending(DecisionRequestStatus.OPEN)
+        assertEquals(GateId.TABLE, rejected(snap(BLOCKED, previousRole = null, pendingDecision = open), Trigger.User.RESUME).gate)
+        val member = snap(BLOCKED, previousRole = WORK, seat = seatFacts(memberSeat("builder")), pendingDecision = open)
+        assertEquals(GateId.SEAT, rejected(member, Trigger.User.RESUME).gate)
+    }
+
+    @Test
+    fun `RG-P5 cancel of a blocked item is not gated by a pending decision`() {
+        val s = snap(BLOCKED, previousRole = WORK, pendingDecision = pending(DecisionRequestStatus.OPEN))
+        assertEquals(TERMINAL, allowed(s, Trigger.User.CANCEL).target)
     }
 }

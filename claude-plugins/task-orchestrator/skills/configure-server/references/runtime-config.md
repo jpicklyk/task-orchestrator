@@ -5,10 +5,9 @@ command cites): the exact env fragments, tuples, and caveats to render for each 
 tutorial and not a security explainer — for env *semantics* (what each flag does, auth model details,
 capability model) this doc defers to:
 
-- [`current/docs/api-rest.md`](../../../../../current/docs/api-rest.md) §1 (Authentication) — authoritative for REST auth modes
 - [`current/docs/fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md) — authoritative for fleet/security posture
 
-If this catalog and either of those docs ever disagree, those docs win — fix this file to match.
+If this catalog and those docs ever disagree, those docs win — fix this file to match.
 
 > **Anti-drift note:** this file is cited by `configure-server/SKILL.md`,
 > a project deploy command, and a comment in `docker-compose.yml`'s `http-rest`
@@ -73,15 +72,15 @@ principal. Stdio needs no opt-in. Render the loopback SECURITY caveat below and 
 ```
 -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true
 ```
-Both keys are required together — `api-rest.md` §1 "Unauthenticated Mode" — `API_AUTH_MODE=none` alone
+Both keys are required together — `API_AUTH_MODE=none` alone
 still fails startup; `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored.
 
-**Bearer (token file):**
+**Bearer (token file)** (file format: [`fleet-deployment.md`, Bearer token secret file](../../../../../current/docs/fleet-deployment.md#bearer-token-secret-file)):
 ```
 -e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml \
 -v <host-path-to-api-tokens.yaml>:/run/secrets/api-tokens.yaml:ro
 ```
-See `api-rest.md` §1 for the token file format and hash generation. In bearer (and jwks) mode the same
+In bearer (and jwks) mode the same
 credential guards `/mcp`, `/mcp/knowledge` and `/mcp/director`, so the client sends it as an
 `Authorization` header (see ".mcp.json shapes").
 

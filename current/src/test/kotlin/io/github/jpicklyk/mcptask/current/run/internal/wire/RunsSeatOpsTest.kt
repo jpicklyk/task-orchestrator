@@ -796,7 +796,7 @@ class RunsSeatOpsTest {
             visibleNames(write, ToolProfile.ORCHESTRATION).toSet()
         )
         assertEquals(
-            setOf("open", "close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
+            setOf("close", "pause", "resume", "reissue", "ack", "answer", "withdraw"),
             visibleNames(write, ToolProfile.DIRECTOR).toSet(),
             "the director sees neither seat op"
         )
@@ -926,6 +926,31 @@ class RunsSeatOpsTest {
 
             val opened = w.open(members = listOf(w.e), rootItem = w.root2)
             assertEquals(1, seatCount(w, opened), "control: the accepted open wrote exactly the coordinator row")
+        }
+
+    @Test
+    fun `a seat token reads the report rollup and the decisions list of its run on the orchestration profile`(): Unit =
+        world { w ->
+            val run = w.open()
+            val seat = w.assignOk(run, w.m1, "builder")
+
+            val rollup = w.select("rollup", ""","runId":"${run.runId}"""", token = seat.token, tool = "report")
+            assertTrue(rollup.ok(), "report rollup: $rollup")
+            val decisions = w.select("list", ""","runId":"${run.runId}"""", token = seat.token, tool = "decisions_read")
+            assertTrue(decisions.ok(), "decisions_read list: $decisions")
+        }
+
+    @Test
+    fun `runs_write open is refused on the director profile and creates no run, and the orchestration profile opens`(): Unit =
+        world { w ->
+            val member = """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}]}"""
+            val refused = w.director("runs_write", """{"ops":[$member]}""", w.orch)
+            assertEquals("invalid_request", refused.code(), refused.toString())
+            assertTrue(refused.pointers().any { it.endsWith("/ops/0/op") }, "pointer: ${refused.pointers()}")
+            assertEquals(0, w.rows("SELECT * FROM runs").size, "the refused open wrote no run")
+
+            val opened = w.open(members = listOf(w.m1))
+            assertEquals(1, w.rows("SELECT * FROM runs").size, "control: the orchestration profile opens ${opened.runId}")
         }
 
     // ------------------------------------------------------------------ S2 assign

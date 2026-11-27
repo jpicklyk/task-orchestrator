@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.config
 
 import io.github.jpicklyk.mcptask.current.config.internal.app.LayeredConfig
+import io.github.jpicklyk.mcptask.current.config.internal.wire.ConfigKeyCatalog
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAutonomy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
@@ -12,6 +14,10 @@ import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionClasses
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.Test
@@ -46,6 +52,10 @@ import kotlin.test.assertTrue
  *
  * Domain invariants satisfied by construction: [DecisionClassConfig] has no invariant; the documents are parsed from YAML text that
  * extends the shared valid root document.
+ *
+ * Item b00cdc00 adds the `autonomy` key (`answer` or `ask`, default `ask`, always `ask` for a human-only class): parsed, validated at
+ * `/decision_classes/<name>/autonomy` (a value other than the two, and `answer` beside `answerers: human-only`), merged per field,
+ * and declared in the strict JSON schema with exactly the keys of the parser's catalog.
  *
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
  */
@@ -105,6 +115,16 @@ class DecisionClassesConfigTest {
         assertNull(entry.expiresAfterSeconds)
         assertNull(entry.onExpiry)
         assertNull(entry.freeform)
+    }
+
+    @Test
+    fun `S8 autonomy parses to its enum constant and an unstated autonomy is null`() {
+        for ((wire, constant) in mapOf("answer" to DecisionAutonomy.ANSWER, "ask" to DecisionAutonomy.ASK)) {
+            val yaml = base + "decision_classes:\n  c:\n    autonomy: $wire\n"
+            assertEquals(constant, assertNotNull(parsed(yaml).decisionClasses).getValue("c").autonomy, wire)
+        }
+        val unstated = base + "decision_classes:\n  c:\n    severity: low\n"
+        assertNull(assertNotNull(parsed(unstated).decisionClasses).getValue("c").autonomy)
     }
 
     @Test
@@ -240,6 +260,56 @@ class DecisionClassesConfigTest {
     }
 
     @Test
+    fun `S8 autonomy defaults to ask for every built-in and for a new class`() {
+        val table = DecisionClasses.resolve(mapOf("fresh" to DecisionClassConfig(answerers = DecisionRequestAnswerers.DIRECTOR_OR_HUMAN)))
+
+        for ((name, c) in table) {
+            assertEquals(DecisionAutonomy.ASK, c.autonomy, name)
+        }
+        assertEquals(setOf("run-budget", "attempt-cap", "deviation", "question", "fresh"), table.keys)
+    }
+
+    @Test
+    fun `S8 a declared autonomy overrides per field and every other field stays`() {
+        val table =
+            DecisionClasses.resolve(
+                mapOf(
+                    "deviation" to DecisionClassConfig(autonomy = DecisionAutonomy.ANSWER),
+                    "fresh" to DecisionClassConfig(autonomy = DecisionAutonomy.ANSWER),
+                    "question" to DecisionClassConfig(severity = DecisionRequestSeverity.HIGH)
+                )
+            )
+
+        val deviation = table.getValue("deviation")
+        assertEquals(DecisionAutonomy.ANSWER, deviation.autonomy)
+        assertEquals(14_400L, deviation.expiresAfterSeconds, "an unstated field keeps the built-in value")
+        assertEquals(DecisionRequestAnswerers.DIRECTOR_OR_HUMAN, deviation.answerers)
+        assertEquals(DecisionAutonomy.ANSWER, table.getValue("fresh").autonomy)
+        assertEquals(DecisionAutonomy.ASK, table.getValue("question").autonomy, "control: a class that does not declare it keeps ask")
+        assertEquals(DecisionAutonomy.ASK, DecisionClasses.BUILT_IN.getValue("deviation").autonomy, "control: the built-in is unchanged")
+    }
+
+    @Test
+    fun `S8 effective human-only answerers force ask, declared in the entry or kept from the built-in`() {
+        val table =
+            DecisionClasses.resolve(
+                mapOf(
+                    "signoff" to DecisionClassConfig(answerers = DecisionRequestAnswerers.HUMAN_ONLY, autonomy = DecisionAutonomy.ANSWER),
+                    "deviation" to DecisionClassConfig(answerers = DecisionRequestAnswerers.HUMAN_ONLY, autonomy = DecisionAutonomy.ANSWER),
+                    "open" to
+                        DecisionClassConfig(
+                            answerers = DecisionRequestAnswerers.DIRECTOR_OR_HUMAN,
+                            autonomy = DecisionAutonomy.ANSWER
+                        )
+                )
+            )
+
+        assertEquals(DecisionAutonomy.ASK, table.getValue("signoff").autonomy)
+        assertEquals(DecisionAutonomy.ASK, table.getValue("deviation").autonomy)
+        assertEquals(DecisionAutonomy.ANSWER, table.getValue("open").autonomy, "control: the same autonomy stands on director-or-human")
+    }
+
+    @Test
     fun `S8 the exposed built-in table is the table of an empty declaration`() {
         assertEquals(DecisionClasses.BUILT_IN, DecisionClasses.resolve(emptyMap()))
         assertEquals("run-budget", DecisionClasses.RUN_BUDGET)
@@ -293,6 +363,7 @@ class DecisionClassesConfigTest {
                 expiresAfterSeconds = null,
                 onExpiry = "escalate",
                 freeform = false,
+                autonomy = DecisionAutonomy.ASK,
                 serverRaised = false
             ),
             table.getValue("signoff")
@@ -457,6 +528,24 @@ class DecisionClassesConfigTest {
                 "decision_classes:\n  x:\n    freeform: true\n"
             ),
             Defect(
+                "autonomy never",
+                "decision_classes:\n  x:\n    autonomy: never\n",
+                "/decision_classes/x/autonomy",
+                "decision_classes:\n  x:\n    autonomy: ask\n"
+            ),
+            Defect(
+                "autonomy as a boolean",
+                "decision_classes:\n  x:\n    autonomy: true\n",
+                "/decision_classes/x/autonomy",
+                "decision_classes:\n  x:\n    autonomy: answer\n"
+            ),
+            Defect(
+                "autonomy answer on a human-only class",
+                "decision_classes:\n  x:\n    answerers: human-only\n    autonomy: answer\n",
+                "/decision_classes/x/autonomy",
+                "decision_classes:\n  x:\n    answerers: human-only\n    autonomy: ask\n"
+            ),
+            Defect(
                 "unknown entry key",
                 "decision_classes:\n  x:\n    answerers: any-actor\n    bogus: 1\n",
                 "/decision_classes/x",
@@ -537,6 +626,52 @@ class DecisionClassesConfigTest {
 
         assertEquals(emptyList(), validate(yaml).errors)
         assertEquals(1L, assertNotNull(parsed(yaml).decisionClasses).getValue("a".repeat(64)).expiresAfterSeconds)
+    }
+
+    @Test
+    fun `S16 a human-only class with autonomy answer is a validation error with the reason, and a director-or-human one is admitted`() {
+        val broken = validate(base + "decision_classes:\n  x:\n    answerers: human-only\n    autonomy: answer\n")
+        val reasons = broken.errors.filter { it.path == "/decision_classes/x/autonomy" }.map { it.reason }
+        assertEquals(listOf("a human-only class is always ask"), reasons)
+
+        val bad = validate(base + "decision_classes:\n  x:\n    autonomy: never\n")
+        assertEquals(
+            listOf("autonomy must be one of: answer, ask"),
+            bad.errors.filter { it.path == "/decision_classes/x/autonomy" }.map { it.reason }
+        )
+        assertEquals(
+            emptyList(),
+            validate(base + "decision_classes:\n  x:\n    answerers: director-or-human\n    autonomy: answer\n").errors
+        )
+    }
+
+    @Test
+    fun `S16 the schema decisionClass properties are exactly the keys of the parser catalog, with autonomy an answer or ask enum`() {
+        val schema =
+            Json
+                .parseToJsonElement(
+                    assertNotNull(DecisionClassesConfigTest::class.java.getResourceAsStream("/config/config.schema.json")).use {
+                        it.readBytes().toString(Charsets.UTF_8)
+                    }
+                ).jsonObject
+        val decisionClass =
+            schema
+                .getValue("\$defs")
+                .jsonObject
+                .getValue("decisionClass")
+                .jsonObject
+        val properties = decisionClass.getValue("properties").jsonObject
+
+        assertEquals(ConfigKeyCatalog.DECISION_CLASS, properties.keys)
+        assertEquals(
+            listOf("answer", "ask"),
+            properties
+                .getValue("autonomy")
+                .jsonObject
+                .getValue("enum")
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+        )
     }
 
     @Test

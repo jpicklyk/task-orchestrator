@@ -475,6 +475,332 @@
         }
       }
     },
+    "decisions_read": {
+      "kind": "select",
+      "profiles": [
+        "director",
+        "orchestration"
+      ],
+      "entries": {
+        "list": {
+          "anchor": "decisions_read-list",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "ancestorId": {
+              "type": "string",
+              "required": false
+            },
+            "runId": {
+              "type": "string",
+              "required": false
+            },
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "decisionIds": {
+              "type": "array of string",
+              "required": false
+            },
+            "status": {
+              "type": "array of string: open | acknowledged | answered | withdrawn",
+              "required": false
+            },
+            "waitingOn": {
+              "type": "string: director | user",
+              "required": false
+            },
+            "class": {
+              "type": "string",
+              "required": false
+            },
+            "severity": {
+              "type": "string: high | normal | low",
+              "required": false
+            },
+            "overdue": {
+              "type": "boolean",
+              "required": false
+            },
+            "includeContext": {
+              "type": "boolean",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        }
+      }
+    },
+    "decisions_write": {
+      "kind": "ops",
+      "profiles": [
+        "director",
+        "orchestration"
+      ],
+      "entries": {
+        "raise": {
+          "anchor": "decisions_write-raise",
+          "profiles": [
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "class": {
+              "type": "string",
+              "required": true
+            },
+            "question": {
+              "type": "string",
+              "required": true
+            },
+            "options": {
+              "type": "array of object",
+              "required": true
+            },
+            "recommended": {
+              "type": "string",
+              "required": false
+            },
+            "links": {
+              "type": "array of object",
+              "required": false
+            },
+            "context": {
+              "type": "string",
+              "required": false
+            },
+            "dedupeKey": {
+              "type": "string",
+              "required": true
+            },
+            "itemId": {
+              "type": "string",
+              "required": false
+            },
+            "runId": {
+              "type": "string",
+              "required": false
+            },
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "severity": {
+              "type": "string: high | normal | low",
+              "required": false
+            },
+            "block": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "invalid_transition",
+            "not_claim_holder",
+            "not_found",
+            "partial_failure",
+            "payload_too_large",
+            "seat_forbidden",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "ack": {
+          "anchor": "decisions_write-ack",
+          "profiles": [
+            "director"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "delegate": {
+          "anchor": "decisions_write-delegate",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "escalate": {
+          "anchor": "decisions_write-escalate",
+          "profiles": [
+            "director"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            },
+            "reason": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "answer": {
+          "anchor": "decisions_write-answer",
+          "profiles": [
+            "director"
+          ],
+          "capability": "decide",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            },
+            "option": {
+              "type": "string",
+              "required": false
+            },
+            "text": {
+              "type": "string",
+              "required": false
+            },
+            "rationale": {
+              "type": "string",
+              "required": false
+            },
+            "decidedBy": {
+              "type": "string: user | director",
+              "required": false
+            },
+            "links": {
+              "type": "array of object",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unauthenticated",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        },
+        "withdraw": {
+          "anchor": "decisions_write-withdraw",
+          "profiles": [
+            "director",
+            "orchestration"
+          ],
+          "capability": "runs",
+          "destructive": false,
+          "fields": {
+            "decisionId": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "decision_closed",
+            "forbidden",
+            "idempotency_mismatch",
+            "internal",
+            "invalid_request",
+            "not_found",
+            "partial_failure",
+            "unavailable",
+            "unknown_parameter",
+            "version_conflict"
+          ]
+        }
+      }
+    },
     "deps_read": {
       "kind": "select",
       "profiles": [
@@ -2500,13 +2826,15 @@
     "report": {
       "kind": "select",
       "profiles": [
-        "director"
+        "director",
+        "orchestration"
       ],
       "entries": {
         "usage": {
           "anchor": "report-usage",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2550,7 +2878,8 @@
         "gates": {
           "anchor": "report-gates",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2594,7 +2923,8 @@
         "notes": {
           "anchor": "report-notes",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2642,7 +2972,8 @@
         "contention": {
           "anchor": "report-contention",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2686,7 +3017,8 @@
         "waste": {
           "anchor": "report-waste",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2717,7 +3049,8 @@
         "rollup": {
           "anchor": "report-rollup",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "read",
           "destructive": false,
@@ -2960,7 +3293,6 @@
         "open": {
           "anchor": "runs_write-open",
           "profiles": [
-            "director",
             "orchestration"
           ],
           "capability": "runs",

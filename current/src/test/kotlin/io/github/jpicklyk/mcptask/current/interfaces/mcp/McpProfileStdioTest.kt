@@ -63,7 +63,8 @@ class McpProfileStdioTest {
     private val knowledgeTools =
         setOf("items_read", "items_write", "notes_read", "notes_write", "deps_read", "deps_write", "docs_read", "docs_write")
 
-    private val orchestrationTools = knowledgeTools + setOf("advance", "config", "runs_read", "runs_write")
+    private val orchestrationTools =
+        knowledgeTools + setOf("advance", "config", "runs_read", "runs_write", "decisions_read", "decisions_write", "report")
 
     // ------------------------------------------------------------------ ToolProfile.parse and AppConfig (S13)
 

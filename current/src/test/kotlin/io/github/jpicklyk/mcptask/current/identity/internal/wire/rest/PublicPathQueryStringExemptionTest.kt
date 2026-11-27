@@ -47,8 +47,7 @@ import org.junit.jupiter.api.Test
  * which proves the same fix through the full production wiring.
  *
  * Oracle: `AuthenticationPlugin.kt`'s own documented contract (KDoc on `publicPaths`/`publicPrefixes`
- * cited in the frozen `test-plan` note) plus `current/docs/api-rest.md` §1 (every `/api/v1` route
- * requires authentication by default; exemptions are the deliberate exception).
+ * cited in the frozen `test-plan` note).
  */
 class PublicPathQueryStringExemptionTest {
     companion object {

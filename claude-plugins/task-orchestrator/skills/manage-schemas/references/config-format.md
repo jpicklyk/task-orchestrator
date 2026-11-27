@@ -156,8 +156,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   key) with the [`docs_write`](../../../../../current/docs/api-reference.md#docs_write) `upsert` op,
   which needs the `write-docs` capability (`write-config` does not grant it). The document's
   `contentHash` (SHA-256 of the LF-normalized body) doubles as the rule's `rulesVersion`. The 3.x
-  routes that wrote and read rules are gone; [api-rest.md, section 10](../../../../../current/docs/api-rest.md#10-removed-3x-routes)
-  maps each to its 4.0 op.
+  routes that wrote and read rules are gone.
 - **Serving.** The [`config`](../../../../../current/docs/api-reference.md#config) tool's `rules` op
   reads that store back, verbatim, never re-parsing or re-rendering the body: `rootId` alone lists
   `{key, rulesVersion, updatedAt}`, `rootId` with `key` returns one rule's body, and `itemId` with
@@ -670,7 +669,7 @@ A second advisory warning covers a seat entry named `orchestrator` or `coordinat
 
 A required note that has no seat owning it - no `seat` declared, an unknown seat name, or a `seat`
 declared for a different phase than the note's own `role` (the exception is `seat: orchestrator`, owned in any phase with no seat declared) - is served under the reserved
-`"unowned"` key in `missingBySeat` (see `api-reference.md` and `api-rest.md` for the response shape).
+`"unowned"` key in `missingBySeat` (see `api-reference.md` for the response shape).
 This is deliberate, not an error: it lets an orchestrator see at a glance which missing notes have no
 seat routing at all, so a schema can be seat-aware for *some* notes while others stay unowned.
 `unowned` buckets are always sorted last among non-empty buckets; the reserved name itself can never be
@@ -1093,7 +1092,7 @@ An absent ceiling means unlimited; a run's own budget may only lower a ceiling. 
 
 ## Decision Classes (`decision_classes:`)
 
-A decision is raised under a class; the class sets who answers it, its default severity and when it turns overdue. A per-class entry has `answerers` (`human-only`, `director-or-human`, `any-actor`), `severity` (`high`, `normal`, `low`), `expires_after` (seconds), `on_expiry` (`escalate`, the only value) and `freeform` (boolean). The class name matches `^[a-z][a-z0-9_-]{0,63}$`.
+A decision is raised under a class; the class sets who answers it, its default severity and when it turns overdue. A per-class entry has `answerers` (`human-only`, `director-or-human`, `any-actor`), `severity` (`high`, `normal`, `low`), `expires_after` (seconds), `on_expiry` (`escalate`, the only value), `freeform` (boolean) and `autonomy` (`answer` or `ask`, default `ask`; a `human-only` class is always `ask`). The class name matches `^[a-z][a-z0-9_-]{0,63}$`.
 
 ```yaml
 decision_classes:

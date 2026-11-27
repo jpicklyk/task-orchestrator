@@ -48,7 +48,7 @@ import kotlin.test.assertTrue
  * - [U22] the pre-existing `ListPage` KDoc: `total` is the full count on EVERY page, never counted from the page's own offset;
  *   `truncated` is true exactly when `offset + items.size < total`; `next` is an opaque cursor present exactly when `truncated`.
  * - [P] w6-brief 3.4 / task-scope: history order is `(acquiredAt DESC, id ASC)` and the route accepts a `cursor`; `limit` default
- *   50, range 1..200; the held-at rule `acquiredAt <= at < coalesce(releasedAt, expiresAt)` from api-rest.md.
+ *   50, range 1..200; the held-at rule `acquiredAt <= at < coalesce(releasedAt, expiresAt)`.
  * - [C] the pre-existing `CursorCodec` KDoc: the cursor is base64 of the exact bytes `{"offset":N}` (standard or URL-safe
  *   alphabet, padding optional); anything else, including an empty string, is `invalid_cursor` (HTTP 400).
  * - [B] interval ids are stored as 16 big-endian bytes (msb then lsb), so BLOB comparison equals canonical lowercase UUID

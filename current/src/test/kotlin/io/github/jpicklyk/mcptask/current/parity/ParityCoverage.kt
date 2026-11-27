@@ -512,7 +512,8 @@ object ItemsReadParityScenarios {
  * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
  * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`; `items_read`
  * (Q19) in [ItemsReadParityScenarios], run in `ItemsReadParityTest`; `docs_read` / `docs_write` (Q25) are in
- * `DocsParityScenarios`, run in `DocsParityTest`.
+ * `DocsParityScenarios`, run in `DocsParityTest`; `decisions_read` / `decisions_write` (a331be0d) are in
+ * `DecisionsParityScenarios`, run in `DecisionsParityTest`.
  */
 object ProductionParity {
     /** Every per-member scenario; the per-tool UNAUTHENTICATED scenarios are derived from these (R14). */
@@ -520,11 +521,12 @@ object ProductionParity {
         ItemsWriteParity.scenarios + ItemsWriteTreeParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios +
             AdvanceParityScenarios.all +
             ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios + ConfigParityScenarios.scenarios +
-            ReportParityScenarios.scenarios + RunsParityScenarios.scenarios
+            ReportParityScenarios.scenarios + RunsParityScenarios.scenarios +
+            DecisionsParityScenarios.scenarios
 
     val scenarios: List<ParityScenario> = memberScenarios + UnauthenticatedParityScenarios.derive(memberScenarios)
     val exemptions: List<ScopeExempt> =
         NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
             DocsParityScenarios.exemptions + ConfigParityScenarios.exemptions + ReportParityScenarios.exemptions +
-            RunsParityScenarios.exemptions
+            RunsParityScenarios.exemptions + DecisionsParityScenarios.exemptions
 }

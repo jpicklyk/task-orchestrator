@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.report.internal.wire
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportService
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportWasteRequest
@@ -27,7 +28,7 @@ internal val reportWasteSelect =
                 "readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only " +
                 "(basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as " +
                 "usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportWasteRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

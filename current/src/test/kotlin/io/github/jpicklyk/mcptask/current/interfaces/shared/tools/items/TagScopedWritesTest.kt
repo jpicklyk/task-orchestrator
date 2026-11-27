@@ -34,8 +34,8 @@ import kotlin.test.assertNull
  *
  * Oracle (frozen rule): for a write by a tag-scoped principal, foreign = (old tags symmetric-difference new tags) minus the listed
  * tags; the write is refused when foreign is non-empty OR the resulting tags carry no listed tag. The refusal is the element
- * error `forbidden{scope: tag, required}` with `required` = the listed tags sorted and joined by `,` (api-rest.md section 3 error
- * shape), and it precedes any write, so the database snapshot is unchanged. An update that omits `tags` keeps them and needs no
+ * error `forbidden{scope: tag, required}` with `required` = the listed tags sorted and joined by `,`,
+ * and it precedes any write, so the database snapshot is unchanged. An update that omits `tags` keeps them and needs no
  * tag check. A create or create_tree row starts from no tags. A root-scoped or unrestricted caller has no tag rule. Each refusal
  * assertion is paired with a control through the same call shape that DOES write.
  *

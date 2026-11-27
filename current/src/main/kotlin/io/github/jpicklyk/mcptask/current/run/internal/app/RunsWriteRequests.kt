@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.run.internal.app
 
-import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
@@ -131,42 +130,6 @@ data class RunsEndSeatRequest(
     @Doc(LINKS_DOC) val links: List<JsonObject>? = null
 )
 
-/** A decision severity as the caller writes it. */
-@Serializable
-enum class DecisionSeverityRequest(
-    val domain: DecisionRequestSeverity
-) {
-    @SerialName("high")
-    HIGH(DecisionRequestSeverity.HIGH),
-
-    @SerialName("normal")
-    NORMAL(DecisionRequestSeverity.NORMAL),
-
-    @SerialName("low")
-    LOW(DecisionRequestSeverity.LOW)
-}
-
-/**
- * `runs_write raise`: raises a decision request. One of [itemId], [runId] or [rootId] is required; under a seat token
- * an absent [runId] / [itemId] defaults to the token's run / item.
- */
-@Serializable
-data class RunsRaiseRequest(
-    @Doc("Decision class (for example question or deviation); it decides who may answer.")
-    val `class`: String,
-    @Doc("The question, at most 500 characters.") val question: String,
-    @Doc("1 to 8 choices, each {key, label, consequence}.") val options: List<JsonObject>,
-    @Doc("Key of the recommended option.") val recommended: String? = null,
-    @Doc(LINKS_DOC) val links: List<JsonObject>? = null,
-    @Doc("Background for the answerer, at most 1000 characters.") val context: String? = null,
-    @Doc("Re-raising the same key returns the open or answered decision instead of a new one.") val dedupeKey: String,
-    @Doc(ITEM_DOC) val itemId: IdRef? = null,
-    @Doc(RUN_ID_DOC) val runId: IdRef? = null,
-    @Doc(ROOT_DOC) val rootId: IdRef? = null,
-    @Doc("Class default.") val severity: DecisionSeverityRequest? = null,
-    @Doc("true: also block itemId as awaiting_decision in the same unit.") val block: Boolean? = null
-)
-
 /** `runs_write ack`: acknowledges an open decision. */
 @Serializable
 data class RunsAckRequest(
@@ -180,12 +143,6 @@ data class RunsAnswerRequest(
     @Doc("Key of the chosen option.") val option: String? = null,
     @Doc("Free-form answer, at most 1000 characters; freeform classes only.") val text: String? = null,
     @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null
-)
-
-/** `runs_write withdraw`: withdraws a pending decision. */
-@Serializable
-data class RunsWithdrawRequest(
-    @Doc(DECISION_ID_DOC) val decisionId: IdRef
 )
 
 /** `runs_write mark`: sets a named mark on a run. */

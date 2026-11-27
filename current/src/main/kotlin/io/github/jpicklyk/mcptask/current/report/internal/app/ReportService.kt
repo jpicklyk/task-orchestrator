@@ -105,7 +105,7 @@ object WasteToolClasses {
     val WRITE: Set<String> = setOf("items_write", "notes_write", "deps_write", "docs_write", "advance")
 
     /** Tools in no class: the reports themselves, config, and the run coordination tools (not item work). */
-    val EXCLUDED: Set<String> = setOf("report", "config", "runs_read", "runs_write")
+    val EXCLUDED: Set<String> = setOf("report", "config", "runs_read", "runs_write", "decisions_read", "decisions_write")
 
     /** The tool whose selects feed `overFetch`, `emptyNext` and `relatedFollowThrough`. */
     const val ITEMS_READ = "items_read"

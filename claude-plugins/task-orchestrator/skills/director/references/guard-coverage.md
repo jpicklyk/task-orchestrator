@@ -15,7 +15,7 @@ denies the file and shell tools, foreground `Agent`, `Bash` outside its allow-li
 `fields: ["guidance"]`; the list, history, links and `related` reads run, since they return no body text), and every Task Orchestrator
 write that drives work: `advance`, `items_write`, `notes_write`, `deps_write`, `docs_write`, and `runs_write`
 unless every op of the call is `answer`, `ack`, `withdraw`, `pause`, `resume`, `close` or `reissue` (so `open`,
-`update`, `mark`, `assign`, `end_seat` and `raise` deny). `describe: true` passes on every one of them. `Skill`
+`update`, `mark`, `assign`, `end_seat` and `raise` deny). `decisions_write` runs only `ack`, `answer`, `delegate`, `escalate` and `withdraw`, so its `raise` denies. `describe: true` passes on every one of them. `Skill`
 is never denied: loading a skill only adds instructions, and each tool the skill calls is checked on its own call.
 Only the hardened entry enforces the whole budget, through its tool list.
 
@@ -34,7 +34,9 @@ Tool by tool (constants in `hooks/director-guard.mjs`):
 | `items_read` | `get`, `list`, `overview`, `blocked`, `context`, `next`, `history`, `related`; `search` with `snippet: false`; `schema` without `guidance`. |
 | `notes_read` / `docs_read` | `list`; for documents also `history` and `links`. |
 | `runs_read` | `get`, `list`, `frontier`, `decisions`, `decision`. |
+| `decisions_read` | Not matched by the guard: `list` runs. |
 | `runs_write` | Every op one of `answer`, `ack`, `withdraw`, `pause`, `resume`, `close`, `reissue`. |
+| `decisions_write` | Every op one of `ack`, `answer`, `delegate`, `escalate`, `withdraw`. |
 | `advance`, `items_write`, `notes_write`, `deps_write`, `docs_write` | Denied. |
 | Host MCP tools (a name without `task-orchestrator`) | Only `start_session`, `send_message`, `update_plan`, `wrap_up`, `mark_chapter`, `archive_session`, `get_settings`, `set_session_output_style` (`DIRECTOR_HOST_MCP_ALLOW`). |
 | `Skill`, `SendMessage`, `ListAgents` | Never denied. |

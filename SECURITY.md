@@ -79,7 +79,7 @@ A credential carries capabilities and a scope, and those gate what its holder ma
 
 ### REST API Authentication
 
-The optional REST API (`/api/v1/*`, opt-in via `API_ENABLED=true`) selects its authentication with `API_AUTH_MODE`, and `/mcp` over HTTP uses the same credential in `bearer` and `jwks` modes. Full semantics: [`current/docs/api-rest.md`](current/docs/api-rest.md) §1.
+The optional REST API (`/api/v1/*`, opt-in via `API_ENABLED=true`) selects its authentication with `API_AUTH_MODE`, and `/mcp` over HTTP uses the same credential in `bearer` and `jwks` modes.
 
 | Mode | Identity | Capability model |
 |------|----------|-------------------|

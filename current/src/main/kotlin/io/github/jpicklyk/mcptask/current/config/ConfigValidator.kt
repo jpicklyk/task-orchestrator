@@ -783,6 +783,9 @@ class ConfigValidator(
         /** The `severity` values of a decision class. */
         private val DECISION_SEVERITIES = listOf("high", "normal", "low")
 
+        /** The `autonomy` values of a decision class. */
+        private val DECISION_AUTONOMY = listOf("answer", "ask")
+
         /** The `on_expiry` values of a decision class. */
         private val DECISION_ON_EXPIRY = listOf("escalate")
 
@@ -796,7 +799,7 @@ class ConfigValidator(
          * The value rules of the top-level `decision_classes:` block [raw] (allowed in either scope): it is a mapping of
          * class names (`^[a-z][a-z0-9_-]{0,63}$`) to mappings; `answerers` is human-only, director-or-human or any-actor,
          * and never any-actor for `run-budget` or `attempt-cap`; `severity` is high, normal or low; `expires_after` is an
-         * integer greater than 0 (seconds); `on_expiry` is escalate; `freeform` is a boolean. Unknown keys are not
+         * integer greater than 0 (seconds); `on_expiry` is escalate; `freeform` is a boolean; `autonomy` is answer or ask, and never answer for a human-only class. Unknown keys are not
          * reported here (the parser and the structural schema report them). The parser reports the same findings with
          * the same paths and reasons, so a strict validation lists each once.
          */
@@ -860,6 +863,21 @@ class ConfigValidator(
                 }
                 if (entry.containsKey("freeform") && entry["freeform"] !is Boolean) {
                     out.add(ConfigViolation(pointer("decision_classes", name, "freeform"), "freeform must be true or false"))
+                }
+                if (entry.containsKey("autonomy")) {
+                    val autonomy = entry["autonomy"]
+                    if (autonomy !is String || autonomy !in DECISION_AUTONOMY) {
+                        out.add(
+                            ConfigViolation(
+                                pointer("decision_classes", name, "autonomy"),
+                                "autonomy must be one of: ${DECISION_AUTONOMY.joinToString(", ")}"
+                            )
+                        )
+                    } else if (autonomy == "answer" && entry["answerers"] == "human-only") {
+                        out.add(
+                            ConfigViolation(pointer("decision_classes", name, "autonomy"), "a human-only class is always ask")
+                        )
+                    }
                 }
             }
             return out

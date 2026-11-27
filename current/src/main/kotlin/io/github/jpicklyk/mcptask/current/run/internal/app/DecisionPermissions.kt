@@ -3,8 +3,10 @@ package io.github.jpicklyk.mcptask.current.run.internal.app
 import io.github.jpicklyk.mcptask.current.lifecycle.DecisionRefs
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.call.grants
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.run.DecisionCaller
@@ -12,9 +14,9 @@ import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
 
 /**
  * The one place a [DecisionCaller] is built from a call: who is acting, as the answerer matrix (plan section 3.3) sees
- * it. Kind and proof come from the transport credential only (never from a request field); `director` is the director
- * profile without a seat token ([RunPermissions.isDirector]); the seat, run and assignment come from the call's seat
- * token.
+ * it. Kind and proof come from the transport credential only (never from a request field); `director` is a call with no
+ * seat token whose credential grants decide ([ApiCapability.DECIDE], on any profile); the seat, run and assignment come from
+ * the call's seat token.
  */
 internal object DecisionCallers {
     suspend fun of(ctx: CallContext): DecisionCaller {
@@ -24,7 +26,7 @@ internal object DecisionCallers {
             principalId = RunPermissions.callerId(ctx),
             kind = credential?.kind,
             proofStatus = credential?.proofStatus,
-            director = RunPermissions.isDirector(ctx),
+            director = seat == null && credential?.capabilities?.grants(ApiCapability.DECIDE) == true,
             seat = seat?.seat,
             runId = seat?.runId,
             assignmentId = seat?.assignmentId,

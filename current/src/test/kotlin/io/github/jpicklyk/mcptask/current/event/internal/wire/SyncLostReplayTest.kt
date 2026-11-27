@@ -32,7 +32,7 @@ import kotlin.time.Duration.Companion.seconds
  *   ring buffer; FIRST emission, before replay.
  * - The gap predicate is `<`, not `<=`: `lastEventId == oldestRetained.id - 1` is the no-gap
  *   boundary (S3a); one below that boundary is a gap (S3b).
- * - `api-rest.md` §21, `ApiEventBus`/`ApiEvent` KDoc, WHATWG SSE (`id:` sets the reconnect cursor).
+ * - `ApiEventBus`/`ApiEvent` KDoc, WHATWG SSE (`id:` sets the reconnect cursor).
  *
  * S-ids are stable identifiers frozen in `test-plan` -- do not renumber.
  */

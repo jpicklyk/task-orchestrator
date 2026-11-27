@@ -16,13 +16,8 @@ import kotlinx.serialization.json.JsonPrimitive
  * Sizes are character counts of the compact `tools/list` entry ([ToolGoldens.compact] of [McpOperationAdapter.toolFor]).
  */
 object ToolSurfaceChecks {
-    // Sized for P1 and both P8 items, owner ruling 2026-11-24.
+    // Per-tool only: the total ceilings were removed (B1 stage 2, owner ruling 2026-11-27).
     const val PER_TOOL_CEILING = 9_000
-    const val KNOWLEDGE_TOTAL_CEILING = 22_000
-
-    // Sized for P1 and both P8 items, owner ruling 2026-11-24.
-    const val ORCHESTRATION_TOTAL_CEILING = 43_500
-    const val DIRECTOR_TOTAL_CEILING = 14_000
 
     /** Compact char count per visible tool of [profile], in registry order. */
     fun sizes(
@@ -33,14 +28,7 @@ object ToolSurfaceChecks {
             .mapNotNull { spec -> McpOperationAdapter.toolFor(spec, profile)?.let { spec.name to ToolGoldens.compact(it).length } }
             .toMap(LinkedHashMap())
 
-    fun totalCeiling(profile: ToolProfile): Int =
-        when (profile) {
-            ToolProfile.KNOWLEDGE -> KNOWLEDGE_TOTAL_CEILING
-            ToolProfile.ORCHESTRATION -> ORCHESTRATION_TOTAL_CEILING
-            ToolProfile.DIRECTOR -> DIRECTOR_TOTAL_CEILING
-        }
-
-    /** One message per breached ceiling: a tool over 9,000 in a profile, or a profile total over its ceiling. */
+    /** One message per breached ceiling: a tool over 9,000 in a profile. */
     fun budgetViolations(registry: ToolRegistry): List<String> {
         val out = mutableListOf<String>()
         for (profile in ToolProfile.entries) {
@@ -48,8 +36,6 @@ object ToolSurfaceChecks {
             for ((tool, size) in sizes) {
                 if (size > PER_TOOL_CEILING) out += "$tool/${profile.wire}: $size chars exceeds $PER_TOOL_CEILING"
             }
-            val total = sizes.values.sum()
-            if (total > totalCeiling(profile)) out += "total/${profile.wire}: $total chars exceeds ${totalCeiling(profile)}"
         }
         return out
     }

@@ -43,8 +43,8 @@ enum class DecisionRequestSeverity(
 
 /**
  * Who may answer (and acknowledge) a decision request (plan section 3.3). [HUMAN_ONLY]: a human credential without a
- * seat token and with a real proof; [DIRECTOR_OR_HUMAN]: that, or a call served by the director profile without a seat
- * token; [ANY_ACTOR]: every principal. The predicate itself lives with the caller type in the application layer.
+ * seat token and with a real proof; [DIRECTOR_OR_HUMAN]: that, or a call with no seat token whose credential grants
+ * decide; [ANY_ACTOR]: every principal. The predicate itself lives with the caller type in the application layer.
  */
 enum class DecisionRequestAnswerers(
     val wire: String
@@ -55,6 +55,58 @@ enum class DecisionRequestAnswerers(
 
     companion object {
         fun fromWire(value: String): DecisionRequestAnswerers? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/**
+ * Whether the director may answer a decision class itself ([ANSWER]) or should ask the user ([ASK], the default). It is
+ * recorded as `withinAutonomy` on a director answer and never enforced; a human-only class is always [ASK].
+ */
+enum class DecisionAutonomy(
+    val wire: String
+) {
+    ANSWER("answer"),
+    ASK("ask");
+
+    companion object {
+        fun fromWire(value: String): DecisionAutonomy? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** Who a pending decision request waits on once routed: the [DIRECTOR] (delegated) or the [USER] (escalated). */
+enum class DecisionWaitingOn(
+    val wire: String
+) {
+    DIRECTOR("director"),
+    USER("user");
+
+    companion object {
+        fun fromWire(value: String): DecisionWaitingOn? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** Who made the decision an answer records: the [USER], or the [DIRECTOR] (an agent that is not the user). */
+enum class DecisionDecidedBy(
+    val wire: String
+) {
+    USER("user"),
+    DIRECTOR("director");
+
+    companion object {
+        fun fromWire(value: String): DecisionDecidedBy? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** Why an answerer could decide: within its [AUTONOMY], by [DELEGATION] from the user, or by [RELAYED] user decision. */
+enum class DecisionAnswerBasis(
+    val wire: String
+) {
+    AUTONOMY("autonomy"),
+    DELEGATION("delegation"),
+    RELAYED("relayed");
+
+    companion object {
+        fun fromWire(value: String): DecisionAnswerBasis? = entries.firstOrNull { it.wire == value }
     }
 }
 
@@ -70,6 +122,10 @@ data class DecisionRequestOption(
  * classes only), the [rationale], who answered ([answeredById], [answeredByKind], [answeredByProof]), through what
  * ([host], [sessionId], [runId], [seat], [profile]), when, and whether it came at or after the expiry ([afterExpiry]).
  * [answeredById], [host] and [sessionId] are shown to an ADMIN reader only.
+ *
+ * Decision provenance, server-derived and null when it does not apply (a seat answer, a pre-V39 answer): [decidedBy] who
+ * made the decision, [basis] why they could, [relayed] whether an agent relayed the user's decision, [withinAutonomy]
+ * whether the director decided within its autonomy; [links] is the evidence the answerer cited.
  */
 data class DecisionRequestAnswer(
     val option: String? = null,
@@ -84,7 +140,12 @@ data class DecisionRequestAnswer(
     val seat: String? = null,
     val profile: String? = null,
     val answeredAt: Instant,
-    val afterExpiry: Boolean = false
+    val afterExpiry: Boolean = false,
+    val decidedBy: DecisionDecidedBy? = null,
+    val basis: DecisionAnswerBasis? = null,
+    val relayed: Boolean? = null,
+    val withinAutonomy: Boolean? = null,
+    val links: List<RunSeatLink> = emptyList()
 )
 
 /**
@@ -94,6 +155,8 @@ data class DecisionRequestAnswer(
  * [scopeKey] is the item id text when [itemId] is set, else the run id text, else [SCOPE_ROOT]; at most one
  * non-withdrawn request exists per (root, scope key, [dedupeKey]). [answerers] is a snapshot of the class at raise
  * time. [expiresAt] is null when the class sets no expiry. [version] is the optimistic-concurrency counter, 1 at raise.
+ * [waitingOn] is who a pending request was routed to (null: not routed), with [waitingReason] beside `user` only; an
+ * answer or a withdrawal clears both.
  */
 data class DecisionRequest(
     val id: UUID = UUID.randomUUID(),
@@ -121,10 +184,14 @@ data class DecisionRequest(
     val ackByKind: String? = null,
     val ackAt: Instant? = null,
     val answer: DecisionRequestAnswer? = null,
-    val version: Long = 1
+    val version: Long = 1,
+    val waitingOn: DecisionWaitingOn? = null,
+    val waitingReason: String? = null
 ) {
     init {
         require((status == DecisionRequestStatus.ANSWERED) == (answer != null)) { "an answered request has an answer, no other has one" }
+        require(waitingOn == null || status.isPending) { "only a pending request waits on someone" }
+        require(waitingReason == null || waitingOn == DecisionWaitingOn.USER) { "a waiting reason goes with waitingOn user" }
     }
 
     /** True when the request still waits for an answer and [now] is at or past its expiry. */
@@ -149,6 +216,7 @@ data class DecisionRequest(
         const val MAX_CONTEXT_LENGTH = 1000
         const val MAX_TEXT_LENGTH = 1000
         const val MAX_RATIONALE_LENGTH = 1000
+        const val MAX_WAITING_REASON_LENGTH = 500
 
         /** The cap, in UTF-8 bytes, of the compact JSON of `{question, options, recommended, links, context}`. */
         const val MAX_PAYLOAD_BYTES = 4096

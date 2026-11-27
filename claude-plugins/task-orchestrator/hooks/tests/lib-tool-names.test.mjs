@@ -11,13 +11,13 @@ import { TOOLS } from '../lib/tool-names.mjs';
 const GOLDEN_DIR = fileURLToPath(new URL('../../../../current/src/test/resources/golden/tools/', import.meta.url));
 
 const FROZEN = [
-  'advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write',
-  'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write',
+  'advance', 'config', 'decisions_read', 'decisions_write', 'deps_read', 'deps_write', 'docs_read', 'docs_write',
+  'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write',
 ];
 
 test('S20: TOOLS equals the sorted distinct tool names of the golden tool files', () => {
   const derived = [...new Set(readdirSync(GOLDEN_DIR).filter((f) => f.endsWith('.json')).map((f) => f.split('.')[0]))].sort();
-  assert.equal(derived.length, 13, 'the golden directory defines 13 tools');
+  assert.equal(derived.length, 15, 'the golden directory defines 15 tools');
   assert.deepEqual([...TOOLS], derived);
 });
 
@@ -31,7 +31,7 @@ test('S20: TOOLS is a frozen array, sorted, without duplicates', () => {
   assert.deepEqual([...TOOLS], [...TOOLS].sort());
   assert.equal(new Set(TOOLS).size, TOOLS.length);
   assert.throws(() => { TOOLS.push('x'); }, TypeError);
-  assert.equal(TOOLS.length, 13);
+  assert.equal(TOOLS.length, 15);
 });
 
 test('S20 probe: every entry is a valid callOp tool name ([a-z][a-z_]*)', () => {

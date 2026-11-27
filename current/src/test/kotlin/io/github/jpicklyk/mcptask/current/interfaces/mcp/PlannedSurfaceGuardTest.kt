@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
-import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
@@ -24,13 +23,12 @@ import kotlin.test.assertTrue
  * The planned-surface guard (R5 AC9, scenarios S8, S12 and S17 of the frozen test-plan).
  *
  * The planned fixtures under `golden/tools/planned/` describe tools and fields that later items add. The guard keeps them
- * honest: production compact total plus the planned sizes must fit each profile's ceiling, a planned full entry must fit the
- * per-tool ceiling, and a planned file that no longer describes something NEW (a full entry for a tool already visible in that
- * profile, or a delta property already in the production rendering) is stale and must be replaced by the real golden.
+ * honest: a planned full entry must fit the per-tool ceiling, and a planned file that no longer describes something NEW
+ * (a full entry for a tool already visible in that profile, or a delta property already in the production rendering) is stale and must be replaced by the real golden.
  *
- * Oracles: task-scope AC8 and AC9 (ceilings 9,000 / 22,000 / 43,500 / 14,000; production + planned within each), decision D4
+ * Oracles: task-scope AC8 and AC9 (per-tool ceiling 9,000; the total ceilings were removed by B1 stage 2, decision D15), decision D4
  * (format: `<tool>.<profile>.json` is a full tools/list entry sized by `ToolGoldens.compact`; `<tool>.<profile>.delta.json` is a
- * JSON object of properties to add, sized by its compact length plus 2; stale = a full entry for a visible tool or a delta
+ * JSON object of properties to add; stale = a full entry for a visible tool or a delta
  * property already rendered; every json file counts) and decision D5 (the exact list of planned files and, per file, the members
  * and properties it carries). Expected values are written from those clauses, never read from a run.
  *
@@ -48,15 +46,6 @@ internal object PlannedSurfaceChecks {
     val DIR: Path = ToolGoldens.DIR.resolve("planned")
 
     private val NAME = Regex("^([a-z][a-z0-9_]*)[.](knowledge|orchestration|director)([.]delta)?[.]json$")
-
-    /** The per-profile figures a violation message and a measurement report need. */
-    data class Totals(
-        val production: Int,
-        val planned: Int,
-        val ceiling: Int
-    ) {
-        val sum: Int get() = production + planned
-    }
 
     private class Planned(
         val file: String,
@@ -156,35 +145,13 @@ internal object PlannedSurfaceChecks {
         return planned
     }
 
-    fun totals(
-        registry: ToolRegistry,
-        dir: Path = DIR,
-        ceiling: (ToolProfile) -> Int = ToolSurfaceChecks::totalCeiling
-    ): Map<ToolProfile, Totals> {
-        val planned = scan(registry, dir, mutableListOf())
-        return ToolProfile.entries.associateWith { profile ->
-            Totals(
-                production = ToolSurfaceChecks.sizes(registry, profile).values.sum(),
-                planned = planned.filter { it.profile == profile }.sumOf { it.size },
-                ceiling = ceiling(profile)
-            )
-        }
-    }
-
-    /** One message per fault: a bad file name, an unparseable file, a stale file, an oversize entry, a profile over its ceiling. */
+    /** One message per fault: a bad file name, an unparseable file, a stale file or an oversize entry. */
     fun violations(
         registry: ToolRegistry,
-        dir: Path = DIR,
-        ceiling: (ToolProfile) -> Int = ToolSurfaceChecks::totalCeiling
+        dir: Path = DIR
     ): List<String> {
         val out = mutableListOf<String>()
         scan(registry, dir, out)
-        for ((profile, t) in totals(registry, dir, ceiling)) {
-            val over = t.sum > t.ceiling
-            if (over) {
-                out += "total/${profile.wire}: production ${t.production} + planned ${t.planned} = ${t.sum} exceeds ${t.ceiling}"
-            }
-        }
         return out
     }
 }
@@ -235,110 +202,8 @@ class PlannedSurfaceGuardTest {
     // ------------------------------------------------------------------ S8 the production directory
 
     @Test
-    fun `S8 the production registry plus the planned fixtures is within every ceiling and nothing is stale`() {
+    fun `S8 the production registry plus the planned fixtures has no fault and nothing is stale`() {
         assertEquals(emptyList(), PlannedSurfaceChecks.violations(production))
-        for ((profile, t) in PlannedSurfaceChecks.totals(production)) {
-            assertTrue(t.sum <= t.ceiling, "${profile.wire}: production ${t.production} + planned ${t.planned} = ${t.sum} > ${t.ceiling}")
-        }
-    }
-
-    @Test
-    fun `S8 the guard measures the planned files, so no planned file remains once R28 shipped the last one`() {
-        val totals = PlannedSurfaceChecks.totals(production)
-        // R26 shipped the last orchestration planned properties and R28 shipped the report runId, so nothing is planned any more.
-        assertEquals(0, totals.getValue(ToolProfile.DIRECTOR).planned, "no director planned file remains after R28")
-        assertEquals(0, totals.getValue(ToolProfile.ORCHESTRATION).planned, "no orchestration delta remains after R26")
-        assertEquals(0, totals.getValue(ToolProfile.KNOWLEDGE).planned, "no knowledge planned file remains")
-    }
-
-    @Test
-    fun `S8 the guard uses the frozen ceilings by default`() {
-        val totals = PlannedSurfaceChecks.totals(production)
-        assertEquals(22_000, totals.getValue(ToolProfile.KNOWLEDGE).ceiling)
-        assertEquals(43_500, totals.getValue(ToolProfile.ORCHESTRATION).ceiling)
-        assertEquals(14_000, totals.getValue(ToolProfile.DIRECTOR).ceiling)
-    }
-
-    // ------------------------------------------------------------------ S8 / S12 boundaries
-
-    @Test
-    fun `S8 a director total of exactly 14000 passes and 14001 is flagged`(
-        @TempDir dir: Path
-    ) {
-        write(dir, "a_tool.director.json", entryOfSize("a_tool", 7_000))
-        write(dir, "b_tool.director.json", entryOfSize("b_tool", 7_000))
-        assertEquals(emptyList(), PlannedSurfaceChecks.violations(noProduction, dir))
-
-        write(dir, "b_tool.director.json", entryOfSize("b_tool", 7_001))
-        val violations = PlannedSurfaceChecks.violations(noProduction, dir)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue(violations.single().startsWith("total/director"), violations.single())
-    }
-
-    @Test
-    fun `S8 an orchestration total of exactly 43500 passes and 43501 is flagged`(
-        @TempDir dir: Path
-    ) {
-        for (i in 1..6) write(dir, "t${i}_tool.orchestration.json", entryOfSize("t${i}_tool", 7_250))
-        assertEquals(emptyList(), PlannedSurfaceChecks.violations(noProduction, dir))
-
-        write(dir, "t6_tool.orchestration.json", entryOfSize("t6_tool", 7_251))
-        val violations = PlannedSurfaceChecks.violations(noProduction, dir)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue(violations.single().startsWith("total/orchestration"), violations.single())
-    }
-
-    @Test
-    fun `S8 a knowledge total of exactly 22000 passes and 22001 is flagged`(
-        @TempDir dir: Path
-    ) {
-        write(dir, "a_tool.knowledge.json", entryOfSize("a_tool", 7_333))
-        write(dir, "b_tool.knowledge.json", entryOfSize("b_tool", 7_333))
-        write(dir, "c_tool.knowledge.json", entryOfSize("c_tool", 7_334))
-        assertEquals(emptyList(), PlannedSurfaceChecks.violations(noProduction, dir))
-
-        write(dir, "c_tool.knowledge.json", entryOfSize("c_tool", 7_335))
-        val violations = PlannedSurfaceChecks.violations(noProduction, dir)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue(violations.single().startsWith("total/knowledge"), violations.single())
-    }
-
-    @Test
-    fun `S8 the production compact total counts toward the ceiling together with the planned entry`(
-        @TempDir dir: Path
-    ) {
-        val registry = FixtureTools().registry
-        val productionTotal = ToolSurfaceChecks.sizes(registry, ToolProfile.KNOWLEDGE).values.sum()
-        val planned = entry("new_tool", 40)
-        val plannedSize = sizeOf(planned)
-        write(dir, "new_tool.knowledge.json", planned)
-
-        val exact: (ToolProfile) -> Int = { if (it == ToolProfile.KNOWLEDGE) productionTotal + plannedSize else 1_000_000 }
-        assertEquals(emptyList(), PlannedSurfaceChecks.violations(registry, dir, exact), "production + planned == ceiling passes")
-
-        val oneShort: (ToolProfile) -> Int = { if (it == ToolProfile.KNOWLEDGE) productionTotal + plannedSize - 1 else 1_000_000 }
-        val violations = PlannedSurfaceChecks.violations(registry, dir, oneShort)
-        assertEquals(1, violations.size, violations.toString())
-        assertTrue(violations.single().startsWith("total/knowledge"), violations.single())
-    }
-
-    @Test
-    fun `S12 a delta counts toward the ceiling with its compact length plus 2`(
-        @TempDir dir: Path
-    ) {
-        val registry = FixtureTools().registry
-        val productionTotal = ToolSurfaceChecks.sizes(registry, ToolProfile.KNOWLEDGE).values.sum()
-        val delta = """{"zz_new_field":{"type":"boolean","description":"Take over."}}"""
-        write(dir, "fx_write.knowledge.delta.json", delta)
-        val deltaSize = delta.length + 2
-
-        val exact: (ToolProfile) -> Int = { if (it == ToolProfile.KNOWLEDGE) productionTotal + deltaSize else 1_000_000 }
-        assertEquals(emptyList(), PlannedSurfaceChecks.violations(registry, dir, exact), "a delta of compact length + 2 fits exactly")
-
-        val oneShort: (ToolProfile) -> Int = { if (it == ToolProfile.KNOWLEDGE) productionTotal + deltaSize - 1 else 1_000_000 }
-        val violations = PlannedSurfaceChecks.violations(registry, dir, oneShort)
-        assertEquals(1, violations.size, "a delta that is ignored by the sum would pass here: $violations")
-        assertTrue(violations.single().startsWith("total/knowledge"), violations.single())
     }
 
     // ------------------------------------------------------------------ S12 each fault alone

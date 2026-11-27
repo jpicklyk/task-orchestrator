@@ -13,8 +13,8 @@ the [API reference](api-reference.md#report), and the retention values are in
 `report` is a read-only tool. Every answer is built from pointers and counts: it never returns a title, a note body, a
 document body or a call argument.
 
-- **Where it is served.** On MCP it belongs to the **director** profile only: `/mcp/director` over HTTP, or a stdio
-  server started with `MCP_TOOL_PROFILE=director`. Over REST it is `POST /api/v1/ops/report`, and a director-profile
+- **Where it is served.** On MCP it belongs to the **orchestration** and **director** profiles: `/mcp` and `/mcp/director` over HTTP, or a
+  stdio server started with `MCP_TOOL_PROFILE=orchestration` or `director`. Over REST it is `POST /api/v1/ops/report`, and a director-profile
   credential reaches it at `POST /api/v1/ops/director/report`. It needs the `read` capability.
 - **What a caller sees.** Visibility follows the credential's scope. A root-scoped caller sees only its roots, and
   `rootId` narrows an answer to one project root. A tag-scoped caller is refused `usage`, `waste` and `rollup`, because call
@@ -169,4 +169,3 @@ Post-mortem of a run: members, blocked reasons, decisions, seats, attempts and c
   growth estimates.
 - [Fleet deployment: Observability Gaps](fleet-deployment.md#observability-gaps) for what the server does not provide.
 - [Workflow guide](workflow-guide.md) for runs, seats and decisions, the subjects of a run rollup.
-- [REST API](api-rest.md) for the `/api/v1/ops` routes.

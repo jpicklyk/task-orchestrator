@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
  * (the member sits on the seat object, right after `rules`, in the declared order; `[]` is served as `[]`; absent serves no member),
  * AC4 and D5 (the schema `features` list is `[seats, dispatchBySeat, independent_of, rules, seatSkills]`, `seatSkills` appended last,
  * advertised unconditionally, so also for a seat-less schema, and on `GET /api/v1/info` and `GET /.well-known/mcp-task-orchestrator.json`,
- * as documented in `current/docs/api-rest.md`).
+ * as documented in `current/docs/api/openapi.yaml`).
  *
  * Negative-assertion conditions: the undeclared seat (`checker`) is served beside declaring seats of the same response, so a server
  * that serves nothing fails the declared legs, and a server that serves `skills` for every seat fails the undeclared leg.
@@ -79,7 +79,21 @@ class SeatSkillsServingTest {
         """.trimIndent() + "\n"
 
     private val expectedFeatures =
-        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
+        listOf(
+            "seats",
+            "dispatchBySeat",
+            "independent_of",
+            "rules",
+            "seatSkills",
+            "seatWrites",
+            "orchestratorNotes",
+            "resumeGate",
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority",
+            "profileSets"
+        )
 
     private fun world(block: suspend (SeatWorld) -> Unit) =
         runBlocking {

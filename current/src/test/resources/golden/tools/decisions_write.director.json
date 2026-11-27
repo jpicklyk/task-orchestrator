@@ -1,0 +1,85 @@
+{
+  "name": "decisions_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "ack",
+                "delegate",
+                "escalate",
+                "answer",
+                "withdraw"
+              ]
+            },
+            "decisionId": {
+              "type": "string",
+              "description": "Decision id: UUID or 8-32 hex."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why the user is needed, 1 to 500 characters. [ops: escalate]"
+            },
+            "option": {
+              "type": "string",
+              "description": "Key of the chosen option. [ops: answer]"
+            },
+            "text": {
+              "type": "string",
+              "description": "Free-form answer, at most 1000 characters; freeform classes only. [ops: answer]"
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Why this answer, at most 1000 characters. [ops: answer]"
+            },
+            "decidedBy": {
+              "type": "string",
+              "description": "Who decided: user or director. Absent: derived from the caller; a claim the credential contradicts is refused. [ops: answer]",
+              "enum": [
+                "user",
+                "director"
+              ]
+            },
+            "links": {
+              "type": "array",
+              "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: answer]",
+              "items": {
+                "type": "object"
+              }
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return each operation's parameters and errors; nothing runs."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Ack, delegate, escalate, answer and withdraw decisions. Each op needs a root in scope and the decide capability (withdraw: runs). Only the answerers of a decision's class ack, answer or delegate it; the director also escalates a human-only decision. Result: the decision. Call with describe:true for parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

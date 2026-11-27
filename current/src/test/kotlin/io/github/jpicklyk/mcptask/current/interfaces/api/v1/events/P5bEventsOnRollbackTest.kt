@@ -37,7 +37,7 @@ import kotlin.test.assertTrue
  * and publishes) and probe P1 (a decorated write outside a unit under OutsideUnitPolicy.FAIL throws and publishes
  * nothing).
  *
- * Oracle: api-rest.md event contract as quoted by the existing EventPublishingTransactionRollbackTest (a data event
+ * Oracle: the event contract as quoted by the existing EventPublishingTransactionRollbackTest (a data event
  * denotes a persisted change) plus task-scope section 6 (FAIL throws before any work). The decorator's events are
  * observed through ApiEventBus.projectedEvents() against a baseline.
  */

@@ -91,7 +91,8 @@
         "severity": { "description": "Default severity of a raised decision (default normal).", "enum": ["high", "normal", "low"] },
         "expires_after": { "description": "Seconds after the raise when an unanswered decision becomes overdue (its severity reads one step up). Absent: never overdue.", "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "on_expiry": { "description": "What expiry does; escalate is the only value.", "enum": ["escalate"] },
-        "freeform": { "description": "true: an answer may be free text instead of an option (default false).", "type": "boolean" }
+        "freeform": { "description": "true: an answer may be free text instead of an option (default false).", "type": "boolean" },
+        "autonomy": { "description": "Whether the director may answer the class itself (answer) or should ask the user (ask, default; always ask for a human-only class). Recorded as withinAutonomy, never enforced.", "enum": ["answer", "ask"] }
       }
     },
     "effort": { "enum": ["low", "medium", "high", "xhigh", "max"] },

@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.UsageRow
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportGroupBy
@@ -33,7 +34,7 @@ internal val reportUsageSelect =
                 "starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw " +
                 "horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils " +
                 "to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportUsageRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

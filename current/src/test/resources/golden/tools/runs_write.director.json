@@ -12,7 +12,6 @@
               "type": "string",
               "description": "The operation this element runs.",
               "enum": [
-                "open",
                 "close",
                 "pause",
                 "resume",
@@ -21,54 +20,6 @@
                 "answer",
                 "withdraw"
               ]
-            },
-            "rootId": {
-              "type": "string",
-              "description": "The root item the run belongs to. Item id: UUID or 8-32 hex. [ops: open]"
-            },
-            "items": {
-              "type": "array",
-              "description": "Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. [ops: open]",
-              "items": {
-                "type": "string"
-              }
-            },
-            "scopeId": {
-              "type": "string",
-              "description": "An item the run is scoped to. Item id: UUID or 8-32 hex. [ops: open]"
-            },
-            "label": {
-              "type": "string",
-              "description": "A short label, at most 64 characters. [ops: open]"
-            },
-            "title": {
-              "type": "string",
-              "description": "A title, at most 200 characters. [ops: open]"
-            },
-            "budget": {
-              "type": "object",
-              "description": "Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open]",
-              "properties": {
-                "attemptsPerSeat": {
-                  "type": "integer",
-                  "description": "Most attempts one seat may take."
-                },
-                "maxActiveSeats": {
-                  "type": "integer",
-                  "description": "Most seats active at once."
-                }
-              }
-            },
-            "stallAfterSeconds": {
-              "type": "integer",
-              "description": "Seconds without a sign of life from the run's orchestrator before the run reads as stalled. Default from config. [ops: open]"
-            },
-            "hints": {
-              "type": "object",
-              "description": "Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints. [ops: open]",
-              "additionalProperties": {
-                "type": "string"
-              }
             },
             "runId": {
               "type": "string",
@@ -121,7 +72,7 @@
     },
     "type": "object"
   },
-  "description": "Open, close, pause, resume and reissue runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause, resume and reissue: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
+  "description": "Close, pause, resume and reissue runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause, resume and reissue: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

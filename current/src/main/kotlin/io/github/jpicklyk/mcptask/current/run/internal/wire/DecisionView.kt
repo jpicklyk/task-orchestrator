@@ -37,11 +37,12 @@ internal object DecisionView {
             decision.expiresAt?.let { put("expiresAt", it.toString()) }
         }
 
-    /** The full request: `runs_read decision` and the result of every decision write. */
+    /** The full request: a `decisions_read list` row and the result of every decision write. [context] false leaves the context out. */
     fun full(
         decision: DecisionRequest,
         now: Instant,
-        principalsVisible: Boolean
+        principalsVisible: Boolean,
+        context: Boolean = true
     ): JsonObject =
         buildJsonObject {
             put("id", decision.id.toString())
@@ -56,6 +57,8 @@ internal object DecisionView {
             put("overdue", decision.isOverdue(now))
             put("dedupeKey", decision.dedupeKey)
             put("question", decision.question)
+            decision.waitingOn?.let { put("waitingOn", it.wire) }
+            decision.waitingReason?.let { put("waitingReason", it) }
             put(
                 "options",
                 JsonArray(
@@ -82,7 +85,7 @@ internal object DecisionView {
                     )
                 )
             }
-            decision.context?.let { put("context", it) }
+            if (context) decision.context?.let { put("context", it) }
             put(
                 "raisedBy",
                 buildJsonObject {
@@ -113,6 +116,23 @@ internal object DecisionView {
                         answer.rationale?.let { put("rationale", it) }
                         put("at", answer.answeredAt.toString())
                         put("afterExpiry", answer.afterExpiry)
+                        answer.decidedBy?.let { put("decidedBy", it.wire) }
+                        answer.basis?.let { put("basis", it.wire) }
+                        answer.relayed?.let { put("relayed", it) }
+                        answer.withinAutonomy?.let { put("withinAutonomy", it) }
+                        if (answer.links.isNotEmpty()) {
+                            put(
+                                "links",
+                                JsonArray(
+                                    answer.links.map { link ->
+                                        buildJsonObject {
+                                            put("kind", link.kind)
+                                            put("ref", link.ref)
+                                        }
+                                    }
+                                )
+                            )
+                        }
                         put(
                             "provenance",
                             buildJsonObject {

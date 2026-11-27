@@ -135,7 +135,7 @@ traits:
         role: review
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
-        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
+        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml for REST changes."
 
   needs-plugin-update:
     notes:

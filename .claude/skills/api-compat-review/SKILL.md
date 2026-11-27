@@ -6,7 +6,7 @@ user-invocable: false
 
 # API Compatibility Review Framework
 
-Assess API changes by surface. There is ONE tool surface, served over MCP and over REST `POST /api/v1/ops/{tool}` (the same `ToolDispatcher`, see `api-rest.md` 20a). MCP clients re-discover the schema every session, but REST ops callers hardcode tool, field and select names. A REST-only surface (routes, DTOs, openapi) has its own hardcoded clients. Do not treat a tool change as rename-friendly just because MCP clients re-read the schema.
+Assess API changes by surface. There is ONE tool surface, served over MCP and over REST `POST /api/v1/ops/{tool}` (the same `ToolDispatcher`, see `current/docs/api/openapi.yaml`). MCP clients re-discover the schema every session, but REST ops callers hardcode tool, field and select names. A REST-only surface (routes, DTOs, openapi) has its own hardcoded clients. Do not treat a tool change as rename-friendly just because MCP clients re-read the schema.
 
 ## Step 1: Classify the Change
 
@@ -31,7 +31,6 @@ Routes, DTOs, openapi, SSE and leases. HTTP clients hardcode field and param nam
 - [ ] Renames or removals of existing fields/params have an explicit migration path or version bump — not a silent break
 - [ ] Note when a surface has effectively zero consumers (e.g., a days-old endpoint) so the reviewer can right-size caution instead of over-indexing on hypothetical clients
 - [ ] `current/docs/api/openapi.yaml` is updated for any REST-facing change, including the `/ops/{tool}` body
-- [ ] `api-rest.md` is updated for any REST-facing change
 
 ## Output
 

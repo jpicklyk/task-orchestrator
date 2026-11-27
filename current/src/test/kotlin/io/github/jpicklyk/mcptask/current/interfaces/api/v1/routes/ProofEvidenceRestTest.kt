@@ -122,7 +122,7 @@ class ProofEvidenceRestTest {
 
     // ===========================================================================================
     // S6 (EXISTING-SURFACE, declared guard) -- non-admin, default attribution redaction (true) ->
-    // actor+verification null. api-rest.md:1717. Duplicates NoteRoutesTest's existing "redacts
+    // actor+verification null. Duplicates NoteRoutesTest's existing "redacts
     // attribution for non-admin caller" coverage deliberately, as the plan's declared guard for
     // this scenario; kept here so item 983615e7's own S-id -> test mapping is complete and
     // self-contained within this file rather than pointing only at another file's pre-existing test.

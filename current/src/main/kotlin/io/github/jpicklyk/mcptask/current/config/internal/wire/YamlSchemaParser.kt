@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAutonomy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
@@ -103,7 +104,7 @@ internal object ConfigKeyCatalog {
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
     val RUN_BUDGETS: Set<String> = setOf("tokens", "cost_usd", "attempts_per_seat", "max_active_seats")
-    val DECISION_CLASS: Set<String> = setOf("answerers", "severity", "expires_after", "on_expiry", "freeform")
+    val DECISION_CLASS: Set<String> = setOf("answerers", "severity", "expires_after", "on_expiry", "freeform", "autonomy")
     val RESOURCE_DEFINITION: Set<String> = setOf("description", "maxHolders", "defaultTtlSeconds")
     val RESOURCE_REQUIREMENT: Set<String> = setOf("key", "mode", "ttlSeconds")
     val DISPATCH_PROFILE: Set<String> = setOf("agent", "model", "effort")
@@ -1938,6 +1939,7 @@ internal object YamlSchemaParser {
                     expiresAfterSeconds = (valid("expires_after") as? Number)?.toLong(),
                     onExpiry = valid("on_expiry") as? String,
                     freeform = valid("freeform") as? Boolean,
+                    autonomy = (valid("autonomy") as? String)?.let { DecisionAutonomy.fromWire(it) },
                 )
         }
         return out

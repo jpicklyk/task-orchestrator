@@ -120,12 +120,14 @@ class McpDirectorProfileTest {
             """"clientInfo":{"name":"director-profile-test","version":"1.0"}}}"""
 
     /** R5 AC3's two director tools, R9's `report` and R20's `runs_read` and `runs_write`. */
-    private val directorTools = setOf("items_read", "deps_read", "report", "runs_read", "runs_write")
+    private val directorTools =
+        setOf("items_read", "deps_read", "report", "runs_read", "runs_write", "decisions_read", "decisions_write")
 
     private val knowledgeTools =
         setOf("items_read", "items_write", "notes_read", "notes_write", "deps_read", "deps_write", "docs_read", "docs_write")
 
-    private val orchestrationTools = knowledgeTools + setOf("advance", "config", "runs_read", "runs_write")
+    private val orchestrationTools =
+        knowledgeTools + setOf("advance", "config", "runs_read", "runs_write", "decisions_read", "decisions_write", "report")
 
     private val directorSelects = setOf("get", "list", "overview", "blocked")
 

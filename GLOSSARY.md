@@ -105,7 +105,7 @@ The user's view of work across runs: open runs and their frontier, the decision 
 
 Distinct from: director mode, which changes who acts on the board, not who sees it; and from the director, which acts on the board and does not own it.
 Don't call it: the director's board.
-In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, and `runs_read` `decisions` and `report` `rollup`, served today on the director profile only.
+In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, `decisions_read` `list` and `report` `rollup`, served on both profiles.
 
 ### Director mode
 
@@ -117,7 +117,7 @@ In code: today the hardened director agent and the director profile also apply t
 
 ### Director profile
 
-The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director. Today the server checks it as a stand-in for decision authority (`RunPermissions.kt:43`); in the destination authority lives in the decision's class and the credential, not the profile. It stays served, for other platforms and deployments. Today director mode still holds it for the decision ops, `pause`, `resume` and `reissue`, which are served only here; once [0003](design/decisions/0003-role-neutral-decisions-surface.md) puts decision ops on every profile that needs them, with authority from the decision's class plus a credential's `decide` capability, director mode no longer depends on it.
+The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director. Decision authority lives in the decision's class and the credential, not the profile. It stays served, for other platforms and deployments. Today director mode still holds it for the decision ops, `pause`, `resume` and `reissue`, which are served only here; once [0003](design/decisions/0003-role-neutral-decisions-surface.md) puts decision ops on every profile that needs them, with authority from the decision's class plus a credential's `decide` capability, director mode no longer depends on it.
 
 Distinct from: director mode, which is a session state, and the director layer.
 In code: `ToolProfile.DIRECTOR`.
@@ -150,21 +150,21 @@ In code: `extensions.claude-code.steering`; the old key `extensions.claude-code.
 A server record raised when work needs a choice it should not make alone. It holds a question, options, and usually a recommended option, and it belongs to an item, a run or a root. Its answer records the chosen option, the rationale and who decided. An answer never moves the item: the orchestrator resumes it.
 
 Distinct from: an item that builds nothing, planned in advance to get something decided; settling one usually means raising a decision. Also distinct from ruling, the outcome recorded on the work.
-In code: today `runs_write` `raise`, `answer`, `ack` and `withdraw`, and `runs_read` `decisions` and `decision`. Proposed: `decisions_write` and `decisions_read`, served on every profile that needs them.
+In code: `decisions_write` (`raise`, `ack`, `delegate`, `escalate`, `answer`, `withdraw`) and `decisions_read` `list`, served on every profile that needs them. The `runs_write` decision ops and the `runs_read` `decisions` and `decision` selects are deprecated aliases, removed in 5.0.
 
 ### Decision inbox
 
 The open decisions in a scope: an item, a subtree, a run or a project. It is the same inbox whether the user or the director works through it.
 
 Don't call it: the director's inbox.
-In code: proposed `decisions_read` `list`. It returns full records, filtered by `itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `class` or `severity`. Each class policy appears once per response, and `context` is returned only with `includeContext: true`.
+In code: `decisions_read` `list`. It returns full records, filtered by `itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `class` or `severity`. Each class policy appears once per response, and `context` is returned only with `includeContext: true`.
 
 ### Answer
 
 Choosing one option on a decision, together with the rationale and who decided: the user, whose own words are carried verbatim, or the director acting autonomously. The authority to answer comes from the decision's class and the caller's credential, never from the role or profile making the call.
 
 Distinct from: acknowledging a decision (`ack`), which records that it was seen and settles nothing.
-In code: proposed `decisions_write` `answer`; today `runs_write` `answer` (director profile only).
+In code: `decisions_write` `answer` (director profile only); `runs_write` `answer` is a deprecated alias.
 
 ### Decision class
 
@@ -177,7 +177,7 @@ The named kind a decision is raised under. It sets who may answer it (`answerers
 
 The server tests the caller's credential, never its role.
 
-In code: `decision_classes:`, `DecisionRequestAnswerers`. Today `director-or-human` is tested by "served on the director profile without a seat token" (`DecisionCommands.kt`). Once decisions are role-neutral, it becomes a human, or a caller without a seat token whose credential carries the answer capability.
+In code: `decision_classes:`, `DecisionRequestAnswerers`. `director-or-human` admits a human, or a seat-less caller whose credential grants decide (`DecisionCallers.of`). A class also carries `autonomy` (`answer` or `ask`), the director's own answer-or-ask posture, recorded as `withinAutonomy`.
 
 ### Escalation
 

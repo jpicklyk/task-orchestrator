@@ -117,7 +117,15 @@ object SeedV36 : MigrationSeed(36) {
                 col("answered_profile", "TEXT"),
                 col("answered_at", "TEXT"),
                 col("after_expiry", "INTEGER", notNull = 1, default = "0"),
-                col("version", "INTEGER", notNull = 1, default = "1")
+                col("version", "INTEGER", notNull = 1, default = "1"),
+                // V39: seven nullable columns appended after version, in migration order, no default.
+                col("waiting_on", "TEXT"),
+                col("waiting_reason", "TEXT"),
+                col("answer_decided_by", "TEXT"),
+                col("answer_basis", "TEXT"),
+                col("answer_relayed", "INTEGER"),
+                col("answer_within_autonomy", "INTEGER"),
+                col("answer_links", "TEXT")
             )
         assertEquals(
             expected,

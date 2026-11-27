@@ -1488,11 +1488,15 @@ class ReportParityTest {
             )
             assertTrue(ProductionParity.scenarios.containsAll(mine), "every $select scenario is registered in the production catalog")
             assertEquals(
-                ToolProfile.DIRECTOR,
+                ToolProfile.ORCHESTRATION,
                 ParityCoverage.mcpLegProfile(registry, "report", select),
-                "$select MCP leg runs on the director"
+                "$select MCP leg runs on the orchestration profile"
             )
-            assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", select), select)
+            assertEquals(
+                setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR),
+                ParityCoverage.profilesOf(registry, "report", select),
+                select
+            )
         }
         assertEquals(selects.toSet(), ReportParityScenarios.scenarios.map { it.member }.toSet(), "no scenario names another select")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
@@ -1563,21 +1567,30 @@ class ReportParityTest {
         )
         assertTrue(ProductionParity.scenarios.containsAll(mine), "every report scenario is registered in the production catalog")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
-        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "usage"), "the MCP leg runs on the director")
-        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "report", "waste"), "the MCP leg runs on the director")
+        assertEquals(
+            ToolProfile.ORCHESTRATION,
+            ParityCoverage.mcpLegProfile(registry, "report", "usage"),
+            "the MCP leg runs on orchestration"
+        )
+        assertEquals(
+            ToolProfile.ORCHESTRATION,
+            ParityCoverage.mcpLegProfile(registry, "report", "waste"),
+            "the MCP leg runs on orchestration"
+        )
     }
 
     // ------------------------------------------------------------------ S16 surface
 
     @Test
-    fun `S16 report is visible in director only`() {
-        assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "usage"))
-        assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "report", "waste"))
+    fun `S16 report is visible in orchestration and director`() {
+        val both = setOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR)
+        assertEquals(both, ParityCoverage.profilesOf(registry, "report", "usage"))
+        assertEquals(both, ParityCoverage.profilesOf(registry, "report", "waste"))
         assertTrue("report" in registry.visible(ToolProfile.DIRECTOR).map { it.name })
-        assertTrue("report" !in registry.visible(ToolProfile.ORCHESTRATION).map { it.name })
+        assertTrue("report" in registry.visible(ToolProfile.ORCHESTRATION).map { it.name })
         assertTrue("report" !in registry.visible(ToolProfile.KNOWLEDGE).map { it.name })
         val spec = assertNotNull(registry["report"])
-        assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.ORCHESTRATION))
+        assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.ORCHESTRATION))
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE))
         assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR))
         assertEquals(
@@ -1605,9 +1618,9 @@ class ReportParityTest {
     }
 
     @Test
-    fun `S16 the golden exists for director only`() {
+    fun `S16 the golden exists for orchestration and director`() {
         assertNotNull(ReportParityTest::class.java.getResource("/golden/tools/report.director.json"))
-        assertNull(ReportParityTest::class.java.getResource("/golden/tools/report.orchestration.json"))
+        assertNotNull(ReportParityTest::class.java.getResource("/golden/tools/report.orchestration.json"))
         assertNull(ReportParityTest::class.java.getResource("/golden/tools/report.knowledge.json"))
         assertNull(
             ReportParityTest::class.java.getResource("/golden/tools/planned/report.director.json"),

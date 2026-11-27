@@ -1652,7 +1652,7 @@ test('S13: a whole-call refusal envelope (ok:false, no data.results) clears noth
 
 // -- window-only echo attribution and cross-session follow from SSE --
 // Oracles: task-scope AC5 and D4 (the SSE `actor` is the transport principal, shared by every session on one
-// credential, so only the echo window attributes), api-rest.md section 21 "Actor and rootId" (what the event carries).
+// credential, so only the echo window attributes).
 import { setRemoteAdvanceListener, remoteAdvanceListener } from '../src/graph-data/live.ts'
 import { REMOTE_FOLLOW_DEBOUNCE_MS, REMOTE_FOLLOW_QUIET_MS, attribute, remoteFollowCandidate } from '../src/graph-data/remote.ts'
 

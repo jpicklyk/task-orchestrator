@@ -1,29 +1,20 @@
 package io.github.jpicklyk.mcptask.current.run.internal.wire
 
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
-import io.github.jpicklyk.mcptask.current.platform.call.CallContext
-import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.run.RunToolServices
-import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionCallers
-import io.github.jpicklyk.mcptask.current.run.internal.app.DecisionLoader
 import io.github.jpicklyk.mcptask.current.run.internal.app.RunsAckRequest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 
-/** runs_write ack: acknowledge an open decision. */
+/** runs_write ack: a deprecated alias of `decisions_write ack`. */
 internal val runsAckOp =
     OpSpec<RunToolServices, RunsAckRequest, JsonObject, RunStoreProvider>(
         name = "ack",
-        doc =
-            "Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real " +
-                "proof and no seat token; director-or-human: also the director profile without a seat token). An " +
-                "acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the " +
-                "decision.",
+        doc = writeAliasDoc("ack", ACK_DOC),
         profiles = director(),
         capability = ApiCapability.DECIDE,
         services = RunToolServices::class,
@@ -37,24 +28,5 @@ internal val runsAckOp =
                 ErrorCode.DECISION_CLOSED,
                 ErrorCode.VERSION_CONFLICT
             ),
-        execute = { env, ctx, req -> ackDecision(env, ctx, req) }
+        execute = { env, ctx, req -> ackDecision(env, ctx, req.decisionId) }
     )
-
-private suspend fun WriteScope<RunStoreProvider>.ackDecision(
-    env: RunToolServices,
-    ctx: CallContext,
-    req: RunsAckRequest
-): Outcome<JsonObject> {
-    val decision =
-        when (val r = DecisionLoader.load(stores, ctx, req.decisionId)) {
-            is Outcome.Ok -> r.value
-            is Outcome.Err -> return r
-        }
-    val caller = DecisionCallers.of(ctx)
-    val stored =
-        when (val r = env.decisionService.acknowledge(decision.id, caller)) {
-            is Outcome.Ok -> r.value
-            is Outcome.Err -> return r
-        }
-    return Outcome.Ok(DecisionView.full(stored, env.clock.now(), ctx.principalsVisible))
-}

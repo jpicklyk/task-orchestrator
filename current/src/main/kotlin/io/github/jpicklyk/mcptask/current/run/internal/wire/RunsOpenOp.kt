@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
-import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.run.RunStoreProvider
@@ -35,7 +34,7 @@ internal val runsOpenOp =
                 "an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator " +
                 "(shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and " +
                 "returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.",
-        profiles = orchestration() + director(),
+        profiles = orchestration(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
         stores = RunStoreProvider::class,

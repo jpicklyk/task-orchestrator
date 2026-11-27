@@ -181,6 +181,120 @@ Profiles: orchestration; capability `read`.
 
 Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
+## `decisions_read` (select)
+
+Profiles: director, orchestration.
+
+<a id="decisions_read-list"></a>
+### `decisions_read` select `list`
+
+Profiles: director, orchestration; capability `read`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `itemId` | string | no |
+| `ancestorId` | string | no |
+| `runId` | string | no |
+| `rootId` | string | no |
+| `decisionIds` | array of string | no |
+| `status` | array of string: open \| acknowledged \| answered \| withdrawn | no |
+| `waitingOn` | string: director \| user | no |
+| `class` | string | no |
+| `severity` | string: high \| normal \| low | no |
+| `overdue` | boolean | no |
+| `includeContext` | boolean | no |
+| `limit` | integer | no |
+| `cursor` | string | no |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+## `decisions_write` (ops)
+
+Profiles: director, orchestration.
+
+<a id="decisions_write-raise"></a>
+### `decisions_write` op `raise`
+
+Profiles: orchestration; capability `runs`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `class` | string | yes |
+| `question` | string | yes |
+| `options` | array of object | yes |
+| `recommended` | string | no |
+| `links` | array of object | no |
+| `context` | string | no |
+| `dedupeKey` | string | yes |
+| `itemId` | string | no |
+| `runId` | string | no |
+| `rootId` | string | no |
+| `severity` | string: high \| normal \| low | no |
+| `block` | boolean | no |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
+
+<a id="decisions_write-ack"></a>
+### `decisions_write` op `ack`
+
+Profiles: director; capability `decide`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `decisionId` | string | yes |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+<a id="decisions_write-delegate"></a>
+### `decisions_write` op `delegate`
+
+Profiles: director, orchestration; capability `decide`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `decisionId` | string | yes |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+<a id="decisions_write-escalate"></a>
+### `decisions_write` op `escalate`
+
+Profiles: director; capability `decide`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `decisionId` | string | yes |
+| `reason` | string | yes |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+<a id="decisions_write-answer"></a>
+### `decisions_write` op `answer`
+
+Profiles: director; capability `decide`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `decisionId` | string | yes |
+| `option` | string | no |
+| `text` | string | no |
+| `rationale` | string | no |
+| `decidedBy` | string: user \| director | no |
+| `links` | array of object | no |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+<a id="decisions_write-withdraw"></a>
+### `decisions_write` op `withdraw`
+
+Profiles: director, orchestration; capability `runs`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `decisionId` | string | yes |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
 ## `deps_read` (select)
 
 Profiles: director, knowledge, orchestration.
@@ -860,12 +974,12 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 ## `report` (select)
 
-Profiles: director.
+Profiles: director, orchestration.
 
 <a id="report-usage"></a>
 ### `report` select `usage`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -881,7 +995,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-gates"></a>
 ### `report` select `gates`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -897,7 +1011,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-notes"></a>
 ### `report` select `notes`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -914,7 +1028,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-contention"></a>
 ### `report` select `contention`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -930,7 +1044,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 <a id="report-waste"></a>
 ### `report` select `waste`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -943,7 +1057,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 <a id="report-rollup"></a>
 ### `report` select `rollup`
 
-Profiles: director; capability `read`.
+Profiles: director, orchestration; capability `read`.
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -1043,7 +1157,7 @@ Profiles: director, orchestration.
 <a id="runs_write-open"></a>
 ### `runs_write` op `open`
 
-Profiles: director, orchestration; capability `runs`.
+Profiles: orchestration; capability `runs`.
 
 | Field | Type | Required |
 | --- | --- | --- |

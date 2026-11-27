@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.ContentionRow
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportContentionRequest
@@ -32,7 +33,7 @@ internal val reportContentionSelect =
                 "report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then " +
                 "kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw " +
                 "and truncatedByRetention. Visibility as for gates.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportContentionRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

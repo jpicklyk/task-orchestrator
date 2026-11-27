@@ -666,7 +666,8 @@ sealed class DomainEvent {
     // ---- decisions (entity = the decision request; root = its root item) ----
     //
     // The payload names the class, severity, run, item and dedupe key; an answer adds the option, whether it came after
-    // the expiry, and the answerer's kind, proof status and profile. Never a principal id, host, session id, answer
+    // the expiry, the answerer's kind, proof status and profile, and the derived decision provenance; delegate and
+    // escalate add who the request now waits on. Never a principal id, host, session id, answer
     // text or rationale: the row's own actor columns carry who acted.
 
     /** A decision request was raised (a re-raise that matched an existing request records nothing). */
@@ -701,9 +702,46 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = decisionPayload(decisionClass, severity, runId, itemId, dedupeKey)
     }
 
+    /** A pending decision request was delegated to the director (`waitingOn` director; a repeat records nothing). */
+    data class DecisionDelegated(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String,
+        val waitingOn: String
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_DELEGATED
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> =
+            decisionPayload(decisionClass, severity, runId, itemId, dedupeKey) + mapOf("waitingOn" to waitingOn)
+    }
+
+    /** A pending decision request was escalated to the user (`waitingOn` user; the reason is never in the payload). */
+    data class DecisionEscalated(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val decisionClass: String,
+        val severity: DecisionRequestSeverity,
+        val runId: UUID?,
+        val itemId: UUID?,
+        val dedupeKey: String,
+        val waitingOn: String
+    ) : DomainEvent() {
+        override val type: String get() = DECISION_ESCALATED
+        override val entityKind: String get() = KIND_DECISION
+
+        override fun payload(): Map<String, Any?> =
+            decisionPayload(decisionClass, severity, runId, itemId, dedupeKey) + mapOf("waitingOn" to waitingOn)
+    }
+
     /**
      * A decision request was answered with [option] (null for a text-only freeform answer). [kind], [proofStatus] and
-     * [profile] are the answerer's credential kind, proof status and served profile.
+     * [profile] are the answerer's credential kind, proof status and served profile. [decidedBy], [basis], [relayed] and
+     * [withinAutonomy] are the derived decision provenance (null when it does not apply).
      */
     data class DecisionAnswered(
         override val entityId: UUID,
@@ -717,7 +755,11 @@ sealed class DomainEvent {
         val afterExpiry: Boolean,
         val kind: String,
         val proofStatus: String,
-        val profile: String?
+        val profile: String?,
+        val decidedBy: String? = null,
+        val basis: String? = null,
+        val relayed: Boolean? = null,
+        val withinAutonomy: Boolean? = null
     ) : DomainEvent() {
         override val type: String get() = DECISION_ANSWERED
         override val entityKind: String get() = KIND_DECISION
@@ -729,7 +771,11 @@ sealed class DomainEvent {
                     "afterExpiry" to afterExpiry,
                     "kind" to kind,
                     "proofStatus" to proofStatus,
-                    "profile" to profile
+                    "profile" to profile,
+                    "decidedBy" to decidedBy,
+                    "basis" to basis,
+                    "relayed" to relayed,
+                    "withinAutonomy" to withinAutonomy
                 )
     }
 
@@ -796,6 +842,8 @@ sealed class DomainEvent {
         const val SEAT_ENDED = "seat.ended"
         const val DECISION_RAISED = "decision.raised"
         const val DECISION_ACKNOWLEDGED = "decision.acknowledged"
+        const val DECISION_DELEGATED = "decision.delegated"
+        const val DECISION_ESCALATED = "decision.escalated"
         const val DECISION_ANSWERED = "decision.answered"
         const val DECISION_WITHDRAWN = "decision.withdrawn"
 
@@ -804,7 +852,8 @@ sealed class DomainEvent {
             listOf(RUN_OPENED, RUN_UPDATED, RUN_PAUSED, RUN_RESUMED, RUN_ENDED, RUN_MARKED, RUN_ORCHESTRATOR_REISSUED)
 
         /** The decision event types, in lifecycle order (all of them stream on the SSE projection; audit by prefix). */
-        val DECISION_TYPES: List<String> = listOf(DECISION_RAISED, DECISION_ACKNOWLEDGED, DECISION_ANSWERED, DECISION_WITHDRAWN)
+        val DECISION_TYPES: List<String> =
+            listOf(DECISION_RAISED, DECISION_ACKNOWLEDGED, DECISION_DELEGATED, DECISION_ESCALATED, DECISION_ANSWERED, DECISION_WITHDRAWN)
 
         /** `transition.rejected` codes (the error-catalog wire codes they mirror). */
         const val REJECTED_GATE_BLOCKED = "gate_blocked"

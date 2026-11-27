@@ -5,7 +5,6 @@ This guide is written for operators deploying the MCP Task Orchestrator to produ
 For single-agent or local-dev setups, the defaults are appropriate and this guide can be skipped.
 
 **Companion docs:**
-- [REST API Reference](api-rest.md) — HTTP endpoint docs, DTOs, error codes, SSE
 - [API Reference — `advance`](api-reference.md#advance) — tool spec: ops, claim semantics, error codes
 - [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
 - [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) — agent-side model: exclusive vs advisory, contention/retry, guarantees vs non-guarantees
@@ -33,7 +32,7 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 
 **Director confinement.** A credential with `profile: director` reaches only `/mcp/director` (and `POST /api/v1/ops/director/{tool}` over REST); on any other `/mcp*` path it is `403 forbidden` (scope `capability`, required `director`).
 
-**Director endpoint.** The director profile is served at `/mcp/director` (or over stdio with `MCP_TOOL_PROFILE=director`) and over REST at `POST /api/v1/ops/director/{tool}`. The confinement above is one-way: any credential that holds the capabilities of a director-profile tool may call it on the director path, whatever its own `profile`. On the plain `/mcp` path (and a plain `POST /api/v1/ops/{tool}`) the director-only ops (pause, resume, and answering the director-or-human classes) need the director profile, and the director path does not help with a human-only class, which needs a human credential. That plain-path rule is hygiene, not a boundary, because the same credential can use the director path. Put the decision authority in the credential's capabilities and scope, not in the path. A single developer who runs one stdio server has no HTTP endpoint to point at, so the way to answer a limit decision is a second stdio entry started with `MCP_TOOL_PROFILE=director`.
+**Director endpoint.** The director profile is served at `/mcp/director` (or over stdio with `MCP_TOOL_PROFILE=director`) and over REST at `POST /api/v1/ops/director/{tool}`. The confinement above is one-way: any credential that holds the capabilities of a director-profile tool may call it on the director path, whatever its own `profile`. On the plain `/mcp` path (and a plain `POST /api/v1/ops/{tool}`) the director-only ops (pause and resume) need the director profile, and the director path does not help with a human-only class, which needs a human credential. That plain-path rule is hygiene, not a boundary, because the same credential can use the director path. Put the decision authority in the credential's capabilities and scope, not in the path. A single developer who runs one stdio server has no HTTP endpoint to point at, so the way to answer a limit decision is a second stdio entry started with `MCP_TOOL_PROFILE=director`.
 
 **Local modes are unauthenticated.** In **Local** mode there is no credential check: any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) invokes every tool its profile serves, as the `local` principal (ADMIN, unrestricted) - full read, write and delete of the work-item graph. Every stdio or local session is that one principal, so they share claims and note ownership with no contention between them; separating callers needs credentials or seat tokens. The server logs a loud `SECURITY:` WARN at startup whenever a local mode serves HTTP. Check `docker logs` after first boot.
 
@@ -341,8 +340,7 @@ The `host` column of a row, and of every `events` row the call writes, names the
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
 the client sent no name). On REST rows it is the `X-Client-Host` request header, else the first `User-Agent` product token,
 else `rest`. The value is normalized (control characters dropped, trimmed, lowercased, capped at 64 code points). Both are self-reported by the client and unauthenticated: `host` labels telemetry only and is
-never used for authorization, scoping or identity. See
-[api-rest.md](api-rest.md) section 6a. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
+never used for authorization, scoping or identity. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
 overrides that variable must add the header itself for browser clients to send it.
 
 `call_log` grows by about 250-450 bytes per call (about 8 MB per day at 20 000 calls a day). Its retention
@@ -496,18 +494,51 @@ API_ALLOW_UNAUTHENTICATED=true
 
 ### Bearer token secret file
 
-See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
+**Token file format (version 1):**
+
+```yaml
+version: 1
+tokens:
+  - id: dashboard-reader
+    description: "Read-only dashboard token"
+    token_sha256: "e3b0c44298fc1c149afbf4c8996fb924..."  # 64 lowercase hex chars
+    capabilities:
+      - read
+    scope:
+      root_ids:
+        - "550e8400-e29b-41d4-a716-446655440000"
+    expires_at: "2027-01-01T00:00:00Z"   # optional ISO-8601
+  - id: admin-token
+    token_sha256: "..."
+    capabilities:
+      - admin
+```
+
+**Generating `token_sha256`** — the digest must cover the token's exact bytes with **no trailing newline**:
+
+```bash
+# macOS / Linux / Git Bash
+printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
+```
+```powershell
+# Windows PowerShell
+([System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash(
+  [System.Text.Encoding]::UTF8.GetBytes($token))) -replace '-','').ToLower()
+```
+
+> Do **not** use `openssl dgst -sha256 <<< "$TOKEN"` or `echo "$TOKEN" | …` — `<<<` and `echo` append a newline, so the digest won't match the token sent in requests (every call returns `401`). See the [quick-start REST API walkthrough](quick-start.md) for the full token-generation flow.
+
+Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
-- `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
+- `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}`
 - `scope.root_ids` restricts access to specific project trees (only an absent `scope` or `root_ids` key is
   unrestricted; `null` and an empty list `[]` fail startup rather than meaning unrestricted — delete the key
   instead, and a key repeated anywhere in the file fails startup too). Every listed id must
   be a depth-0 project root: an existing non-root anchor fails startup naming the token id and the anchor
   (a JWT carrying one is a `401`, with one WARN per `sub`), and an anchor that does not exist yet is accepted
   and admits nothing until the root is created. `scope` itself
-  and `scope.tags_include` fail closed on any malformed shape too — see
-  [api-rest.md §1](api-rest.md#1-authentication) for the full fail-closed rules
+  and `scope.tags_include` fail closed on any malformed shape too
 - Token rotation requires a server restart (no live reload)
 - `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
 
@@ -548,7 +579,7 @@ nothing to serve on a read error and fails closed, and so does a read made insid
 (every write and the `items_read` `context` preview). The failure is the `unavailable` error
 (kind `shedding`, `retryAfterMs` 1000): per element for a write batch, for the whole call otherwise
 - see the [Response envelope and Error catalog](api-reference.md#response-envelope) of the API
-reference and [api-rest.md](api-rest.md) section 6 for the exact shapes. This is orthogonal to
+reference for the exact shapes. This is orthogonal to
 `config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
 back to when the DB itself is transiently unreachable.
 
@@ -818,7 +849,7 @@ Under `API_AUTH_MODE=jwks` every credential on `/api/v1/*` and `/mcp*` is a JWT 
 | `exp` | Required | Enforced with a **60-second clock-skew allowance**; a token without `exp`, or past it, is rejected. Also bounds the lifetime cap below. |
 | `nbf` | Optional | If present, enforced with a 60-second clock-skew allowance. |
 | `iat` | Optional | When present: a token dated more than 60s in the future is rejected, and so is an `exp - iat` spread beyond `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (+60s skew). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
-| `to_kind` | Optional | `human`, `agent` or `service` (trimmed, case-insensitive); see [api-rest.md section 1](api-rest.md#1-authentication) for the default. A non-string or unknown value rejects the JWT. |
+| `to_kind` | Optional | `human`, `agent` or `service` (trimmed, case-insensitive). A non-string or unknown value rejects the JWT. |
 | `to_scope` | Optional | `root_ids` and `tags_include` scope; absent is unrestricted. A malformed value rejects the JWT (fail closed). |
 | `to_capabilities` | Optional | The capability list; absent defaults to read-only. |
 
@@ -1069,7 +1100,7 @@ docker run --rm -v <volume>:/data alpine sh -c "apk add --no-cache sqlite >/dev/
 
 A missing row for a once step that is registered fails startup as `DATA_STEPS`, so every row you expect is there on a healthy start. An every-boot step leaves no row.
 
-**Config warnings.** The global config file is imported at every boot; a legacy 3.x top-level key in it is accepted as a stored warning. `GET /api/v1/info` returns them as `configWarnings` (an empty array when there are none). The route needs the REST API enabled and an authenticated caller, and the step 3 example has the API off: to read it, start with `API_ENABLED=true` and a credential mode (see "Enabling the REST API" and [api-rest.md](api-rest.md)). A global file carrying 3.x plugin sections is expected to show them; move those settings under `extensions.claude-code`.
+**Config warnings.** The global config file is imported at every boot; a legacy 3.x top-level key in it is accepted as a stored warning. `GET /api/v1/info` returns them as `configWarnings` (an empty array when there are none). The route needs the REST API enabled and an authenticated caller, and the step 3 example has the API off: to read it, start with `API_ENABLED=true` and a credential mode (see "Enabling the REST API"). A global file carrying 3.x plugin sections is expected to show them; move those settings under `extensions.claude-code`.
 
 ### 5. Roll back
 
@@ -1129,7 +1160,7 @@ To confirm the restored file is a 3.x database, run the step 4 query again: the 
 21 image defaults: Dockerfile (the WORKDIR, USER, VOLUME, HEALTHCHECK on READINESS_FILE and DATABASE_PATH=data/current-tasks.db instructions).
 22 the database runs in WAL mode (stale -wal/-shm must not survive a restore): DatabaseManager (SQLiteConfig.JournalMode.WAL).
 23 data_steps columns: current/src/main/resources/db/migration/sqlite/V23__Data_Steps.sql; an unapplied once step fails startup as DATA_STEPS: CurrentMcpServer (the DataStepRunner call and Failed(Reason.DATA_STEPS)) and the "Data steps" paragraph above.
-24 configWarnings on GET /api/v1/info, authenticated: api-rest.md (configWarnings in the GET /api/v1/info section), ServiceRoutes (info route).
+24 configWarnings on GET /api/v1/info, authenticated: ServiceRoutes (info route).
 25 a 3.x binary cannot open a V26 or later database: CHANGELOG.md ("Upgrading from 3.x").
 -->
 
@@ -1378,8 +1409,7 @@ acting principal's token id — check server logs to attribute the override afte
 token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`
 interval(s) for that key (`releaseReason: "force_released"`), so the override is attributable from
 `GET /api/v1/resources/leases/history?key=<key>` (`ADMIN` capability for actor identity) even after
-server logs have rotated — see [Workflow Guide §11, "Lease-interval history"](workflow-guide.md#11-resource-leasing)
-and [`api-rest.md`](api-rest.md) §14. There is **no equivalent MCP tool/verb** — force-release is
+server logs have rotated — see [Workflow Guide §11, "Lease-interval history"](workflow-guide.md#11-resource-leasing). There is **no equivalent MCP tool/verb** — force-release is
 REST-only, by design (see Non-Goals in the implementation plan: no MCP acquire/release/renew verbs).
 
 **Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add
@@ -1420,8 +1450,8 @@ below). What an operator sees:
   attempts`) and raises a high-severity `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is
   chosen before the unit that writes the decision runs, so after a database fault, or when the write finds an
   existing decision for the same attempt (a dedupe hit), the id can be absent or differ from the one that stands.
-  Read the run's decisions (`runs_read` `decisions`) rather than trusting the refusal alone.
-- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
+  Read the run's decisions (`decisions_read` `list` with `runId`) rather than trusting the refusal alone.
+- **Answering.** A director or human answers through `decisions_write` `answer` (`/ops/director/decisions_write` on REST):
   `allow_one` gives that (item, seat) one more attempt and resumes the run; `skip_item` removes the item and resumes;
   `stop` closes the run `budget_exhausted`, ends its seats, clears their claims and releases the leases of its WORK
   members. An orchestrator cannot lift its own cap: a manual `resume` of an attempts pause is refused. The decisions the
@@ -1448,7 +1478,7 @@ section decodes with the section ignored.
 
 ## Observability Gaps
 
-As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE, see [api-rest.md](api-rest.md) section 21), and the director-profile `report` tool turns both into aggregates (see [Reporting](reporting.md)).
+As of 4.0, the MCP Task Orchestrator ships with **no metrics endpoints**. There is no Prometheus/Micrometer integration and no `/metrics` HTTP path. Per-call telemetry lives in the `call_log` table and the durable `events` table (streamed over SSE), and the director-profile `report` tool turns both into aggregates (see [Reporting](reporting.md)).
 
 Fleet operators should treat the missing metrics endpoint as a known gap when planning production rollouts.
 

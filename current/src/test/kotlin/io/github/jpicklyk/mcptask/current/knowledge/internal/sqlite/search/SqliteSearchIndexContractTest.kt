@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  *    `AccessScope`/`allowsItemTags` ("membership is exact (no prefix/substring matching)"), so `%` and `_` are plain
  *    characters, `Alpha` is not `alpha` and a principal tag containing a comma is one element, not two.
  *  - Request tag filter (D4): keeps the 3.x case-insensitive semantics, any-of.
- *  - Principal root ids (AC3/D3, `api-rest.md` section 3, amended by item 754ae3dc, scope on root_id, roots only): an item is
+ *  - Principal root ids (AC3/D3, amended by item 754ae3dc, scope on root_id, roots only): an item is
  *    in scope when its stamped `root_id` is a listed id, so a listed id that is NOT a root admits nothing; an item outside
  *    every listed root's tree (here an unstamped depth-0 orphan) is never returned for a restricted scope.
  *  - `field` (AC1/D5): the column that actually contains a match, title when both do; `snippet` comes from that

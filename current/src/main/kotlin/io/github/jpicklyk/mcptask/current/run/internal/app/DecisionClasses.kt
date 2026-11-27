@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.run.internal.app
 
 import io.github.jpicklyk.mcptask.current.config.DecisionClassConfig
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAutonomy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
@@ -9,7 +10,8 @@ import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
 /**
  * One effective decision class: who may answer ([answerers]), the default [severity], the expiry in seconds
  * ([expiresAfterSeconds], null = never overdue), the expiry behaviour ([onExpiry], always `escalate`), whether an
- * answer may be free text ([freeform]), and whether only the server raises it ([serverRaised]: the tool `raise`
+ * answer may be free text ([freeform]), whether the director may answer it itself ([autonomy], `ask` by default and
+ * always for human-only answerers), and whether only the server raises it ([serverRaised]: the tool `raise`
  * refuses it).
  */
 data class DecisionClass(
@@ -19,6 +21,7 @@ data class DecisionClass(
     val expiresAfterSeconds: Long? = null,
     val onExpiry: String = DecisionRequest.ON_EXPIRY_ESCALATE,
     val freeform: Boolean = false,
+    val autonomy: DecisionAutonomy = DecisionAutonomy.ASK,
     val serverRaised: Boolean = false
 )
 
@@ -82,7 +85,13 @@ object DecisionClasses {
                     severity = config.severity ?: base.severity,
                     expiresAfterSeconds = config.expiresAfterSeconds ?: base.expiresAfterSeconds,
                     onExpiry = config.onExpiry ?: base.onExpiry,
-                    freeform = config.freeform ?: base.freeform
+                    freeform = config.freeform ?: base.freeform,
+                    autonomy =
+                        if (answerers == DecisionRequestAnswerers.HUMAN_ONLY) {
+                            DecisionAutonomy.ASK
+                        } else {
+                            config.autonomy ?: base.autonomy
+                        }
                 )
         }
         return out

@@ -46,7 +46,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
  * `resolveTrustedActorIdOrNull` KDoc oracle (D-b: return type narrowed `String?` -> `String`,
  * `Rejected` arm now throws instead of returning null -- unreachable in practice since
  * `toVerificationResult` always reports `VERIFIED` for JWKS and every policy trusts `VERIFIED`);
- * `current/docs/fleet-deployment.md` :155 and `api-rest.md` §2 (write capabilities gate write
+ * `current/docs/fleet-deployment.md` :155 (write capabilities gate write
  * routes, never actor-resolution).
  */
 class WriteRouteAuthInvariantTest {

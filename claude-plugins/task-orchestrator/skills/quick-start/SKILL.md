@@ -16,7 +16,7 @@ Teach this before anything else. The server shows a client only the tools of its
 
 | Profile | Where | What it is for |
 |---|---|---|
-| `orchestration` (the default) | `/mcp`, and stdio unless `MCP_TOOL_PROFILE` says otherwise | nearly every tool: items, notes, dependencies, documents, `advance`, `config`, runs and seats; the `report` tool and the decision tools (`runs_read` `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer`) are director-only |
+| `orchestration` (the default) | `/mcp`, and stdio unless `MCP_TOOL_PROFILE` says otherwise | nearly every tool: items, notes, dependencies, documents, `advance`, `config`, runs and seats; the decision ops `answer`, `ack`, `pause` and `resume` are director-only |
 | `director` | `/mcp/director`, or `MCP_TOOL_PROFILE=director` | oversight: reads and reports, no note or document bodies, a few run writes |
 | `knowledge` | `/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` | items, notes, dependencies and documents only (no `advance`) |
 

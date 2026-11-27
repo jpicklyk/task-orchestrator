@@ -1,11 +1,14 @@
 package io.github.jpicklyk.mcptask.current.run.internal.sqlite
 
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAnswerBasis
+import io.github.jpicklyk.mcptask.current.model.run.DecisionDecidedBy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswer
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.model.run.DecisionWaitingOn
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.IdPrefixRange
@@ -176,7 +179,7 @@ class SqliteDecisionRequestStore(
 
     // ---- mapping --------------------------------------------------------------------------------------------
 
-    /** Writes every column a request may change after it is raised: status, acknowledgement and answer. */
+    /** Writes every column a request may change after it is raised: status, routing, acknowledgement and answer. */
     private fun writeMutable(
         it: UpdateBuilder<*>,
         decision: DecisionRequest
@@ -199,6 +202,13 @@ class SqliteDecisionRequestStore(
         it[DecisionRequestsTable.answeredProfile] = answer?.profile
         it[DecisionRequestsTable.answeredAt] = answer?.answeredAt
         it[DecisionRequestsTable.afterExpiry] = answer?.afterExpiry ?: false
+        it[DecisionRequestsTable.waitingOn] = decision.waitingOn?.wire
+        it[DecisionRequestsTable.waitingReason] = decision.waitingReason
+        it[DecisionRequestsTable.answerDecidedBy] = answer?.decidedBy?.wire
+        it[DecisionRequestsTable.answerBasis] = answer?.basis?.wire
+        it[DecisionRequestsTable.answerRelayed] = answer?.relayed
+        it[DecisionRequestsTable.answerWithinAutonomy] = answer?.withinAutonomy
+        it[DecisionRequestsTable.answerLinks] = answer?.let { a -> encodeLinks(a.links) }
     }
 
     private fun readById(id: UUID): DecisionRequest? =
@@ -227,7 +237,13 @@ class SqliteDecisionRequestStore(
                     seat = row[DecisionRequestsTable.answeredSeat],
                     profile = row[DecisionRequestsTable.answeredProfile],
                     answeredAt = answeredAt,
-                    afterExpiry = row[DecisionRequestsTable.afterExpiry]
+                    afterExpiry = row[DecisionRequestsTable.afterExpiry],
+                    decidedBy =
+                        row[DecisionRequestsTable.answerDecidedBy]?.let { enumOf(it, "answer_decided_by", DecisionDecidedBy::fromWire) },
+                    basis = row[DecisionRequestsTable.answerBasis]?.let { enumOf(it, "answer_basis", DecisionAnswerBasis::fromWire) },
+                    relayed = row[DecisionRequestsTable.answerRelayed],
+                    withinAutonomy = row[DecisionRequestsTable.answerWithinAutonomy],
+                    links = decodeLinks(row[DecisionRequestsTable.answerLinks])
                 )
             } else {
                 null
@@ -258,7 +274,9 @@ class SqliteDecisionRequestStore(
             ackByKind = row[DecisionRequestsTable.ackByKind],
             ackAt = row[DecisionRequestsTable.ackAt],
             answer = answer,
-            version = row[DecisionRequestsTable.version]
+            version = row[DecisionRequestsTable.version],
+            waitingOn = row[DecisionRequestsTable.waitingOn]?.let { enumOf(it, "waiting_on", DecisionWaitingOn::fromWire) },
+            waitingReason = row[DecisionRequestsTable.waitingReason]
         )
     }
 

@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.GateRow
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportGatesRequest
@@ -32,7 +33,7 @@ internal val reportGatesSelect =
                 "falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince " +
                 "(the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees " +
                 "its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportGatesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

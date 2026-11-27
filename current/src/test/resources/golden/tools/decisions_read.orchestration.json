@@ -1,0 +1,103 @@
+{
+  "name": "decisions_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "list"
+        ]
+      },
+      "itemId": {
+        "type": "string",
+        "description": "Only decisions about this item. Item id: UUID or 8-32 hex."
+      },
+      "ancestorId": {
+        "type": "string",
+        "description": "Only decisions about this item or one below it, and the item-less decisions of it as a root. Item id: UUID or 8-32 hex."
+      },
+      "runId": {
+        "type": "string",
+        "description": "Only decisions of this run. Run id: UUID or 8-32 hex."
+      },
+      "rootId": {
+        "type": "string",
+        "description": "Only decisions on this root. Item id: UUID or 8-32 hex."
+      },
+      "decisionIds": {
+        "type": "array",
+        "description": "Only these decisions: full UUIDs, at most 50; an unknown id is left out and [] matches nothing.",
+        "items": {
+          "type": "string"
+        }
+      },
+      "status": {
+        "type": "array",
+        "description": "Only decisions in one of these statuses; absent means any.",
+        "items": {
+          "type": "string",
+          "enum": [
+            "open",
+            "acknowledged",
+            "answered",
+            "withdrawn"
+          ]
+        }
+      },
+      "waitingOn": {
+        "type": "string",
+        "description": "Only pending decisions routed to this answerer.",
+        "enum": [
+          "director",
+          "user"
+        ]
+      },
+      "class": {
+        "type": "string",
+        "description": "Only decisions of this class."
+      },
+      "severity": {
+        "type": "string",
+        "description": "Only decisions of this effective severity.",
+        "enum": [
+          "high",
+          "normal",
+          "low"
+        ]
+      },
+      "overdue": {
+        "type": "boolean",
+        "description": "true: only pending decisions past their expiry; false or absent: no filter."
+      },
+      "includeContext": {
+        "type": "boolean",
+        "description": "true: include each decision's context; default false."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50)."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The page.next value of the previous page."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read decisions, the questions raised for an answer. select: list (decisions, newest first, with the decision classes in force on their roots). A decision is outside the call scope when its root is. Call with describe:true for parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

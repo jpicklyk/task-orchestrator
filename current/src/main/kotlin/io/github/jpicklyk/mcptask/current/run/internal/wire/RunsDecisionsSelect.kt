@@ -16,15 +16,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 import java.util.UUID
 
-/** `runs_read decisions`: decision requests, newest first. */
+/** `runs_read decisions`: decision requests, newest first; a deprecated alias of `decisions_read list` (it keeps its summary rows). */
 internal val runsDecisionsSelect =
     SelectSpec.Paged<RunToolServices, RunsDecisionsRequest, JsonObject>(
         name = "decisions",
         doc =
-            "List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up " +
-                "while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId " +
-                "filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status " +
-                "client-side. Decisions on roots outside the call scope are left out.",
+            readAliasDoc(
+                "List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up " +
+                    "while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId " +
+                    "filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status " +
+                    "client-side. Decisions on roots outside the call scope are left out."
+            ),
         profiles = director(),
         services = RunToolServices::class,
         request = serializer<RunsDecisionsRequest>(),

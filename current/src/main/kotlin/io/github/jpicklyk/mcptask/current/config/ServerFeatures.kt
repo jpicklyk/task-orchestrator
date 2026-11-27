@@ -14,9 +14,31 @@ package io.github.jpicklyk.mcptask.current.config
  * list in the served `seats` and the `callerSeat` member of `items_read` `context` and `advance` `transition`.
  * `"seatWrites"` advertises the `writes` member the served `seats` carry on every seat. `"orchestratorNotes"` advertises
  * that `orchestrator` is a reserved note owner in every seat-aware schema and that every served note entry carries its
- * computed `owningSeat`.
+ * computed `owningSeat`. `"resumeGate"` advertises that `advance` `resume` is refused (`gate_blocked`, violation
+ * `decision-pending`) while the decision an `awaiting_decision` block names is open or acknowledged. `"answerProvenance"`
+ * advertises that an answered decision records who decided it and why (`decidedBy`, `basis`, `relayed`, `withinAutonomy`)
+ * and the cited `links`. `"waitingOn"` advertises that a pending decision records who it waits on (`waitingOn`,
+ * `waitingReason`), set by `delegate` and `escalate`. `"decisionTools"` advertises the `decisions_read` and
+ * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases. `"decisionAuthority"`
+ * advertises that director-or-human admits a seat-less caller whose credential grants decide on any profile, and that
+ * decision classes carry an `autonomy`, recorded as `withinAutonomy`. `"profileSets"` advertises `decisions_read` and every
+ * `report` select on the orchestration profile, and `runs_write` `open` not on the director profile.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
-        listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes")
+        listOf(
+            "seats",
+            "dispatchBySeat",
+            "independent_of",
+            "rules",
+            "seatSkills",
+            "seatWrites",
+            "orchestratorNotes",
+            "resumeGate",
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn",
+            "decisionAuthority",
+            "profileSets"
+        )
 }

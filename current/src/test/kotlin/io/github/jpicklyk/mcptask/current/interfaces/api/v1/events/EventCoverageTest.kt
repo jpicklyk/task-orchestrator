@@ -1049,6 +1049,7 @@ class EventCoverageTest {
                     "docs_write" to emptyArray(),
                     "config" to emptyArray(),
                     "runs_write" to emptyArray(),
+                    "decisions_write" to emptyArray(),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
@@ -1062,6 +1063,7 @@ class EventCoverageTest {
                             "config" -> rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG))
                             "docs_write" -> rig.ctx.callTool("docs_write", docsUpsert(root.id))
                             "runs_write" -> rig.ctx.callTool("runs_write", runsOpen(root.id))
+                            "decisions_write" -> rig.ctx.callTool("decisions_write", decisionsRaise(root.id))
                             else -> error("unhandled write tool $name")
                         }
                     }
@@ -1083,6 +1085,7 @@ class EventCoverageTest {
                     "docs_read" to emptyArray(),
                     "report" to emptyArray(),
                     "runs_read" to emptyArray(),
+                    "decisions_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
@@ -1092,6 +1095,12 @@ class EventCoverageTest {
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
                         "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
                         "runs_read" -> rig.ctx.callTool("runs_read", runsList())
+                        "decisions_read" ->
+                            rig.ctx.callTool(
+                                "decisions_read",
+                                buildJsonObject { put("select", "list") },
+                                profile = ToolProfile.DIRECTOR
+                            )
                         "docs_read" -> rig.ctx.callTool("docs_read", docsGet(root.id))
                         "report" -> rig.ctx.callTool("report", buildJsonObject { put("select", "usage") }, profile = ToolProfile.DIRECTOR)
                         else -> error("unhandled read tool $name")
@@ -1139,6 +1148,7 @@ class EventCoverageTest {
                 "docs_write" to setOf("document.created"),
                 "config" to setOf("config.version_created"),
                 "runs_write" to setOf("run.opened"),
+                "decisions_write" to setOf("decision.raised"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */
@@ -1150,6 +1160,7 @@ class EventCoverageTest {
                 "docs_read",
                 "report",
                 "runs_read",
+                "decisions_read",
             )
 
         /** An `advance` call starting [id] (queue -> work). */
@@ -1242,6 +1253,36 @@ class EventCoverageTest {
                 put("rootId", root.toString())
                 put("kind", "plan")
                 put("slug", "s17-plan")
+            }
+
+        /** A `decisions_write` raise of a built-in question under [root] (no run, no item). */
+        fun decisionsRaise(root: UUID): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "raise")
+                                put("rootId", root.toString())
+                                put("class", "question")
+                                put("question", "S17 which one?")
+                                put("dedupeKey", "s17-decision")
+                                put(
+                                    "options",
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("key", "a")
+                                                put("label", "A")
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
             }
 
         /** A `runs_write` open of an empty run under [root]. */

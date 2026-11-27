@@ -45,8 +45,8 @@ import kotlin.test.assertTrue
  * VERIFIED_STALE for a JWT; `human` accepted only from a credential), decision D2 (`kind` and `to_kind` are trim and
  * case-insensitive; an unknown value fails startup for the file and rejects the JWT for the claim), D3 (DID default is
  * `sub == iss && sub.startsWith("did:")`), D4 (the credential `profile` rides on [Resolved], not on the Principal; no JWT
- * profile claim), `api-rest.md` section 1 (the token is looked up by SHA-256 of its exact bytes; `to_capabilities` absent or
- * empty is `[read]`, an unknown capability is dropped; `sub` is the principal id; `exp` is required) and the W3C DID Core
+ * profile claim),
+ * and the W3C DID Core
  * grammar (the scheme prefix is the lowercase `did:`). Expected values are literals.
  *
  * Negative-assertion conditions: each `null` result is paired with a control that differs by exactly one input (a valid kind

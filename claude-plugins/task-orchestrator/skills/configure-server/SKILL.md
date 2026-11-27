@@ -10,7 +10,7 @@ Decides **how the MCP Task Orchestrator container is launched and reached**: tra
 port publishing, config mount, and config-sync. This is a runtime/deployment concern, distinct from
 `quick-start` (first-time onboarding narrative) and `manage-schemas` (workflow gates/traits/
 `resources:` content inside `.taskorchestrator/config.yaml`). Who a caller is comes from `API_AUTH_MODE`
-and its credentials; this skill renders `none` and `bearer`, and links `jwks` ([fleet deployment](../../../../current/docs/fleet-deployment.md), [REST API, authentication](../../../../current/docs/api-rest.md#1-authentication)) without rendering it; no config key sets it. If the user wants
+and its credentials; this skill renders `none` and `bearer`, and links `jwks` ([fleet deployment](../../../../current/docs/fleet-deployment.md)) without rendering it; no config key sets it. If the user wants
 schema or gate changes — including resource-lease declarations — redirect to `/manage-schemas` instead
 of proceeding here.
 
@@ -108,8 +108,7 @@ AskUserQuestion(questions: [{
   ("Loopback footgun") before the command, and force `-p 127.0.0.1:3001:3001` in the render — never a
   wider publish.
 - **Bearer** → ask for the host path to the token YAML (free-text/"Other" answer), e.g.
-  `~/.taskorchestrator-secrets/api-tokens.yaml`. If the file doesn't exist yet, point at
-  `current/docs/api-rest.md` §1 for the token-generation snippet — this skill does not generate tokens.
+  `~/.taskorchestrator-secrets/api-tokens.yaml`.
 - **Unauthenticated and Off both:** every caller is the local agent principal (proof none), so a human-only decision class can never be answered; director-or-human classes (attempt cap, deviation; the run budget is legacy-only) can, through the director entry. A user who wants human sign-off needs Bearer with a `kind: human` token (see "Director credential").
 - **Off** → REST fragment is `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`; config-sync will
   no-op (tell the user). Without the opt-in, an HTTP server with the API off refuses to start (`MCP_AUTH`,
@@ -299,17 +298,16 @@ a READ-capability call — under bearer auth, the token rendered for `TASK_ORCHE
 `read` in addition to whatever capability its other consumers need (config-sync's documented token is
 `read` + `write-config` + `write-docs`: `read` for the config get and validate and the rule listing,
 `write-config` for the push, `write-docs` for the rule upserts; plan-capture needs `write-docs`).
-`docs_write` needs `write-docs` and `write-config` does not grant it
-([REST API, authentication](../../../../current/docs/api-rest.md#1-authentication)). A token scoped to
+`docs_write` needs `write-docs` and `write-config` does not grant it. A token scoped to
 `write-config` alone leaves the guard silently inert (the gate read returns 403, which the guard treats
 as fail-open, not an error) — call this out whenever rendering a bearer-mode token for a workspace that
 also uses the guard.
 
 ### Director credential
 
-In bearer mode the director entry gets its own token-file entry, so its calls carry their own identity and audit trail. Two token properties matter for decisions on a run: `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision class (a non-human credential cannot), and `profile: director` confines a token to the director path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`). Both are set in the token file ([REST API, authentication](../../../../current/docs/api-rest.md#1-authentication), [capabilities](../../../../current/docs/api-rest.md#2-capabilities-authorization), [fleet deployment](../../../../current/docs/fleet-deployment.md)). A token-file token has proof `issued`, so bearer with `kind: human` is enough; jwks is not required.
+In bearer mode the director entry gets its own token-file entry, so its calls carry their own identity and audit trail. Two token properties matter for decisions on a run: `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision class (a non-human credential cannot), and `profile: director` confines a token to the director path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`). Both are set in the token file ([fleet deployment](../../../../current/docs/fleet-deployment.md)). A token-file token has proof `issued`, so bearer with `kind: human` is enough; jwks is not required.
 
-Render a two-entry token file (placeholders only; the user generates the digests, see api-rest.md section 1; never write a token or a real digest):
+Render a two-entry token file (placeholders only; the user generates the digests; never write a token or a real digest; format and digest command: [fleet deployment, Bearer token secret file](../../../../current/docs/fleet-deployment.md#bearer-token-secret-file)):
 
 ```yaml
 version: 1

@@ -281,7 +281,7 @@ Search can be scoped to a subtree and filtered by role, tag, or priority, or run
 
 ### REST API
 
-An optional HTTP layer (`API_ENABLED=true`) serves every tool over one RPC route (`POST /api/v1/ops/{tool}`), plus item and note resource GETs, lease admin, service meta and real-time SSE events, to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas. See the [REST API Reference](current/docs/api-rest.md).
+An optional HTTP layer (`API_ENABLED=true`) serves every tool over one RPC route (`POST /api/v1/ops/{tool}`), plus item and note resource GETs, lease admin, service meta and real-time SSE events, to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas.
 
 Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, tool profiles, both deployment shapes, the REST API, claims and caller identity.
 
@@ -353,7 +353,6 @@ Every tool answers one response envelope, and `describe: true` on any call retur
 | **[Field Guide](https://jpicklyk.github.io/task-orchestrator/field-guide/)** | Illustrated, partly interactive walkthrough of the core ideas. The best first read. |
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | Every MCP tool: parameters, response shapes, actor attribution |
-| **[REST API Reference](current/docs/api-rest.md)** | The RPC route, resource GETs, lease admin, SSE, auth, ETag |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
 | **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST and `/mcp` authentication, caller identity, health checks, SQLite tuning, capacity planning |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |

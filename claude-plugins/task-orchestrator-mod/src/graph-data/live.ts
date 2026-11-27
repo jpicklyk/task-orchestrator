@@ -47,7 +47,7 @@ export const SSE_TYPES = [
 const MAX_BUFFER = 1_048_576
 const DIGITS = /^\d+$/
 
-/** The data of a 4.0 SSE frame (api-rest.md "SSE / ApiEvent"); every member is optional on the wire. */
+/** The data of a 4.0 SSE frame; every member is optional on the wire. */
 export interface ApiEventData {
   id?: number | string
   event?: string

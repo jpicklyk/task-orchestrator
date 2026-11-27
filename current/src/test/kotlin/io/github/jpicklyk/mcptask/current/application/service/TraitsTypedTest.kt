@@ -81,7 +81,7 @@ import kotlin.test.assertTrue
  *    shared default that a per-item value overrides; `query_items get` returns `traits` as a top-level array and omits it
  *    when empty; an undeclared name is an element failure `schema_violation` carrying `availableTraits`.
  *  - AC3: `get_context` on an item carrying a trait lists the trait's required note among the missing notes (plan 3.7).
- *  - AC4/B7 (docs: api-rest.md POST/PATCH/section 23, openapi.yaml): `traits` is a JSON array on POST and PATCH, `ItemDto.traits`
+ *  - AC4/B7 (docs: openapi.yaml): `traits` is a JSON array on POST and PATCH, `ItemDto.traits`
  *    is always present, `{"traits": null}` clears (RFC 7396), an absent field keeps the list, a `properties` object with a
  *    `traits` key and an undeclared name are `400 validation_error` (the latter with `details.availableTraits`).
  *  - AC8/B4(c): `item.updated.changedFields` lists `traits` exactly when the list differs, and a patch that changes nothing

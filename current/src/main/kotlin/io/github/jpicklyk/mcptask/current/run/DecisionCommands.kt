@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.run
 
+import io.github.jpicklyk.mcptask.current.model.run.DecisionDecidedBy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
@@ -17,7 +18,7 @@ import java.util.UUID
  * @property principalId The audited actor id (`api:<id>`, or `local`).
  * @property kind The credential kind; null when the call carries no transport principal (a test-built one).
  * @property proofStatus How the credential was proven; null as for [kind].
- * @property director True when the director profile served the call and it carries no seat token.
+ * @property director True when the call carries no seat token and its credential grants decide.
  * @property seat The seat of the call's seat token, or null without one.
  * @property runId The run of the call's seat token, or null without one.
  * @property assignmentId The assignment of the call's seat token, or null without one.
@@ -45,7 +46,7 @@ data class DecisionCaller(
 /** True when [caller] is a human: a human credential, no seat token, and a proof in [DecisionCaller.HUMAN_PROOFS]. */
 fun DecisionCaller.isHuman(): Boolean = kind == PrincipalKind.HUMAN && seat == null && proofStatus in DecisionCaller.HUMAN_PROOFS
 
-/** True when [caller] is the director: the director profile served the call and it carries no seat token. */
+/** True when [caller] is the director: no seat token and a credential granting decide, on any profile. */
 fun DecisionCaller.isDirector(): Boolean = director && seat == null
 
 /**
@@ -100,9 +101,13 @@ data class DecisionRaiseResult(
 
 /**
  * Answers a decision request with an [option] key and/or free [text] (freeform classes only), and a [rationale].
+ * [decidedBy] is what the caller claims about who decided (null: derive it); the service records the derived value and
+ * refuses a claim the caller's credential contradicts. [links] is the evidence cited, checked like a raise's links.
  */
 data class DecisionAnswerCommand(
     val option: String? = null,
     val text: String? = null,
-    val rationale: String? = null
+    val rationale: String? = null,
+    val decidedBy: DecisionDecidedBy? = null,
+    val links: List<RunSeatLink> = emptyList()
 )

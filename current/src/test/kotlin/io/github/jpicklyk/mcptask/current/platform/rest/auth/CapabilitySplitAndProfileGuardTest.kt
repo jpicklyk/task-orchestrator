@@ -95,12 +95,10 @@ import kotlin.test.assertTrue
  *
  * Oracles (never read from a run): the R10 plan paragraph and task-scope items 5 to 8 and AC3 ("`write-config` grants no
  * `docs_write` op; `write-docs` grants all six and nothing else"; `config` ops stay `write-config`; a `profile: director`
- * credential is forbidden everywhere except `/api/v1/ops/director/{tool}`), `api-rest.md` section 2 (capabilities are additive and
- * `admin` implies all of them) and section 1 (failure table: missing header 401 `invalid_request`, bad token 401
- * `invalid_token`, missing capability 403 `forbidden` with `detail {scope: "capability", required}`), the envelope spec
+ * credential is forbidden everywhere except `/api/v1/ops/director/{tool}`),
+ * the envelope spec
  * (per-element refusal in a non-atomic batch is 207 `partial_failure` with the element's own `forbidden` error; forbidden wins
- * over validation), `api-rest.md` section 22 (a REST write is attributed to `api:<tokenId>`, kind external, no parent, no proof;
- * a request-body `actor` is ignored) and task-scope item 8 (verification UNCHECKED for ISSUED and NONE, VERIFIED for VERIFIED and
+ * over validation) and task-scope item 8 (verification UNCHECKED for ISSUED and NONE, VERIFIED for VERIFIED and
  * VERIFIED_STALE). Expected values are literals.
  *
  * Negative-assertion conditions: every "not forbidden" or "not stored" assertion is paired with the same call shape under a

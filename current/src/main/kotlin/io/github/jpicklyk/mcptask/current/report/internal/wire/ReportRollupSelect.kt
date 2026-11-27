@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.item.ItemView
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportRollupRequest
 import io.github.jpicklyk.mcptask.current.report.internal.app.ReportService
@@ -42,7 +43,7 @@ internal val reportRollupSelect =
                 "omitted when zero or empty. " +
                 "Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts " +
                 "only calls of its roots (anchorId) or sees only runs of its roots (runId).",
-        profiles = director(),
+        profiles = orchestration() + director(),
         services = ReportToolServices::class,
         request = serializer<ReportRollupRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),

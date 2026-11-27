@@ -44,6 +44,8 @@ class EventClassCoverageTest {
             "run.orchestrator_reissued",
             "decision.raised",
             "decision.acknowledged",
+            "decision.delegated",
+            "decision.escalated",
             "decision.answered",
             "decision.withdrawn"
         )

@@ -77,7 +77,7 @@ work_item_schemas:
  * AC2/AC3 (rejection rows: exactly one `transition.rejected` gate_blocked with missingKeys / dependency_unmet with
  * blockerIds, or one `lease.rejected`, none for invalid_transition or not_claim_holder); task-scope 3(b)-(e)
  * (resume dependency-gated, cancel never gated, start/reopen cascades dependency-gated, unreadable blocker "unknown");
- * 1.4 (legacy message strings verbatim); api-rest.md for the gate and lease messages.
+ * 1.4 (legacy message strings verbatim).
  *
  * Q32 port: the oracle is the AdvanceService outcome (the failure variant, its message and data), so every advance drives
  * the shared service directly (P11Driver.advanceService) instead of the removed 3.x advance_item driver.

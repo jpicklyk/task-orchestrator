@@ -88,11 +88,11 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read` and `runs_write`.
+You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read`, `runs_write` and `decisions_write`.
 
 Two things to know before you read any example in this guide:
 
-- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (everything except the director-only `report` tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
+- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (every tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
 - **`describe: true`.** Any tool answers `{"describe": true}` with its own contract: every select or op in your profile, each field with its type and description, and the error codes. Ask the tool when you are unsure of a field name.
 
 Every example below is the JSON request body of one tool call. A read tool takes a `select`, a write tool takes an `ops` array whose elements name an `op`, and every tool answers the same `{ok, data | error, meta}` envelope ([Calling the tools](./workflow-guide.md#calling-the-tools) in the workflow guide).
@@ -572,7 +572,7 @@ The REST API adds HTTP endpoints under `/api/v1` for dashboards, CI systems, and
 The API is **off by default** (`API_ENABLED=false`). When you opt in, there are two supported postures:
 
 - **Unauthenticated, loopback-only (recommended default for a single developer).** No token to manage — `API_AUTH_MODE=none` plus the confirm flag `API_ALLOW_UNAUTHENTICATED=true`, published only on `127.0.0.1`. This is what enables `config-sync` out of the box (see the callout at the top of this doc) and is the tuple `/task-orchestrator:configure-server` renders by default. Safety comes entirely from the `-p 127.0.0.1:3001:3001` publish mapping — never widen that publish while running unauthenticated, and never set `MCP_HTTP_HOST=127.0.0.1` to "harden" it (that binds loopback *inside* the container's network namespace and breaks host→container reachability; leave `MCP_HTTP_HOST=0.0.0.0`).
-- **Bearer-token auth**, for shared or multi-user setups where you want per-caller credentials. This is the walkthrough below. For JWT/JWKS, see [api-rest.md](api-rest.md) §1.
+- **Bearer-token auth**, for shared or multi-user setups where you want per-caller credentials. This is the walkthrough below.
 
 To go the unauthenticated route instead of following steps 1-3 below, start the container with:
 
@@ -584,7 +584,7 @@ docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-and skip to [Step 4: Test it](#4-test-it) (omit the `Authorization` header — there's no token). See [api-rest.md](api-rest.md) §1 for the full unauthenticated-mode semantics.
+and skip to [Step 4: Test it](#4-test-it) (omit the `Authorization` header — there's no token).
 
 The rest of this section walks through the **bearer-token** path.
 
@@ -702,7 +702,7 @@ curl -X POST http://localhost:3001/api/v1/ops/items_write \
   -d '{"ops": [{"op": "create", "title": "New task from REST API", "type": "task-implementation", "priority": "high"}]}'
 ```
 
-Every 4.0 tool is served the same way, at `POST /api/v1/ops/{tool}` with the tool's request body (see [api-rest.md](api-rest.md) section 20a); the old `GET /api/v1/items` and `POST /api/v1/items` routes are removed.
+Every 4.0 tool is served the same way, at `POST /api/v1/ops/{tool}` with the tool's request body; the old `GET /api/v1/items` and `POST /api/v1/items` routes are removed.
 
 Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the header answer `401`; with the token, the read and the create answer `200`; a `read`-only token on the create answers `207` (the call answers `partial_failure` and the element's error is `forbidden`).
 
@@ -713,8 +713,6 @@ Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the he
 - **Rotating a token:** generate a new one (step 1), replace `token_sha256`, then restart the container (`docker restart task-orchestrator-http`). Tokens are read once at startup.
 - **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server (as the `local` principal, via `MCP_ALLOW_UNAUTHENTICATED=true`); to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
 
-See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and scopes, JWKS mode, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env-var reference.
-
 ---
 
 ## What's next
@@ -723,4 +721,3 @@ See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and
 - [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) - note schemas, phase gates, dependency patterns, and lifecycle examples; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
 - [reporting.md](reporting.md) - the `report` tool: usage, gates, contention, waste and run rollups
-- [api-rest.md](api-rest.md) — REST API reference: endpoints, DTOs, SSE, auth

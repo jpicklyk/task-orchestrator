@@ -46,10 +46,8 @@ import kotlin.test.assertTrue
  * yields `note.upserted` and REST note DELETE yields `204` plus `note.deleted` (the decorator-level note publishing
  * was previously unguarded at route level), and carry-in (2): the 204 status is asserted at route level.
  *
- * Oracles: api-rest.md (status codes of each route: note PUT 201 on create and 200 on update, DELETE note 204, advance
- * 422 gate_blocked, config PUT 200, plans PUT 200), plan section 3.7 / 8 (a row per write; rejection rows), the P8
- * task-scope type catalog and payload keys, and the api-rest section 21 actor rule (an API write is attributed to
- * `api:<tokenId>`, kind external). Fixtures are seeded through the undecorated provider, so every asserted row was
+ * Oracles: plan section 3.7 / 8 (a row per write; rejection rows), the P8
+ * task-scope type catalog and payload keys. Fixtures are seeded through the undecorated provider, so every asserted row was
  * written by the request under test.
  */
 class EventRestCoverageTest {

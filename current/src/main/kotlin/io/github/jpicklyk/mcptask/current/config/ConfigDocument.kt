@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.run.DecisionAutonomy
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
@@ -118,6 +119,7 @@ data class DecisionClassConfig(
     val expiresAfterSeconds: Long? = null,
     val onExpiry: String? = null,
     val freeform: Boolean? = null,
+    val autonomy: DecisionAutonomy? = null,
 )
 
 /**

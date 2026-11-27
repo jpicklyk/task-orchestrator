@@ -39,14 +39,14 @@ over MCP.
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
-| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, including `advance` and `config`; `runs_read` and `runs_write` carry only their orchestration-profile selects and ops (no `decisions`, `decision`, `pause`, `resume`, `ack`, `answer`, and never `mark`) |
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool, including `advance`, `config`, `decisions_read` and `report`; `runs_read` and `runs_write` carry only their orchestration-profile selects and ops (no `decisions`, `decision`, `pause`, `resume`, `ack`, `answer`, and never `mark`); `decisions_write` carries `raise`, `delegate` and `withdraw` only |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`, `history`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
-| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`, `decisions`, `decision`) and `runs_write` (`open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw` only): no read that can return a note, document or transition-summary body, and no other write |
+| `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`, `decisions`, `decision`), `runs_write` (`close`, `pause`, `resume`, `reissue`, `ack`, `answer`, `withdraw` only), `decisions_read` (`list`) and `decisions_write` (`ack`, `delegate`, `escalate`, `answer`, `withdraw` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
 applied to stdio only. `POST /api/v1/ops/{tool}` serves every registered select and op whatever its profile set,
-REST-only members included. A tool description names only the selects and ops the connected profile serves: `items_read`, `items_write`, `runs_read` and `runs_write` carry a per-profile description, and `describe: true` on an MCP profile returns that profile's text; REST and this reference show the full form. The `initialize` `instructions` name the profile and `describe`, say what the tools are for and name every tool the profile serves (and no other), for a client that sees only tool names until it loads a schema; the orchestration text also documents `seatToken`, says decisions are answered and runs paused or resumed on the director profile, and asks an on-demand client to load the tools a task needs together. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+REST-only members included. A tool description names only the selects and ops the connected profile serves: `items_read`, `items_write`, `runs_read`, `runs_write` and `decisions_write` carry a per-profile description, and `describe: true` on an MCP profile returns that profile's text; REST and this reference show the full form. The `initialize` `instructions` name the profile and `describe`, say what the tools are for and name every tool the profile serves (and no other), for a client that sees only tool names until it loads a schema; the orchestration text also documents `seatToken`, says decisions are answered and runs paused or resumed on the director profile, and asks an on-demand client to load the tools a task needs together. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
 
 ## Tool Categories
 
@@ -62,9 +62,11 @@ REST-only members included. A tool description names only the selects and ops th
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats and attempts); director profile only on MCP |
-| `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only; `decisions`, `decision`: director only) |
-| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs, assign and end seats, raise, ack, answer and withdraw decisions: ops of one 4.0 tool; orchestration serves `update`, `assign`, `end_seat` and `raise`, director `pause`, `resume`, `ack` and `answer`, both `open`, `close` and `withdraw`; `mark` is REST only |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats and attempts); orchestration and director profiles on MCP |
+| `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only; `decisions`, `decision`: director only, deprecated aliases of `decisions_read` `list`) |
+| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs, assign and end seats, and, as deprecated aliases of `decisions_write` ops, raise, ack, answer and withdraw decisions: ops of one 4.0 tool; orchestration serves `open`, `update`, `assign`, `end_seat` and `raise`, director `pause`, `resume`, `reissue`, `ack` and `answer`, both `close` and `withdraw`; `mark` is REST only |
+| `decisions_read` | Decisions | Read | List decisions, newest first, with filters (`itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `waitingOn`, `class`, `severity`, `overdue`) and the decision classes in force on their roots; orchestration and director profiles |
+| `decisions_write` | Decisions | Write | Raise, ack, delegate, escalate, answer and withdraw decisions: ops of one 4.0 tool; orchestration serves `raise`, `delegate` and `withdraw`, director `ack`, `delegate`, `escalate`, `answer` and `withdraw` |
 
 ---
 
@@ -431,7 +433,7 @@ items and documents `related` to an item. A 4.0
 envelope tool: a request is `select` plus that select's fields, and every answer is the response envelope
 (`ok`, `data` or `error`, `meta.reqId`). The same tool is served over MCP and over REST
 `POST /api/v1/ops/items_read`; `GET /items/{id}` and `GET /items/{id}/children` are thin translations to
-it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `search`, `overview`,
+it. `items_read` replaces `query_items` (`get`, `search`, `overview`,
 `schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
 (`describe: true`).
 
@@ -515,9 +517,9 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`, `seatWrites`, `orchestratorNotes`, `resumeGate`, `answerProvenance`, `decisionTools`, `waitingOn`, `decisionAuthority`, `profileSets`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
-on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
+on REST `GET /api/v1/info` and the `.well-known` service descriptor. `rules` advertises
 per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
 the served `seats` and the `callerSeat` member of `context` and `transition`. `seatWrites` advertises the `writes` member
 every served seat carries (always present: the declared value, else true in the work phase; never enforced).
@@ -923,7 +925,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 without bodies. The first 4.0 registry tools: a request is the 4.0 envelope request (`select` plus the
 select's fields) and every answer is the response envelope (`ok`, `data` or `error`, `meta.reqId`). The
 same tool is served over MCP and over REST `POST /api/v1/ops/notes_read`; the REST note resource GETs
-are thin translations to it (see `api-rest.md` section 11). `notes_read` replaces `query_notes` `get` and
+are thin translations to it. `notes_read` replaces `query_notes` `get` and
 `list`. Each field is documented once in the tool's own schema (`describe: true`).
 
 **Selects.** `get`, `list`. Both need the `READ` capability and honor the caller's root and tag scope
@@ -1260,12 +1262,10 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 ### advance
 
 **Purpose.** Phase transitions and claim ownership in one write tool. It replaces the 3.x `advance_item` and `claim_item`
-tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `POST /api/v1/ops/advance` (see `api-rest.md`
-section 20a); both answer the same response envelope.
+tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `POST /api/v1/ops/advance`; both answer the same response envelope.
 
 Every `transition` is ONE transaction through the shared advance pipeline (`AdvanceService`): the item is re-read, the transition
-policy evaluates its gates in a fixed order (claim ownership, seat, transition table, cascade warrant, hold, review-pending, blocking dependencies,
-required notes, resource lease; the first failure wins), and the role change, its audit row, its event, the lease acquire or
+policy evaluates its gates in the order of `TransitionPolicy.DEFAULT_GATES` (the first failure wins), and the role change, its audit row, its event, the lease acquire or
 release, and every cascade it triggers commit together or not at all. Unblocked downstream items are then reported.
 
 **Call shape.** `ops` is an array of flat objects, each naming its `op`. Optional top-level `atomic` (default false: each
@@ -1298,7 +1298,7 @@ non-empty. Empty and null members are omitted.
 `manual`, default `manual`). `decisionId` is allowed only with `awaiting_decision`, where it names an open decision on that
 item, and is then required. Under a restricted scope a decision is as visible as its root: one outside the scope answers like an unused id (`names no decision`), so under a tag scope a decision whose root lacks a listed tag is hidden even for the caller's own item (the same rule as `raise` and `answer`). The reason and the decision id are stored with the blocked role and cleared by every way out of
 it: `resume`, `cancel` and `complete_tree`. A cascade never moves an item out of `blocked` (`blocked: role`), and an answer
-to a decision never resumes its item; `runs_write` `raise` with `block: true` blocks the item in the same unit as the raise.
+to a decision never resumes its item; `decisions_write` `raise` with `block: true` blocks the item in the same unit as the raise.
 `items_read` `context` and `get` show `blockedReason` and `decisionId` for a blocked item; the order of the fields in a view
 is not part of the contract.
 
@@ -1967,7 +1967,7 @@ The window rules are those of `usage`, but the window is at most **7 days** (the
 `relatedFollowThrough` always holds `edges`, `links`, `tags` and `text`. `value` is `numerator / denominator` rounded
 half up to 4 decimals, a JSON number, omitted when the denominator is 0. Rows are classed by tool: READ is
 `items_read`, `notes_read`, `docs_read`, `deps_read`; WRITE is `items_write`, `notes_write`, `deps_write`,
-`docs_write`, `advance`; `report`, `config`, `runs_read` and `runs_write` are in neither. A non-ops REST row records its route template as the
+`docs_write`, `advance`; `report`, `config`, `runs_read`, `runs_write`, `decisions_read` and `decisions_write` are in neither. A non-ops REST row records its route template as the
 tool, so it never matches a class. A `docs_read` `get` answered `{unchanged, version}` for a current `ifVersion` is
 an ok read like any other.
 
@@ -2067,7 +2067,7 @@ retention changes in an answer; [Data Retention](./fleet-deployment.md#data-rete
 <!-- generated:tool report -->
 Aggregate metrics to see how work is going and where it stalls. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run).
 
-**`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until), default the 7 days before now. groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `usage`** (orchestration and director profiles; capability `read`): Call-log usage per group over [since, until), default the 7 days before now. groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2080,7 +2080,7 @@ Aggregate metrics to see how work is going and where it stalls. select: usage (c
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `gates`** (director profile only; capability `read`): Rejected transitions per group over [since, until) (default the 7 days before now, at most 31 days): blocks (distinct rejections) and items (distinct item ids). groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince (the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.
+**`report` select `gates`** (orchestration and director profiles; capability `read`): Rejected transitions per group over [since, until) (default the 7 days before now, at most 31 days): blocks (distinct rejections) and items (distinct item ids). groupBy noteKey (default, one count per missing note key), type or trait count only gate_blocked rejections, joined to the item's current type and traits (as of now, not as of the rejection); errorCode counts every rejection code. A rejection with no value for the dimension (no missing key, a deleted item, no type or trait) falls in the {} group. Ordered by blocks desc, then key asc. data.window gives since, until, retainedSince (the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2093,7 +2093,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `notes`** (director profile only; capability `read`): Note writes per group over [since, until) (default the 7 days before now, at most 31 days): writes (note.upserted events), notes (distinct notes), rewrites (writes minus notes), bytes, maxBytes, avgBytes (whole bytes per write). groupBy role (default), noteKey, seat, type (the item's current type), principalKind or day; a write with no value (no seat, a deleted item) falls in the {} group. Ordered by bytes desc, then key asc. anchorId keeps one subtree and combines with rootId by AND. data.window gives since, until, retainedSince (the oldest note.upserted event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees writes on items that currently carry an allowed tag.
+**`report` select `notes`** (orchestration and director profiles; capability `read`): Note writes per group over [since, until) (default the 7 days before now, at most 31 days): writes (note.upserted events), notes (distinct notes), rewrites (writes minus notes), bytes, maxBytes, avgBytes (whole bytes per write). groupBy role (default), noteKey, seat, type (the item's current type), principalKind or day; a write with no value (no seat, a deleted item) falls in the {} group. Ordered by bytes desc, then key asc. anchorId keeps one subtree and combines with rootId by AND. data.window gives since, until, retainedSince (the oldest note.upserted event held), basis raw and truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees writes on items that currently carry an allowed tag.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2107,7 +2107,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `contention`** (director profile only; capability `read`): Claim and lease contention per resource over [since, until) (default the 7 days before now, at most 31 days): kind (claim or lease), acquired, rejected, expired, released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate (expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key (a lease.rejected counts once per contended key); a claim's resource is the claimed item id. Only leases report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw and truncatedByRetention. Visibility as for gates.
+**`report` select `contention`** (orchestration and director profiles; capability `read`): Claim and lease contention per resource over [since, until) (default the 7 days before now, at most 31 days): kind (claim or lease), acquired, rejected, expired, released and forceReleased counts, plus contentionRate (rejected / (acquired + rejected)), expiryRate (expired / acquired) and forceReleaseRate (forceReleased / acquired), 4 decimals half up, omitted when the denominator is 0 and never clamped (a window edge can push a rate above 1). A lease's resource is its key (a lease.rejected counts once per contended key); a claim's resource is the claimed item id. Only leases report forceReleased. groupBy resource (the only value). Ordered by rejected desc, then resource asc, then kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw and truncatedByRetention. Visibility as for gates.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2120,7 +2120,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `waste`** (director profile only; capability `read`): Waste signals over [since, until), default the 7 days before now, at most 7 days, each {value?, numerator, denominator, basis?}: value is numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only (basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
+**`report` select `waste`** (orchestration and director profiles; capability `read`): Waste signals over [since, until), default the 7 days before now, at most 7 days, each {value?, numerator, denominator, basis?}: value is numerator/denominator rounded half up to 4 decimals, omitted when denominator is 0. redundantReads, readsWithoutLaterWrite and relatedFollowThrough (edges, links, tags, text) use MCP session rows only (basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2130,7 +2130,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `rollup`** (director profile only; capability `read`): Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). runId: the whole run (since and until are refused); window is openedAt to closedAt or now. itemCounts and blocked cover the current members; blocked adds byReason, resumable (awaiting_decision items whose decision no longer waits) and dwellMs (blocked time per reason in the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), count} and attempts {total, max}. A closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots (anchorId) or sees only runs of its roots (runId).
+**`report` select `rollup`** (orchestration and director profiles; capability `read`): Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). runId: the whole run (since and until are refused); window is openedAt to closedAt or now. itemCounts and blocked cover the current members; blocked adds byReason, resumable (awaiting_decision items whose decision no longer waits) and dwellMs (blocked time per reason in the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), count} and attempts {total, max}. A closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots (anchorId) or sees only runs of its roots (runId).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2153,7 +2153,7 @@ the envelope request and every answer is the response envelope. Each field is do
 ### runs_read
 
 **Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (a page of runs, `openedAt` descending
-then id), `seats` (orchestration only), `frontier` (below), and `decisions` and `decision` (director only, see Decisions). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
+then id), `seats` (orchestration only), `frontier` (below), and `decisions` and `decision` (director only; deprecated aliases of `decisions_read` `list`, removed in 5.0, see Category: Decisions). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
 `unmarked` (a mark key; only closed runs that do not carry it, so combining it with a `status` other than `closed` is
 `invalid_request` on `/unmarked`). A run is as visible as its root: `get` of a run whose root is outside the caller's scope is
 `forbidden` (never `not_found`), and `list` leaves such runs out.
@@ -2240,7 +2240,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`runs_read` select `decisions`** (director profile only; capability `read`): List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status client-side. Decisions on roots outside the call scope are left out.
+**`runs_read` select `decisions`** (director profile only; capability `read`): Deprecated (removed in 5.0): use decisions_read list. List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up while overdue), status, overdue and the first 120 characters of the question. runId, itemId and rootId filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status client-side. Decisions on roots outside the call scope are left out.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2253,7 +2253,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`runs_read` select `decision`** (director profile only; capability `read`): Read one decision by id (a UUID or a hex prefix of 8 to 32 characters): its question, options, recommendation, links, context, who raised it (kind and seat), the acknowledgement and the answer with its provenance (kind, proof status, seat, run, profile). A decision whose root is outside the call scope is forbidden, not not_found.
+**`runs_read` select `decision`** (director profile only; capability `read`): Deprecated (removed in 5.0): use decisions_read list. Read one decision by id (a UUID or a hex prefix of 8 to 32 characters): its question, options, recommendation, links, context, who raised it (kind and seat), the acknowledgement and the answer with its provenance (kind, proof status, seat, run, profile). A decision whose root is outside the call scope is forbidden, not not_found.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2268,9 +2268,9 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 items, lower the budget, replace the hints; `expectedVersion` guards a concurrent change), `close` (reason `completed`,
 `cancelled`, `failed` or `abandoned`; the answer adds `snapshot: {reason, countsByRole, inFlight, released, openDecisions}`),
 `pause`, `resume`, `reissue` (a new run token for an open or paused run), `assign` (a seat of a member item; returns the seat token once), `end_seat` (the calling seat ends its own
-assignment), `raise`, `ack`, `answer` and `withdraw` (decisions, below) and `mark` (REST only: sets a named instant, first
+assignment), `raise`, `ack`, `answer` and `withdraw` (deprecated aliases of the `decisions_write` ops of those names, removed in 5.0) and `mark` (REST only: sets a named instant, first
 write wins, at most 32 marks; the answer adds `marked`, false for a replay). Every op needs the `runs` capability (`ack` and
-`answer` need `decide`) and a run whose root is in scope.
+`answer` need `decide`) and a run whose root is in scope. The decision ops give the same results and events as the `decisions_write` ops.
 
 **Tokens.** `open` returns an `orchestratorToken` once, followed by its deprecated alias `coordinatorToken` (same value, removed
 in 5.0); a keyed replay omits both (`tokenRedacted: true`). The run's orchestrator is the
@@ -2295,36 +2295,12 @@ caller outside the scope never learns whether the run is closed.
 most 32. Any token with `runs` whose scope reaches the run can stamp any key, `retro` included, which hides that run from
 `runs_read` `list` with `unmarked: retro`. Treat a mark as a hint, not as proof that the named work happened.
 
-**Decisions.** A decision is a question raised under a class (see
-[Decision classes](config-reference.md#decision-classes-decision_classes)) that a human or a director answers.
-`raise` and `withdraw` are under the orchestration profile (a seat token supplies its run and item); `ack` and
-`answer` are served by the director profile, `withdraw` also by it, and REST `POST /api/v1/ops/runs_write` serves every op. Who may `ack` or `answer`:
-
-| Class answerers | A human (human credential, real proof, no seat token) | The director profile (no seat token) | Any other caller |
-|---|---|---|---|
-| `human-only` | yes | no | no |
-| `director-or-human` | yes | yes | no |
-| `any-actor` | yes | yes | yes |
-
-`ack` uses the same answerer check as `answer`; an acknowledged decision is returned unchanged by a second `ack`. An answer
-is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
-checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the run token of
-the decision's run. The decisions the server raises for a limit (`attempt-cap`, and a `run-budget` left by 4.0.0, which is never raised again) are never withdrawable; they stay
-pending until answered; closing the run is the other way out of the pause (the decision stays pending and is recorded in the close snapshot's `openDecisions`). Expiry (a class's `expires_after`) escalates the severity only: the decision reads
-one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
-decision and reports the pending ones in `snapshot.openDecisions`. An `answer` never resumes a blocked item; a decision that
-was raised with `block: true` leaves its item blocked until someone resumes it.
-
-`runs_read` `decisions` lists decisions of every status, withdrawn included, and has no `status` filter: filter on `status`,
-`overdue` and `effectiveSeverity` on the client. The `decisions[]` of `items_read` `context` lists the item's decisions
-without the withdrawn ones.
-
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_write -->
 Open, update, close, pause, resume, reissue and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; update, assign: run token; end_seat: the seat's own token; pause, resume and reissue: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
 
-**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator (shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
+**`runs_write` op `open`** (orchestration profile only; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator (shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2419,7 +2395,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `raise`** (orchestration profile only; capability `runs`): Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets the answerers and default severity. Re-raising a dedupeKey in the same scope returns the pending or answered decision (existing: true), or idempotency_mismatch if class, question or options differ. Payload at most 4096 bytes.
+**`runs_write` op `raise`** (orchestration profile only; capability `runs`): Deprecated (removed in 5.0): use decisions_write raise. Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets the answerers and default severity. Re-raising a dedupeKey in the same scope returns the pending or answered decision (existing: true), or idempotency_mismatch if class, question or options differ. Payload at most 4096 bytes.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2438,7 +2414,7 @@ Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `par
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only (human-only: a human credential with a real proof and no seat token; director-or-human: also the director profile without a seat token). An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
+**`runs_write` op `ack`** (director profile only; capability `decide`): Deprecated (removed in 5.0): use decisions_write ack. Acknowledge an open decision: the answerers of its class only. An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2446,7 +2422,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering an attempt-cap decision acts on its paused run (allow_one, skip_item, stop); a run-budget decision left by 4.0.0 resumes on extend and closes on stop.
+**`runs_write` op `answer`** (director profile only; capability `decide`): Deprecated (removed in 5.0): use decisions_write answer. Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering an attempt-cap decision acts on its paused run (allow_one, skip_item, stop); a run-budget decision left by 4.0.0 resumes on extend and closes on stop.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2457,7 +2433,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the run token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
+**`runs_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Deprecated (removed in 5.0): use decisions_write withdraw. Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the run token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2468,9 +2444,144 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 ---
 
+## Category: Decisions
+
+A decision is a question put to someone who can answer it. The decision tools are 4.0 registry tools: the request is the
+envelope request and every answer is the response envelope. Each field is documented once in the tool's own schema
+(`describe: true`). The `runs_read` `decisions` and `decision` selects and the `runs_write` `raise`, `ack`, `answer` and `withdraw` ops are
+deprecated aliases of these tools (removed in 5.0); they run the same code and give the same results.
+
+### decisions_read
+
+**Selects.** `list`: see the decision rules below.
+
+<!-- generated:tool decisions_read -->
+Read decisions, the questions raised for an answer. select: list (decisions, newest first, with the decision classes in force on their roots). A decision is outside the call scope when its root is.
+
+**`decisions_read` select `list`** (orchestration and director profiles; capability `read`): List decisions, newest first (raisedAt descending, then id), each in full (the context only with includeContext). Filters combine: itemId, ancestorId (the item, its descendants, and the item-less decisions of it as a root), runId, rootId, decisionIds (read specific decisions), status (absent: any), waitingOn, class, severity (the effective one, one step up while overdue) and overdue. data.classes maps each root the page shows, and the root a filter names, to its decision classes: answerers, severity, expiresAfterSeconds, freeform, serverRaised and autonomy (answer or ask). Decisions on roots outside the call scope are left out.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `itemId` | string | no | Only decisions about this item. Item id: UUID or 8-32 hex. |
+| `ancestorId` | string | no | Only decisions about this item or one below it, and the item-less decisions of it as a root. Item id: UUID or 8-32 hex. |
+| `runId` | string | no | Only decisions of this run. Run id: UUID or 8-32 hex. |
+| `rootId` | string | no | Only decisions on this root. Item id: UUID or 8-32 hex. |
+| `decisionIds` | array of string | no | Only these decisions: full UUIDs, at most 50; an unknown id is left out and [] matches nothing. |
+| `status` | array of string: open \| acknowledged \| answered \| withdrawn | no | Only decisions in one of these statuses; absent means any. |
+| `waitingOn` | string: director \| user | no | Only pending decisions routed to this answerer. |
+| `class` | string | no | Only decisions of this class. |
+| `severity` | string: high \| normal \| low | no | Only decisions of this effective severity. |
+| `overdue` | boolean | no | true: only pending decisions past their expiry; false or absent: no filter. |
+| `includeContext` | boolean | no | true: include each decision's context; default false. |
+| `limit` | integer | no | Page size, 1 to 200 (default 50). |
+| `cursor` | string | no | The page.next value of the previous page. |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+<!-- /generated:tool decisions_read -->
+
+### decisions_write
+
+**Ops.** `raise`, `ack`, `delegate` (routes a pending decision to the director: `waitingOn` `director`), `escalate` (routes it to the user with a `reason`: `waitingOn` `user`, `waitingReason`), `answer` (takes `decidedBy`, `user` or `director`, and `links`, the evidence cited; recorded in the answer's `decidedBy`, `basis`, `relayed`, `withinAutonomy` and `links`) and `withdraw`. Every op takes one `decisionId` (raise: none) and a batch is several `ops[]` elements. Every op needs the `runs` capability (`ack`, `answer`, `delegate` and `escalate` need `decide`) and a decision whose root is in scope.
+
+A decision is a question raised under a class (see
+[Decision classes](config-reference.md#decision-classes-decision_classes)) that a human or a director answers.
+`raise`, `delegate` and `withdraw` are under the orchestration profile (a seat token supplies its run and item); `ack`, `delegate`, `escalate` and
+`answer` are served by the director profile, `withdraw` also by it, and REST `POST /api/v1/ops/decisions_write` serves every op. Who may `ack` or `answer`:
+
+| Class answerers | A human (human credential, real proof, no seat token) | A credential granting decide (no seat token) | Any other caller |
+|---|---|---|---|
+| `human-only` | yes | no | no |
+| `director-or-human` | yes | yes | no |
+| `any-actor` | yes | yes | yes |
+
+`ack` uses the same answerer check as `answer`; an acknowledged decision is returned unchanged by a second `ack`. `delegate` needs the same answerers and is refused (`invalid_request` on `/decisionId`) for a `human-only` decision, which the director could not answer; `escalate` takes those answerers or the director, which may hand a `human-only` decision to the user. Delegating an already delegated decision, or escalating with the same `reason`, returns it unchanged with no event. An answer
+is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
+checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the run token of
+the decision's run. The decisions the server raises for a limit (`attempt-cap`, and a `run-budget` left by 4.0.0, which is never raised again) are never withdrawable; they stay
+pending until answered; closing the run is the other way out of the pause (the decision stays pending and is recorded in the close snapshot's `openDecisions`). Expiry (a class's `expires_after`) escalates the severity only: the decision reads
+one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
+decision and reports the pending ones in `snapshot.openDecisions`. An `answer` never resumes a blocked item; a decision that
+was raised with `block: true` leaves its item blocked until someone resumes it.
+
+`decisions_read` `list` lists decisions newest first (`raisedAt` descending, then id), each in full. With no `status` filter it lists every status, withdrawn included; `status` is an array of `open`, `acknowledged`, `answered` and `withdrawn`. `ancestorId` keeps the decisions about that item or one below it, and the item-less decisions of that root; `decisionIds` (full UUIDs, at most 50) reads specific decisions; an unknown id is left out. `waitingOn`, `class`, `severity` (the effective one) and `overdue` (true keeps the pending decisions past their expiry) filter; `includeContext` adds each decision's `context`, which is left out by default. `data.classes` maps each root on the page, and the root a filter names, to its classes (`answerers`, `severity`, `expiresAfterSeconds`, `freeform`, `serverRaised`). The deprecated `runs_read` `decisions` and `decision` keep their summary rows and their one-decision read. The `decisions[]` of `items_read` `context` lists the item's decisions
+without the withdrawn ones.
+
+**Request reference.** Generated from the registry (see [Overview](#overview)).
+
+<!-- generated:tool decisions_write -->
+Raise, ack, delegate, escalate, answer and withdraw decisions. Each op needs a root in scope and the runs capability (ack, answer, delegate, escalate: decide). Only the answerers of a decision's class ack, answer, delegate or escalate it; withdraw: its raiser or the run token of its run. Result: the decision.
+
+**`decisions_write` op `raise`** (orchestration profile only; capability `runs`): Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets the answerers and default severity. Re-raising a dedupeKey in the same scope returns the pending or answered decision (existing: true), or idempotency_mismatch if class, question or options differ. Payload at most 4096 bytes.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `class` | string | yes | Decision class (for example question or deviation); it decides who may answer. |
+| `question` | string | yes | The question, at most 500 characters. |
+| `options` | array of object | yes | 1 to 8 choices, each {key, label, consequence}. |
+| `recommended` | string | no | Key of the recommended option. |
+| `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
+| `context` | string | no | Background for the answerer, at most 1000 characters. |
+| `dedupeKey` | string | yes | Re-raising the same key returns the open or answered decision instead of a new one. |
+| `itemId` | string | no | Item id: UUID or 8-32 hex. |
+| `runId` | string | no | Run id: UUID or 8-32 hex. |
+| `rootId` | string | no | The root item the run belongs to. Item id: UUID or 8-32 hex. |
+| `severity` | string: high \| normal \| low | no | Class default. |
+| `block` | boolean | no | true: also block itemId as awaiting_decision in the same unit. |
+
+Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `payload_too_large`, `seat_forbidden`, `unavailable`, `unknown_parameter`
+
+**`decisions_write` op `ack`** (director profile only; capability `decide`): Acknowledge an open decision: the answerers of its class only. An acknowledged decision is returned unchanged; an answered or withdrawn one is decision_closed. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`decisions_write` op `delegate`** (orchestration and director profiles; capability `decide`): Route a pending decision to the director (waitingOn director): the answerers of its class only. A human-only decision cannot be delegated. A decision already delegated is returned unchanged. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`decisions_write` op `escalate`** (director profile only; capability `decide`): Route a pending decision to the user (waitingOn user) with a reason: the answerers of its class, or the director, which may hand a human-only decision to the user. The same routing with the same reason is returned unchanged; a different reason updates it. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
+| `reason` | string | yes | Why the user is needed, 1 to 500 characters. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`decisions_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering an attempt-cap decision acts on its paused run (allow_one, skip_item, stop); a run-budget decision left by 4.0.0 resumes on extend and closes on stop.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
+| `option` | string | no | Key of the chosen option. |
+| `text` | string | no | Free-form answer, at most 1000 characters; freeform classes only. |
+| `rationale` | string | no | Why this answer, at most 1000 characters. |
+| `decidedBy` | string: user \| director | no | Who decided: user or director. Absent: derived from the caller; a claim the credential contradicts is refused. |
+| `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
+
+**`decisions_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the run token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
+
+Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
+<!-- /generated:tool decisions_write -->
+
+---
+
 ## Idempotency
 
-The write tools (`items_write`, `notes_write`, `deps_write`, `docs_write`, `advance`, `config`, `runs_write`) take no `requestId`: each `ops[]` element may
+The write tools (`items_write`, `notes_write`, `deps_write`, `docs_write`, `advance`, `config`, `runs_write`, `decisions_write`) take no `requestId`: each `ops[]` element may
 carry an `idempotencyKey`, recorded per `(principal, tool, key)` for 24 hours. A repeated key with
 the same element replays the stored result with `replayed: true`; the same key with a different element is
 `idempotency_mismatch`. Only an element that committed is recorded, so a failed element re-runs on retry with the same
@@ -2656,8 +2767,7 @@ whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT cla
 `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
 field is returned by any tool or REST route since the 4.0 note reads (`notes_read` and the REST note GETs return
 `verification` as `{proofStatus, verifier?, reason?}` only, `ADMIN` included; 3.x showed `verification.proof` to `ADMIN`), and the
-transition trail (`items_read` `history`) never returns them either. They are stored for forensics only. See
-[api-rest.md](api-rest.md) section 22.
+transition trail (`items_read` `history`) never returns them either. They are stored for forensics only.
 
 **Proof status values.** The wire spells a verification as a proof status, never as the stored verification status:
 
@@ -2703,7 +2813,7 @@ Verification fails closed. The `DEGRADED_MODE_POLICY` environment variable (and 
 believing a security setting is in force. Ownership-sensitive calls (`advance` `claim`, `release`, `heartbeat` and the
 ownership check of `transition`) run as the transport principal and are always enforced. A JWT whose key set is
 unavailable is answered `503 unavailable` at the transport (REST, `/mcp`, SSE `?token=`), never served under a guessed
-identity; see [api-rest.md](api-rest.md) section 1.
+identity.
 
 ### JWKS network access
 
