@@ -177,7 +177,7 @@ The plugin gives each seat three classes of rule key, from one table (`claude-pl
 the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`; the role
 comes from the seat's served `enters` and `writes`, [0016](../../design/decisions/0016-seat-capability-and-orchestrator-notes.md)), tool
 mechanics the plugin chooses; the rules the plugin adds for the role (`commit-discipline` for a writing seat); and the
-role's defaults, which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
+seat's defaults (by seat name), which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
 `protocol.*` key that is not the role's own is dropped and reported. A project may still replace a protocol rule's text
 by serving its own copy under the same key: that copy stops receiving plugin updates, and the manage-schemas audit
 reports it as project-authored. Conduct for a seat is added with a project rule on the seat's `rules` list.
