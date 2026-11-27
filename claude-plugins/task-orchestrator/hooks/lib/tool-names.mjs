@@ -4,6 +4,8 @@
 export const TOOLS = Object.freeze([
   'advance',
   'config',
+  'decisions_read',
+  'decisions_write',
   'deps_read',
   'deps_write',
   'docs_read',
@@ -19,13 +21,13 @@ export const TOOLS = Object.freeze([
 
 // Tools visible to each profile.
 export const PROFILES = Object.freeze({
-  director: Object.freeze(['deps_read', 'items_read', 'report', 'runs_read', 'runs_write']),
+  director: Object.freeze(['decisions_read', 'decisions_write', 'deps_read', 'items_read', 'report', 'runs_read', 'runs_write']),
   knowledge: Object.freeze(['deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write']),
-  orchestration: Object.freeze(['advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'runs_read', 'runs_write']),
+  orchestration: Object.freeze(['advance', 'config', 'decisions_write', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'runs_read', 'runs_write']),
 });
 
 // Tools whose call shape is ops[] (writes).
-export const WRITE_TOOLS = Object.freeze(['advance', 'config', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
+export const WRITE_TOOLS = Object.freeze(['advance', 'config', 'decisions_write', 'deps_write', 'docs_write', 'items_write', 'notes_write', 'runs_write']);
 
 // Error code -> kind (permanent | transient | shedding).
 export const ERROR_KINDS = Object.freeze({

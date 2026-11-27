@@ -16,8 +16,10 @@ package io.github.jpicklyk.mcptask.current.config
  * that `orchestrator` is a reserved note owner in every seat-aware schema and that every served note entry carries its
  * computed `owningSeat`. `"resumeGate"` advertises that `advance` `resume` is refused (`gate_blocked`, violation
  * `decision-pending`) while the decision an `awaiting_decision` block names is open or acknowledged. `"answerProvenance"`
- * advertises that a decision records who it waits on (`waitingOn`) and, once answered, who decided it and why (`decidedBy`,
- * `basis`, `relayed`, `withinAutonomy`).
+ * advertises that an answered decision records who decided it and why (`decidedBy`, `basis`, `relayed`, `withinAutonomy`)
+ * and the cited `links`. `"waitingOn"` advertises that a pending decision records who it waits on (`waitingOn`,
+ * `waitingReason`), set by `delegate` and `escalate`. `"decisionTools"` advertises the `decisions_read` and
+ * `decisions_write` tools; the `runs_read` and `runs_write` decision members are their deprecated aliases.
  */
 object ServerFeatures {
     val ADVERTISED: List<String> =
@@ -30,6 +32,8 @@ object ServerFeatures {
             "seatWrites",
             "orchestratorNotes",
             "resumeGate",
-            "answerProvenance"
+            "answerProvenance",
+            "decisionTools",
+            "waitingOn"
         )
 }

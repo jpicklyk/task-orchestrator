@@ -52,7 +52,7 @@ See [Quick Start](../quick-start.md) Step 4 for the full installation walkthroug
 | Entry | Profile | Serves |
 |-------|---------|--------|
 | the orchestration entry (for example `mcp-task-orchestrator`) | `orchestration` | `advance`, `config`, `deps_*`, `docs_*`, `items_*`, `notes_*`, `runs_*` |
-| `mcp-task-orchestrator-director` | `director` | `deps_read`, `items_read`, `report`, `runs_read`, `runs_write`, and no read that returns a note, document or transition-summary body |
+| `mcp-task-orchestrator-director` | `director` | `decisions_read`, `decisions_write`, `deps_read`, `items_read`, `report`, `runs_read`, `runs_write`, and no read that returns a note, document or transition-summary body |
 
 The orchestration entry carries item, note, dependency, document and config work, phase transitions and claims, and the run ops of an orchestrator and its seats; not answer, ack, pause, resume, the decision reads or `report`. The director entry is where decisions are answered and acknowledged and runs are paused or resumed, and what director mode uses; a subagent or orchestrator raises a decision and never answers one.
 

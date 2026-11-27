@@ -88,7 +88,7 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read` and `runs_write`.
+You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read`, `runs_write` and `decisions_write`.
 
 Two things to know before you read any example in this guide:
 

@@ -129,7 +129,7 @@ class ToolRegistry(
 /**
  * The production 4.0 tools; Q32 removed the 3.x tool list they replaced. Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
  * `deps_read` and `deps_write`; Q13 added `advance`; Q18 added `items_write`; Q19 added `items_read`; Q25 added
- * `docs_read` and `docs_write`; Q23 added `config`; R9 added `report` (director only); R20 added `runs_read` and `runs_write`.
+ * `docs_read` and `docs_write`; Q23 added `config`; R9 added `report` (director only); R20 added `runs_read` and `runs_write`; B1 stage 2 added `decisions_read` and `decisions_write`.
  */
 fun buildToolSpecs(): List<ToolSpec> =
     listOf(
@@ -146,4 +146,6 @@ fun buildToolSpecs(): List<ToolSpec> =
         ReportTools.tool(),
         RunTools.read(),
         RunTools.write(),
+        RunTools.decisionsRead(),
+        RunTools.decisionsWrite(),
     )

@@ -4,6 +4,13 @@ import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.run.internal.wire.RunsWriteCodec
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsAckOp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsAnswerOp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsDelegateOp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsEscalateOp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsListSelect
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsRaiseOp
+import io.github.jpicklyk.mcptask.current.run.internal.wire.decisionsWithdrawOp
 import io.github.jpicklyk.mcptask.current.run.internal.wire.runsAckOp
 import io.github.jpicklyk.mcptask.current.run.internal.wire.runsAnswerOp
 import io.github.jpicklyk.mcptask.current.run.internal.wire.runsAssignOp
@@ -25,13 +32,19 @@ import io.github.jpicklyk.mcptask.current.run.internal.wire.runsUpdateOp
 import io.github.jpicklyk.mcptask.current.run.internal.wire.runsWithdrawOp
 import kotlinx.serialization.json.JsonObject
 
-/** The run slice's contribution to the tool registry: the `runs_read` and `runs_write` tools. */
+/** The run slice's contribution to the tool registry: the `runs_read` and `runs_write` tools and the `decisions_read` and `decisions_write` tools. */
 object RunTools {
     /** The `runs_read` tool name. */
     const val RUNS_READ = "runs_read"
 
     /** The `runs_write` tool name. */
     const val RUNS_WRITE = "runs_write"
+
+    /** The `decisions_read` tool name. */
+    const val DECISIONS_READ = "decisions_read"
+
+    /** The `decisions_write` tool name. */
+    const val DECISIONS_WRITE = "decisions_write"
 
     /**
      * The runs_read tool: one run, a filtered page of runs, a run's seats, a run's frontier, a page of decisions or one
@@ -109,6 +122,56 @@ object RunTools {
                     runsAckOp,
                     runsAnswerOp,
                     runsWithdrawOp
+                ),
+            codec = RunsWriteCodec,
+            element = { it }
+        )
+
+    /**
+     * The decisions_read tool: the decision inbox, one `list` select. Director profile only; the shared description is the
+     * full (REST) form. `runs_read decisions` and `decision` are its deprecated aliases (ADR 0005).
+     */
+    fun decisionsRead(): SelectToolSpec =
+        SelectToolSpec(
+            name = DECISIONS_READ,
+            description =
+                "Read decisions, the questions raised for an answer. select: list (decisions, newest first, with the " +
+                    "decision classes in force on their roots). A decision is outside the call scope when its root is.",
+            selects = listOf(decisionsListSelect)
+        )
+
+    /**
+     * The decisions_write tool: raise, ack, delegate, escalate, answer and withdraw decisions. raise, delegate and withdraw
+     * are orchestration ops; ack, delegate, escalate, answer and withdraw are director ops. The shared description is the
+     * full (REST) form; each MCP profile gets its own, naming only the ops it serves. `runs_write` raise, ack, answer and
+     * withdraw are its deprecated aliases (ADR 0005).
+     */
+    fun decisionsWrite(): OpsToolSpec<JsonObject> =
+        OpsToolSpec(
+            name = DECISIONS_WRITE,
+            description =
+                "Raise, ack, delegate, escalate, answer and withdraw decisions. Each op needs a root in scope and the runs " +
+                    "capability (ack, answer, delegate, escalate: decide). Only the answerers of a decision's class ack, " +
+                    "answer, delegate or escalate it; withdraw: its raiser or the run token of its run. Result: the decision.",
+            profileDescriptions =
+                mapOf(
+                    ToolProfile.ORCHESTRATION to
+                        "Raise, delegate and withdraw decisions. Each op needs a root in scope and the runs capability " +
+                        "(delegate: decide). Only the answerers of a decision's class delegate it; withdraw: its raiser or " +
+                        "the run token of its run. Result: the decision.",
+                    ToolProfile.DIRECTOR to
+                        "Ack, delegate, escalate, answer and withdraw decisions. Each op needs a root in scope and the " +
+                        "decide capability (withdraw: runs). Only the answerers of a decision's class ack, answer or " +
+                        "delegate it; the director also escalates a human-only decision. Result: the decision."
+                ),
+            ops =
+                listOf(
+                    decisionsRaiseOp,
+                    decisionsAckOp,
+                    decisionsDelegateOp,
+                    decisionsEscalateOp,
+                    decisionsAnswerOp,
+                    decisionsWithdrawOp
                 ),
             codec = RunsWriteCodec,
             element = { it }

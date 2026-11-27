@@ -329,7 +329,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
         configWarnings:
@@ -1019,7 +1019,9 @@ paths:
 
         The `runs_read` tool (`get`, `list`, `seats`, `frontier`; capability `read`) and the `runs_write` tool (`open`, `update`,
         `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`; capability `runs`, and `ack` and `answer` with
-        capability `decide`) serve runs and decisions. A run is as visible as
+        capability `decide`) serve runs, and the `decisions_read` tool (`list`; capability `read`) and the `decisions_write` tool
+        (`raise`, `withdraw`; capability `runs`; `ack`, `delegate`, `escalate`, `answer`; capability `decide`) serve decisions.
+        A run is as visible as
         its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
         rule, and `list` leaves it out. `open` returns `orchestratorToken`, the run's token (shown once;
         `coordinatorToken`, `coordinatorSeenAt` and `coordinatorStalled` are deprecated aliases of `orchestratorToken`,
@@ -1039,10 +1041,12 @@ paths:
         `activeSeats` and `stalledSeats`; under a restricted scope, `members`, `activeSeats` and `stalledSeats` count
         only what the caller's scope can see. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
         `marked: false` reports a replay.
-        Decisions: `runs_write` `raise` (capability `runs`), `ack` and `answer` (capability `decide`) and `withdraw`
-        (capability `runs`); `runs_read` `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest
-        first) and `decision{decisionId}` (capability `read`). `decisions` has no status filter: every summary carries
-        `status`, so a caller filters by status client-side. A decision is as visible as its root, like a run.
+        Decisions: `decisions_write` `raise` (capability `runs`), `ack`, `delegate`, `escalate` and `answer` (capability
+        `decide`) and `withdraw` (capability `runs`); `decisions_read` `list{itemId?, ancestorId?, runId?, rootId?, decisionIds?,
+        status?, waitingOn?, class?, severity?, overdue?, includeContext?, limit?, cursor?}` (newest first, capability `read`).
+        With no `status` filter every status is listed. The `runs_read` selects `decisions` and `decision` and the `runs_write`
+        ops `raise`, `ack`, `answer` and `withdraw` are deprecated aliases (removed in 5.0). A decision is as visible as its
+        root, like a run.
         Any body may carry a top-level `seatToken` (every tool): it is accepted only while its assignment is active
         and only from the principal it was issued to; otherwise the call is `401 unauthenticated` with the fixed
         message `The seat token is not accepted.` and no detail, before anything else in the body is read. A call
@@ -1132,7 +1136,8 @@ paths:
         The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
         envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
         `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`, `frontier`,
-        `decisions`, `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw`). For a
+        `decisions`, `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw`;
+        `decisions_read` `list`; `decisions_write` `ack`, `delegate`, `escalate`, `answer`, `withdraw`). For a
         member of that set the envelope is
         byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
@@ -1513,8 +1518,8 @@ paths:
                   Event types: item.created, item.updated, item.deleted, item.advanced,
                   note.upserted, note.deleted, note.ownership_transferred, dependency.added, dependency.removed,
                   scope.entered, scope.left, run.opened, run.updated, run.paused, run.resumed, run.ended,
-                  run.marked, seat.ended, decision.raised, decision.acknowledged, decision.answered,
-                  decision.withdrawn, sync.lost, auth.expired
+                  run.marked, seat.ended, decision.raised, decision.acknowledged, decision.delegated,
+                  decision.escalated, decision.answered, decision.withdrawn, sync.lost, auth.expired
 
                   ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
                   modifiedAt, newRole (item.advanced only), actor ({id, kind, parent?}, the writer;

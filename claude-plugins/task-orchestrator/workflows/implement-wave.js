@@ -9,6 +9,8 @@ export const meta = {
 const TOOL_NAMES = Object.freeze({
   ADVANCE: 'advance',
   CONFIG: 'config',
+  DECISIONS_READ: 'decisions_read',
+  DECISIONS_WRITE: 'decisions_write',
   DEPS_READ: 'deps_read',
   DEPS_WRITE: 'deps_write',
   DOCS_READ: 'docs_read',

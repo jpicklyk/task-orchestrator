@@ -11,15 +11,17 @@ import io.github.jpicklyk.mcptask.current.run.internal.app.RunsDecisionRequest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 
-/** `runs_read decision`: one decision request. */
+/** `runs_read decision`: one decision request; a deprecated alias of `decisions_read list` with decisionIds. */
 internal val runsDecisionSelect =
     SelectSpec.Single<RunToolServices, RunsDecisionRequest, JsonObject>(
         name = "decision",
         doc =
-            "Read one decision by id (a UUID or a hex prefix of 8 to 32 characters): its question, options, " +
-                "recommendation, links, context, who raised it (kind and seat), the acknowledgement and the answer " +
-                "with its provenance (kind, proof status, seat, run, profile). A decision whose root is outside the " +
-                "call scope is forbidden, not not_found.",
+            readAliasDoc(
+                "Read one decision by id (a UUID or a hex prefix of 8 to 32 characters): its question, options, " +
+                    "recommendation, links, context, who raised it (kind and seat), the acknowledgement and the answer " +
+                    "with its provenance (kind, proof status, seat, run, profile). A decision whose root is outside the " +
+                    "call scope is forbidden, not not_found."
+            ),
         profiles = director(),
         services = RunToolServices::class,
         request = serializer<RunsDecisionRequest>(),

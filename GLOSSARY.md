@@ -105,7 +105,7 @@ The user's view of work across runs: open runs and their frontier, the decision 
 
 Distinct from: director mode, which changes who acts on the board, not who sees it; and from the director, which acts on the board and does not own it.
 Don't call it: the director's board.
-In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, and `runs_read` `decisions` and `report` `rollup`, served today on the director profile only.
+In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, `decisions_read` `list` and `report` `rollup`, served on the director profile only.
 
 ### Director mode
 
@@ -150,21 +150,21 @@ In code: `extensions.claude-code.steering`; the old key `extensions.claude-code.
 A server record raised when work needs a choice it should not make alone. It holds a question, options, and usually a recommended option, and it belongs to an item, a run or a root. Its answer records the chosen option, the rationale and who decided. An answer never moves the item: the orchestrator resumes it.
 
 Distinct from: an item that builds nothing, planned in advance to get something decided; settling one usually means raising a decision. Also distinct from ruling, the outcome recorded on the work.
-In code: today `runs_write` `raise`, `answer`, `ack` and `withdraw`, and `runs_read` `decisions` and `decision`. Proposed: `decisions_write` and `decisions_read`, served on every profile that needs them.
+In code: `decisions_write` (`raise`, `ack`, `delegate`, `escalate`, `answer`, `withdraw`) and `decisions_read` `list`, served on every profile that needs them. The `runs_write` decision ops and the `runs_read` `decisions` and `decision` selects are deprecated aliases, removed in 5.0.
 
 ### Decision inbox
 
 The open decisions in a scope: an item, a subtree, a run or a project. It is the same inbox whether the user or the director works through it.
 
 Don't call it: the director's inbox.
-In code: proposed `decisions_read` `list`. It returns full records, filtered by `itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `class` or `severity`. Each class policy appears once per response, and `context` is returned only with `includeContext: true`.
+In code: `decisions_read` `list`. It returns full records, filtered by `itemId`, `ancestorId`, `runId`, `rootId`, `decisionIds`, `status`, `class` or `severity`. Each class policy appears once per response, and `context` is returned only with `includeContext: true`.
 
 ### Answer
 
 Choosing one option on a decision, together with the rationale and who decided: the user, whose own words are carried verbatim, or the director acting autonomously. The authority to answer comes from the decision's class and the caller's credential, never from the role or profile making the call.
 
 Distinct from: acknowledging a decision (`ack`), which records that it was seen and settles nothing.
-In code: proposed `decisions_write` `answer`; today `runs_write` `answer` (director profile only).
+In code: `decisions_write` `answer` (director profile only); `runs_write` `answer` is a deprecated alias.
 
 ### Decision class
 

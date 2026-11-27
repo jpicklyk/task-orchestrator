@@ -1,0 +1,115 @@
+{
+  "name": "decisions_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "raise",
+                "delegate",
+                "withdraw"
+              ]
+            },
+            "class": {
+              "type": "string",
+              "description": "Decision class (for example question or deviation); it decides who may answer. [ops: raise]"
+            },
+            "question": {
+              "type": "string",
+              "description": "The question, at most 500 characters. [ops: raise]"
+            },
+            "options": {
+              "type": "array",
+              "description": "1 to 8 choices, each {key, label, consequence}. [ops: raise]",
+              "items": {
+                "type": "object"
+              }
+            },
+            "recommended": {
+              "type": "string",
+              "description": "Key of the recommended option. [ops: raise]"
+            },
+            "links": {
+              "type": "array",
+              "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: raise]",
+              "items": {
+                "type": "object"
+              }
+            },
+            "context": {
+              "type": "string",
+              "description": "Background for the answerer, at most 1000 characters. [ops: raise]"
+            },
+            "dedupeKey": {
+              "type": "string",
+              "description": "Re-raising the same key returns the open or answered decision instead of a new one. [ops: raise]"
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Item id: UUID or 8-32 hex. [ops: raise]"
+            },
+            "runId": {
+              "type": "string",
+              "description": "Run id: UUID or 8-32 hex. [ops: raise]"
+            },
+            "rootId": {
+              "type": "string",
+              "description": "The root item the run belongs to. Item id: UUID or 8-32 hex. [ops: raise]"
+            },
+            "severity": {
+              "type": "string",
+              "description": "Class default. [ops: raise]",
+              "enum": [
+                "high",
+                "normal",
+                "low"
+              ]
+            },
+            "block": {
+              "type": "boolean",
+              "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
+            },
+            "decisionId": {
+              "type": "string",
+              "description": "Decision id: UUID or 8-32 hex. [ops: delegate, withdraw]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Raise, delegate and withdraw decisions. Each op needs a root in scope and the runs capability (delegate: decide). Only the answerers of a decision's class delegate it; withdraw: its raiser or the run token of its run. Result: the decision. Call with describe:true for parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

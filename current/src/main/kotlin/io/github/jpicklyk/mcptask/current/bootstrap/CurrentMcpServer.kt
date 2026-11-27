@@ -644,11 +644,11 @@ internal fun profileInstructions(profile: ToolProfile): String =
     when (profile) {
         ToolProfile.DIRECTOR ->
             "Task Orchestrator MCP server, ${profile.wire} tool profile: the run board and the decision inbox. Call any " +
-                "tool with describe: true for its selects, operations and parameters. runs_read: runs, their frontier " +
-                "and the open decisions. runs_write: open, close, pause, resume and reissue runs; ack, answer and withdraw " +
-                "decisions. report: aggregate metrics and the rollup of a subtree or run. items_read: items, the " +
-                "hierarchy and what is blocked. deps_read: dependency edges. No read here returns a note or document " +
-                "body, and there is no item or note write."
+                "tool with describe: true for its selects, operations and parameters. runs_read: runs and their frontier. " +
+                "runs_write: open, close, pause, resume and reissue runs. decisions_read: the decision inbox. " +
+                "decisions_write: ack, delegate, escalate, answer and withdraw decisions. report: aggregate metrics " +
+                "and the rollup of a subtree or run. items_read: items, the hierarchy and what is blocked. deps_read: " +
+                "dependency edges. No read here returns a note or document body, and there is no item or note write."
         ToolProfile.KNOWLEDGE ->
             "Task Orchestrator MCP server, ${profile.wire} tool profile: items, their notes and dependencies, and " +
                 "versioned documents with their links, without phase transitions or runs. Call any tool with describe: " +
@@ -663,8 +663,8 @@ internal fun profileInstructions(profile: ToolProfile): String =
                 "items and trees. notes_read and notes_write: the notes a phase gate asks for. deps_read and " +
                 "deps_write: dependency edges. docs_read and docs_write: versioned plans, rules and pages. advance: " +
                 "phase transitions and claims. config: a root's schemas and rule text. runs_read and runs_write: " +
-                "runs, seats and raising decisions. Start with items_read context (an item's gate state) or next " +
-                "(what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
+                "runs and seats. decisions_write: raise, delegate and withdraw decisions. Start with items_read " +
+                "context (an item's gate state) or next (what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
                 "Decisions are answered, runs paused or resumed and a lost run token reissued, on the director " +
                 "profile: HTTP path /mcp/director, or stdio with MCP_TOOL_PROFILE=director. A client that loads " +
                 "tool schemas on demand should load the tools a task needs together, in one step."

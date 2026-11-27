@@ -1420,8 +1420,8 @@ below). What an operator sees:
   attempts`) and raises a high-severity `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is
   chosen before the unit that writes the decision runs, so after a database fault, or when the write finds an
   existing decision for the same attempt (a dedupe hit), the id can be absent or differ from the one that stands.
-  Read the run's decisions (`runs_read` `decisions`) rather than trusting the refusal alone.
-- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
+  Read the run's decisions (`decisions_read` `list` with `runId`) rather than trusting the refusal alone.
+- **Answering.** A director or human answers through `decisions_write` `answer` (`/ops/director/decisions_write` on REST):
   `allow_one` gives that (item, seat) one more attempt and resumes the run; `skip_item` removes the item and resumes;
   `stop` closes the run `budget_exhausted`, ends its seats, clears their claims and releases the leases of its WORK
   members. An orchestrator cannot lift its own cap: a manual `resume` of an attempts pause is refused. The decisions the

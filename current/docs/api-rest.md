@@ -221,8 +221,8 @@ Each token grants a set of additive capabilities:
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset` (checked per op by the dispatcher, section 20a). Grants no `docs_write` op. |
 | `WRITE_DOCS` | `write-docs` | `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
-| `RUNS` | `runs` | Every `runs_write` op except `ack` and `answer` (`open`, `update`, `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`), checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
-| `DECIDE` | `decide` | Decision answering: `runs_write` ops `ack` and `answer`, checked per op by the dispatcher (section 20a) |
+| `RUNS` | `runs` | Every `runs_write` op except `ack` and `answer` (`open`, `update`, `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`) and the `decisions_write` ops `raise` and `withdraw`, checked per op by the dispatcher (section 20a). `runs_read` needs only `read`. |
+| `DECIDE` | `decide` | Decision answering: the `decisions_write` ops `ack`, `delegate`, `escalate` and `answer` and the `runs_write` aliases `ack` and `answer`, checked per op by the dispatcher (section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses and the `principal` grouping of `POST /ops/report` `usage` |
 
 **Breaking change (4.0):** `docs_write` needs `write-docs`. A token that wrote documents with `write-config` alone
@@ -863,7 +863,7 @@ ok envelope (`{"ok": true, "data": {...}, "meta": {"reqId": ...}}`, Q32).
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "verifier": "bearer",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"],
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"],
   "configWarnings": []
 }
 ```
@@ -904,7 +904,7 @@ rule text served by the `config` tool's `rules` op (section 10) - see [api-refer
   "version": "4.0.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"]
 }
 ```
 
@@ -1081,12 +1081,12 @@ clear both. A blocked item before V37 has no stored reason and reads as `manual`
 as `manual`) beside every `childCounts` of `overview`. An `awaiting_decision` `blocked` entry also carries
 `resumable`: `true` once the decision is answered, withdrawn or gone, `false` while it is pending. Answering a
 decision never resumes the item. The `item.transitioned` row of a transition into blocked adds `blockedReason` and
-`decisionId` to its payload (SSE `item.advanced` and `history` are unchanged). `runs_write` `raise` with
+`decisionId` to its payload (SSE `item.advanced` and `history` are unchanged). `decisions_write` `raise` with
 `block: true` also blocks the item (`itemId` or the token's item) as `awaiting_decision` in the same unit: a refused
 block refuses the raise, a replay does not block twice, an already-answered decision does not block, and the result adds
 `blocked`.
 
-**Decisions.** `runs_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
+**Decisions.** `decisions_write` `raise{class, question, options, recommended?, links?, context?, dedupeKey, itemId?, runId?,
 rootId?, severity?, block?}` (orchestration profile, `runs`) raises a decision request. One of `itemId`, `runId` or `rootId` is
 required (under a seat token an absent `runId` / `itemId` defaults to the token's); the root is the item's, else the
 run's, else `rootId` (a root item), and they must agree (`invalid_request` on `/itemId` or `/rootId`); an item without a
@@ -1101,20 +1101,19 @@ recommended, links, context}` at most 4,096 bytes (`413 payload_too_large`). A d
 item, else the run, else the root) and `dedupeKey` that is not withdrawn is returned with `existing: true` (with its
 answer when answered) when its class, question and option keys match, and is `409 idempotency_mismatch` with
 `detail.idempotencyKey` set to the dedupe key otherwise; a withdrawn one never matches, so a re-raise after a withdraw
-creates a new decision. `ack{decisionId}` and `answer{decisionId, option?, text?, rationale?}` (director profile,
-`decide`) need the class's answerers: `human-only` a human credential with proof `verified`, `verified_stale` or `issued`
+creates a new decision. `ack{decisionId}`, `delegate{decisionId}`, `escalate{decisionId, reason}` and `answer{decisionId, option?, text?, rationale?, decidedBy?, links?}` (director profile,
+`decide`; `delegate` also on the orchestration profile) need the class's answerers (`escalate` also admits the director; `delegate` refuses a `human-only` decision with `400 invalid_request` on `/decisionId`): `human-only` a human credential with proof `verified`, `verified_stale` or `issued`
 and no seat token; `director-or-human` also the director profile without a seat token; `any-actor` any caller. A refusal
 is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `director,human`. `answer` is final: the
 option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
-1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
+1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`, and `decidedBy` (`user` or `director`; a claim the credential contradicts is refused), `basis`, `relayed`, `withinAutonomy` and the cited `links`. `delegate` sets `waitingOn: director` and `escalate` sets `waitingOn: user` with `waitingReason`; both return the decision unchanged when it already waits there. `withdraw
 {decisionId}` (capability `runs`) needs the raiser (the same principal and seat) or the orchestrator token of the
 decision's run (`required` `coordinator,raiser`); a server-raised `run-budget` or `attempt-cap` decision cannot be
 withdrawn by anyone (the same `forbidden`): it stays pending until it is answered (closing its run withdraws no
-decision; `run.ended` counts it in `openDecisions`). An `ack`, `answer` or `withdraw` of an answered or withdrawn
-decision is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `runs_read`
-`decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest first) and `decision{decisionId}` (director
-profile, `read`) read them; `decisions` has no status filter (each summary carries `status`, so callers filter by status
-client-side). A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
+decision; `run.ended` counts it in `openDecisions`). An `ack`, `answer`, `delegate`, `escalate` or `withdraw` of an answered or withdrawn
+decision is `409 decision_closed{decisionId, status}`; an `ack` of an acknowledged one returns it unchanged. `decisions_read`
+`list{itemId?, ancestorId?, runId?, rootId?, decisionIds?, status?, waitingOn?, class?, severity?, overdue?, includeContext?, limit?, cursor?}` (director
+profile, `read`; newest first, each decision in full, `context` only with `includeContext`) reads them, and `data.classes` carries the classes in force on the roots shown; `status` is an array and absent means every status. The `runs_read` selects `decisions` (summary rows) and `decision` are its deprecated aliases (removed in 5.0), as are the `runs_write` ops `raise`, `ack`, `answer` and `withdraw` for the `decisions_write` ops of those names. A decision is as visible as its root, like a run: out of scope it is `forbidden`, and
 `not_found` with `detail.kind: decision` only for an unrestricted token. An open or acknowledged decision whose class
 sets `expires_after` is `overdue` from its expiry and reads with `effectiveSeverity` one step up; nothing else happens on
 expiry. The principal ids of the raiser, acknowledger and answerer and the answer's host and session id are stored but
@@ -1164,7 +1163,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list`, `frontier`, `decisions` and `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer` and `withdraw`; `report` `usage`, `gates`, `notes`, `contention`, `rollup` and `waste`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list`, `frontier`, `decisions` and `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer` and `withdraw`; `decisions_read` `list`; `decisions_write` `ack`, `delegate`, `escalate`, `answer` and `withdraw`; `report` `usage`, `gates`, `notes`, `contention`, `rollup` and `waste`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
@@ -1173,7 +1172,7 @@ member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart
 - A select hidden inside a visible tool (e.g. `items_read` `history`) answers the dispatcher's `400 invalid_request`
   (`/select`, listing the visible selects).
 
-Any credential may call it with the capability the member needs (`read` for the selects, `runs` or `decide` for the `runs_write` ops). It is the only path a token with
+Any credential may call it with the capability the member needs (`read` for the selects, `runs` or `decide` for the `runs_write` and `decisions_write` ops). It is the only path a token with
 `profile: director` may call (§1); the path is matched exactly (`/api/v1/ops/director/<tool>`, lowercase, no
 trailing slash, no encoding), and anything else is refused for such a token. The machine-readable form is in
 [`api/openapi.yaml`](api/openapi.yaml) (path `/ops/director/{tool}`).
@@ -1265,7 +1264,7 @@ events on the same item. See §24 for the `item.deleted` fail-closed gap this sc
 | `scope.left` | set | set | null | Item reparented out of this root's subtree |
 | `run.opened`, `run.updated`, `run.paused`, `run.resumed`, `run.ended`, `run.marked` | null | set | null | A run opened, changed (members, budget or hints), paused, resumed, closed or marked. Carries `runId` and no `itemId`; it is anchored to its root, so a root-scoped stream sees it for its roots. `run.ended` is audit class and its stored data holds the close snapshot |
 | `seat.ended` | set | set | null | A seat ended its own assignment (`runs_write` `end_seat`); `itemId` is the member item and `runId` the run. Item-scoped visibility, like `note.*` |
-| `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn` | set or null | set | null | A decision request was raised, acknowledged, answered or withdrawn. Carries `decisionId`, `class` and `severity`, and `itemId` / `runId` when the decision names them; never an `actor`. With an `itemId` it has item-scoped visibility, like `note.*`; without one it is anchored to its root, like `run.*` |
+| `decision.raised`, `decision.acknowledged`, `decision.answered`, `decision.withdrawn`, `decision.delegated`, `decision.escalated` | set or null | set | null | A decision request was raised, acknowledged, answered, withdrawn, delegated to the director or escalated to the user. Carries `decisionId`, `class` and `severity`, and `itemId` / `runId` when the decision names them; never an `actor`. With an `itemId` it has item-scoped visibility, like `note.*`; without one it is anchored to its root, like `run.*` |
 | `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is further behind the newest event than the replay window), or `unknown_event_id` (resumed `Last-Event-ID` is above the newest event, below the 10^12 seq floor -- a pre-4.0 cursor -- or was not parseable as a number) |
 | `auth.expired` | null | null | null | Connection's token has expired; reconnect with fresh credential |
 

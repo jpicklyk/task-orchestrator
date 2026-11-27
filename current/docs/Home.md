@@ -8,7 +8,7 @@ MCP Task Orchestrator is an open-source MCP server that gives AI agents persiste
 
 ## What's New in 4.0
 
-- A compact tool surface: `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `advance`, `docs_read`, `docs_write`, `config`, `runs_read` and `runs_write` (plus the director-only `report`), each a `select` (reads) or an `ops[]` batch (writes), every one answering one response envelope. `describe: true` on any call returns the tool's schema. See the [API Reference](api-reference.md).
+- A compact tool surface: `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `advance`, `docs_read`, `docs_write`, `config`, `runs_read`, `runs_write`, `decisions_write` and the director-only `decisions_read` (plus the director-only `report`), each a `select` (reads) or an `ops[]` batch (writes), every one answering one response envelope. `describe: true` on any call returns the tool's schema. See the [API Reference](api-reference.md).
 - Three tool profiles: `orchestration` (every tool except the director-only `report`), `knowledge` (a smaller read/write subset at `/mcp/knowledge`) and `director` (item and dependency reads, `report` and the run controls, at `/mcp/director`)
 - Unified WorkItem model: one entity type nesting to any depth. Lifecycle-free items (`lifecycle: none` types) hold reference material that never enters the phase workflow
 - Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`) through `advance`; cascade rules live in the [`advance` reference](api-reference.md#advance)

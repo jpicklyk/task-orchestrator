@@ -8,7 +8,7 @@ This guide covers the role-based workflow, note schema system, dependency blocki
 
 Read this before the first example. Every example in this guide is the JSON request body of one 4.0 tool call. The request fields, the profile of each select or op and the error codes are specified once, in the [API Reference](./api-reference.md); the examples here show how the calls fit together.
 
-**Tools.** There are a few tools, each named for the kind of work it does: `items_read` and `items_write` for work items, `notes_read` and `notes_write` for notes, `deps_read` and `deps_write` for dependencies, `docs_read` and `docs_write` for versioned documents, `advance` for phase transitions and claims, `config` for per-root configuration, `report` for aggregate reports and `runs_read` and `runs_write` for runs. A read tool takes a `select` that names what to read; a write tool takes an `ops` array whose elements each name an `op`:
+**Tools.** There are a few tools, each named for the kind of work it does: `items_read` and `items_write` for work items, `notes_read` and `notes_write` for notes, `deps_read` and `deps_write` for dependencies, `docs_read` and `docs_write` for versioned documents, `advance` for phase transitions and claims, `config` for per-root configuration, `report` for aggregate reports, `runs_read` and `runs_write` for runs and `decisions_read` and `decisions_write` for decisions. A read tool takes a `select` that names what to read; a write tool takes an `ops` array whose elements each name an `op`:
 
 ```json
 { "select": "get", "itemId": "9f3a1c22" }
@@ -398,7 +398,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
       { "key": "implementation-notes", "role": "work", "required": true, "description": "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold.", "guidance": "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal." },
       { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment and test quality review.", "guidance": "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`." }
     ],
-    "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance"]
+    "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills", "seatWrites", "orchestratorNotes", "resumeGate", "answerProvenance", "decisionTools", "waitingOn"]
   },
   "meta": { "reqId": "k7f3q9ab" }
 }
@@ -1318,7 +1318,7 @@ intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0`
 
 ## 12. Runs, Seats and Decisions
 
-> This chapter is the one place where runs, seats, tokens and decisions are explained; the other guides link here. The examples use the `runs_write`, `runs_read`, `advance`, `notes_write` and `items_read` tools. Field tables and error lists are not repeated here: they live in the [API reference](./api-reference.md#category-runs), and the config keys in the [config reference](./config-reference.md).
+> This chapter is the one place where runs, seats, tokens and decisions are explained; the other guides link here. The examples use the `runs_write`, `runs_read`, `decisions_write`, `decisions_read`, `advance`, `notes_write` and `items_read` tools. Field tables and error lists are not repeated here: they live in the [API reference](./api-reference.md#category-runs), and the config keys in the [config reference](./config-reference.md).
 
 A **run** is a bounded pass over a set of items of one root, optionally capped. Everything before this chapter works without one. A run adds four things on top: scoped credentials for the agents that work the items (seat tokens), enforcement of who may do what to a member, a liveness view, and a channel for questions that need a human or a director (decisions).
 
@@ -1411,9 +1411,9 @@ A decision is a question with 1 to 8 options that a seat or the orchestrator rai
           "links": [{"kind": "note", "ref": "item:<item-id>#specification"}]}]}
 ```
 
-A raise carries its evidence: `context` (at most 1000 characters) says what the answer needs, and `links` (at most 10) points at the notes or commits it came from, so whoever answers decides from the request alone. Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#runs_write).
+A raise carries its evidence: `context` (at most 1000 characters) says what the answer needs, and `links` (at most 10) points at the notes or commits it came from, so whoever answers decides from the request alone. Re-raising the same `dedupeKey` returns the existing decision. `block: true` raises and blocks the item in one step. The class sets who may `ack` or `answer` (`human-only`, `director-or-human` or `any-actor`); the matrix is in the [API reference](./api-reference.md#decisions_write). The example above is a `decisions_write` call.
 
-The director (or the human) lists and reads decisions with `runs_read` `decisions` and `decision`, then `ack`s and `answer`s with `runs_write`. An answer is final. The raiser or the run's orchestrator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
+The director (or the human) lists and reads decisions with `decisions_read` `list`, then `ack`s, `delegate`s, `escalate`s and `answer`s with `decisions_write`. `delegate` routes a pending decision to the director and `escalate` routes it to the user with a reason; the list filters on `waitingOn`. The `runs_read` `decisions` and `decision` selects and the `runs_write` decision ops still work as deprecated aliases (removed in 5.0). An answer is final. The raiser or the run's orchestrator can `withdraw` a pending decision, except the ones the server raises for a limit. When a class has `expires_after`, an unanswered decision becomes overdue and reads one step more urgent; the server does nothing else about it.
 
 ### Budgets, caps, concurrency and pauses
 
