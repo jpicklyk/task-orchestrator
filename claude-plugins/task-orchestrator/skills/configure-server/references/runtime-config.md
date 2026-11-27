@@ -1,7 +1,7 @@
 # Runtime Config Catalog
 
 This is the **rendering catalog** for `/configure-server` (and the fragment source a project deploy
-command cites): the exact env fragments, tuples, and caveats to render for each runtime choice. It is not a
+command cites): the exact tuples and caveats to render. It is not a
 tutorial and not a security explainer — for env *semantics* (what each flag does, auth model details,
 capability model) this doc defers to:
 
@@ -35,26 +35,9 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 
 ---
 
-## Env-fragment table (compose into a `docker run` command)
+## Other env choices
 
-| Choice | Fragment |
-|--------|----------|
-| Transport: HTTP | `-e MCP_TRANSPORT=http -e MCP_HTTP_HOST=0.0.0.0 -e MCP_HTTP_PORT=3001` |
-| Transport: STDIO | *(no HTTP env — use `docker run --rm -i`, no `-p`, no REST)* |
-| REST off | `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true` (HTTP only; without the opt-in the server refuses to start) |
-| REST unauthenticated (recommended) | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
-| REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
-| Config mount = process-schema floor (recommended) | `-v "<FLOOR_DIR>:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project`. `<FLOOR_DIR>` is `<checkout>/deploy/global-config/.taskorchestrator` in a source checkout, otherwise a host directory holding `config.yaml` downloaded from `deploy/global-config/.taskorchestrator/config.yaml` in the GitHub repo (the image bakes no config) |
-| Config mount = none | *(omit)*. With no server config a depth-0 create, and any root with no config of its own, accepts every type schema-free (lifecycle auto); items under a config-synced root are still type-checked against that root's declared types. So a `project` anchor can auto-complete and retrospective/proposal items have no required notes. Never mount a project file carrying `project.rootId` as a fallback: it imports into that root, not the server scope, and fails startup when the DB lacks that root |
-| Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
-| Log to file (opt-in) | `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (JSON on stderr always; this also writes the same JSON lines to that file, on the existing `/app/data` volume) |
-| Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |
-| Non-loopback Host | `-e MCP_ALLOWED_HOSTS=<name>[,<name>:<port>]` |
-| Tool profile (stdio only) | `-e MCP_TOOL_PROFILE=orchestration\|knowledge\|director` (default `orchestration`; an unknown value fails startup). Over HTTP the profile is the path: `/mcp`, `/mcp/knowledge`, `/mcp/director` |
-| Retention windows (whole days, `0` keeps forever) | `-e RETENTION_EVENTS_DAYS=180 -e RETENTION_AUDIT_EVENTS_DAYS=0 -e RETENTION_LEASE_HISTORY_DAYS=365 -e RETENTION_CALL_LOG_DAYS=90` (the defaults; set only to change one; read once at startup) |
-| jwks key-set staleness | `-e API_JWKS_MAX_STALE_SECONDS=<n>` (default `max(3600, API_JWKS_CACHE_TTL_SECONDS)`; positive and at least the TTL; past it the key set is unavailable and `/mcp` and `/api/v1` answer `503`) |
-| Pre-upgrade backup | `-e UPGRADE_BACKUP=false` to skip it (default `true`; see "Upgrading a 3.x volume" below) |
-| Advanced / operator | `SCHEMA_MODE`, `FTS_INTEGRITY`, `DATABASE_*`, `READINESS_FILE`, `DB_COMPACT_ON_UPGRADE`, `FLYWAY_REPAIR`, `CORS_*`, `API_SSE_*` and the rest: names, meanings and defaults are in [`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md#environment-variable-reference); not copied here |
+Every other env name, its meaning and its default is in [`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md#environment-variable-reference).
 
 ## REST-mode env tuples (full, copy-paste)
 

@@ -147,7 +147,7 @@ docker stop mcp-task-orchestrator-http 2>/dev/null || true
 docker rm   mcp-task-orchestrator-http 2>/dev/null || true
 ```
 
-Base command (compose the REST-mode / config-mount / debug fragments below into it):
+Base command (compose the REST-mode / config-mount / debug fragments into it):
 ```
 docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   -v mcp-task-data:/app/data \
@@ -155,11 +155,6 @@ docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   <REST-MODE fragment> <CONFIG-MOUNT fragment> <DEBUG fragment> \
   -p 127.0.0.1:3001:3001 <image-tag>
 ```
-
-The exact fragments for each choice (REST off/unauthenticated/bearer, config mount, debug), the
-loopback-safety rationale, and the Windows/MSYS path caveat are single-sourced in
-`claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md` — use that
-catalog to compose the command above rather than re-deriving the flags here.
 
 Verify running:
 ```bash
@@ -188,7 +183,7 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 
 ## Notes
 - **Reuse is the default:** detection reads the live container (`docker inspect`) first, then `${HOME}/.taskorchestrator/deploy.env`, then built-in defaults — so a redeploy keeps your last REST mode / mounts unless you Reconfigure.
-- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`) **and** the client-side `TASK_ORCHESTRATOR_API_URL` env var — see the "config-sync" section of `runtime-config.md` (cited above) for the full requirement and the silent-no-op failure mode. With REST `off`, only `/mcp` is served and config-sync no-ops regardless.
+- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`) **and** the client-side `TASK_ORCHESTRATOR_API_URL` env var - see the "config-sync" section of `runtime-config.md` for the full requirement and the silent-no-op failure mode. With REST `off`, only `/mcp` is served and config-sync no-ops regardless.
 - **No local build needed:** the Dockerfile runs `./gradlew :current:jar` in a builder stage.
 - **Persistence:** `mcp-task-data` volume persists the DB across runs.
 - **HTTP:** detached (`-d`), `/mcp` served, container `mcp-task-orchestrator-http`, published loopback-only by default.

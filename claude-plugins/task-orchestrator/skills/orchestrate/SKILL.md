@@ -90,6 +90,20 @@ Before dispatching a seat at a feature or wave parent, branch on the parent's ro
 
 Delegation prompts must include entity ids and full context; subagents start fresh.
 
+### Judgment stays, mechanical work goes down
+
+The orchestrator's own model is spent on judgment. It keeps these steps itself:
+
+- whether a choice is its own to judge or a decision to raise, by the drive/decide boundary: the orchestrator drives, the user or a director decides;
+- when it raises one, the `recommended` option and the `context` evidence the answer needs;
+- the tier, when the sizing signals conflict;
+- cutting a plan into items;
+- disposing of review findings (`orchestrator-confirmation`);
+- triage of a failure: reseat or raise;
+- whether a branch is ready to merge.
+
+A mechanical step whose result it needs only in summary may go to one agent at the `bulk` or `extraction` class (`task-orchestrator:model-effort`): writes that cannot be batched into one call, a status sweep that takes several reads, or a script run whose output it needs only summarised. The agent returns that summary, never the raw output. Verification is never one of these steps (see Verification below).
+
 ### Dispatch contract
 
 **Parallel-tier dispatches follow a dispatch contract.** Where the project ships a dispatch-contract template, generate the run's plan file from it; otherwise write one plan file for the wave that pins branch, worktree, file ownership, commit form, build self-check and review scoping. Either way, point every dispatch prompt at that file by absolute path instead of restating those rules inline. Under a run plan (`/task-orchestrator:run-wave`) seat prompts are generated and never reference this file; the contract then serves the orchestrator (fallback hand-dispatches, the post-run commit map) and the reviewers, and anything a seat must know goes in the item's `specification` or `task-scope` note.

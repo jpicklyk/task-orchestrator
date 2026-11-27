@@ -1,6 +1,6 @@
 # MCP Task Orchestrator - Workflow Guide
 
-This guide covers the role-based workflow, note schema system, dependency blocking, claims, resource leases and runs, and efficient query patterns for MCP Task Orchestrator 4.0.
+This guide covers the role-based workflow, dependency blocking and runs, and efficient query patterns for MCP Task Orchestrator 4.0.
 
 ---
 
@@ -18,7 +18,7 @@ Read this before the first example. Every example in this guide is the JSON requ
 { "ops": [ { "op": "create", "title": "Add retry", "type": "feature-task", "parentId": "9f3a1c22" } ] }
 ```
 
-**Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of its profile (a hidden select or op looks absent). `orchestration` (the default, `/mcp`, or `MCP_TOOL_PROFILE=orchestration` over stdio) carries every tool. `knowledge` (`/mcp/knowledge`) is the item, note, dependency and document tools without the orchestration selects and ops. `director` (`/mcp/director`) is the read-mostly view for a human or a director: no note, document or summary bodies, plus `report` and the run controls. The table is in the [API Reference](./api-reference.md#tool-profiles). The examples below use the orchestration profile unless they say otherwise.
+**Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of its profile (a hidden select or op looks absent). The profiles and their paths are in the [API Reference](./api-reference.md#tool-profiles). The examples below use the orchestration profile unless they say otherwise.
 
 **`describe: true`.** Any tool answers `describe: true` with its own registry entry: every select or op it serves in your profile, each field's type and description, and the error codes. It is the live form of the generated tables in the API Reference, so a client never has to guess a field name:
 
@@ -76,219 +76,13 @@ When an item has no review-phase notes defined in its schema, `start` from `work
 
 ## 2. Transitions Reference
 
-All role transitions use the `advance` tool's `transition` op. There is no direct role assignment, and an item is always created in `queue` (or lifecycle-free, with no role at all, when its type's base schema says so).
-
-### Trigger Table
-
-| Trigger    | From Role(s)              | To Role                  | Notes                                              |
-|------------|---------------------------|--------------------------|----------------------------------------------------|
-| `start`    | `queue`                   | `work`                   | Queue-phase required notes must be filled.         |
-| `start`    | `work`                    | `review` or `terminal`   | Work-phase required notes must be filled.          |
-| `start`    | `review`                  | `terminal`               | Review-phase required notes must be filled.        |
-| `complete` | `queue`, `work`, `review` | `terminal`               | Enforces gates: all required notes across ALL phases must be filled. Rejected from `blocked` — `resume` first. |
-| `block`    | `queue`, `work`, `review` | `blocked`                | Saves `previousRole` for resume. Takes an optional `reason`. |
-| `hold`     | `queue`, `work`, `review` | `blocked`                | Alias for `block`.                                 |
-| `resume`   | `blocked`                 | Previous role            | Restores role saved at block time.                 |
-| `cancel`   | Any non-terminal (including `blocked`) | `terminal`  | Sets `statusLabel = "cancelled"`. Does not enforce gates. |
-| `reopen`   | `terminal`                | `queue`                  | Clears statusLabel, bypasses gates. Parent cascades TERMINAL → WORK. |
-
-### Example: Advance a Work Item
-
-```json
-{ "ops": [ { "op": "transition", "itemId": "3d7e91ab", "trigger": "start" } ] }
-```
-
-```json
-{
-  "ok": true,
-  "data": {
-    "results": [
-      { "ok": true, "itemId": "3d7e91ab-5c0e-4f1a-9b2d-0a6e8c4d1f37", "previousRole": "queue", "newRole": "work", "trigger": "start",
-        "statusLabel": "in-progress", "expectedNotes": ["implementation-notes"], "guidanceKey": "implementation-notes" }
-    ],
-    "summary": { "ok": 1, "failed": 0 }
-  },
-  "meta": { "reqId": "k7f3q9ab" }
-}
-```
-
-`expectedNotes` lists the note keys the phase just entered expects, and `guidanceKey` names the first missing required one (see section 5).
-
-### Example: Batch Transitions
-
-Several elements in one call, each its own write unit:
-
-```json
-{
-  "ops": [
-    { "op": "transition", "itemId": "3d7e91ab", "trigger": "complete", "summary": "All tests passed" },
-    { "op": "transition", "itemId": "8a4c2e10", "trigger": "start" }
-  ]
-}
-```
-
-A rejected element is `{ "ok": false, "error": ... }` in `results[i]` and the call is `partial_failure`; pass `"atomic": true` to make the first failure roll the whole call back.
+The triggers and what each does are in the [API Reference](./api-reference.md#advance); `items_read` `context` tells you the next trigger for an item.
 
 ---
 
 ## 3. Note Schemas
 
-Note schemas gate role transitions. They define what documentation an item must carry before it can advance to the next phase.
-
-### What They Are
-
-A note schema is a named set of note definitions. When an item matches a schema, the system enforces note requirements at `start` transitions.
-
-**Schema resolution order** (one rule; tags never select a schema):
-1. **Per-root type** — the item's `type` (e.g. `feature`, `task`, `bug`) declared in the root's pushed config.
-2. **Server type** — the same `type` declared in the server config.
-3. **Per-root default** — the root's `default` schema.
-4. **Server default** — the server's `default` schema. An item that matches none advances freely with no gate enforcement.
-
-Schemas are defined in `.taskorchestrator/config.yaml` in the project root.
-
-> **Schemas vs notes:** Schemas and notes are independent systems. A schema is a set of rules defined in your project config that specifies what documentation an item must carry - it is never stored in the database. A note is actual content written by agents during implementation - it is stored in the database and carries no reference to any schema. The two meet only at gate-check time: `advance` fetches the item's notes from the database and checks them against the schema's requirements.
-
-### How They Gate Transitions
-
-- A `transition` with `trigger: "start"` checks required notes for the **current phase** before advancing.
-- A `transition` with `trigger: "complete"` checks all required notes across all phases.
-- A `transition` with `trigger: "cancel"` does not enforce gates.
-- Optional notes never block transitions.
-
-Gate enforcement applies to items that resolve a schema via type or default fallback.
-
-### Full YAML Schema Format
-
-The preferred format uses `work_item_schemas:`, which supports a `lifecycle:` field for cascade control. The legacy `note_schemas:` format is still accepted and fully backward-compatible.
-
-```yaml
-# Preferred format
-work_item_schemas:
-  <schema-key>:
-    lifecycle: <auto|manual|permanent|none>   # optional, default: auto
-    notes:
-      - key: <note-key>
-        role: <queue|work|review>
-        required: <true|false>
-        description: "<Short description of what this note should contain.>"
-        guidance: "<Optional longer guidance shown to agents filling the note.>"
-    default_traits:            # optional — trait keys applied to every item matching this schema
-      - <trait-key>
-
-# Legacy format (still works)
-note_schemas:
-  <schema-key>:
-    - key: <note-key>
-      role: <queue|work|review>
-      required: <true|false>
-      description: "<Short description of what this note should contain.>"
-      guidance: "<Optional longer guidance shown to agents filling the note.>"
-```
-
-#### Field Reference
-
-| Field         | Type    | Required | Description                                                                          |
-|---------------|---------|----------|--------------------------------------------------------------------------------------|
-| `key`         | string  | yes      | Unique identifier for this note within the schema. Used in `notes_write`.            |
-| `role`        | string  | yes      | Phase this note belongs to: `queue`, `work`, or `review`.                            |
-| `required`    | boolean | no       | Whether this note must be filled before advancing past this phase. Defaults to `false` if omitted — set it explicitly. |
-| `description` | string  | no       | Short description of expected content (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
-| `guidance`    | string  | no       | Longer authoring guidance for agents. Named by `guidanceKey` in `items_read` `context`; the text comes from `select: "schema"` with `fields: ["guidance"]`. |
-| `skill`       | string or list | no | Skill to invoke when filling this note, or a list of skills in invocation order. Shown in `items_read` `context` as `skillPointer` (the first skill) and, for two or more, `skillPointers`. |
-| `skill_mode`  | string  | no       | `invoke` (default) or `method-on-diff`: apply the skill's method to the diff of the files the seat owns instead of the skill's own default target. Shown as `skillMode` only when `method-on-diff`. |
-| `lane`        | map     | no       | Review-role notes only: `output` (`verdict` default, or `findings`) and `after` (a review note key or a list of them whose lanes run first). Shown as `lane` on `items_read` `select: "schema"` only when declared. |
-
-#### Constraints
-
-- `key` values must be unique within a schema.
-- The same `key` may appear in multiple schemas (schemas are independent).
-- Each item matches at most one schema, and tags never select one.
-- Schemas with no matching item (no type or default fallback) have no effect.
-
-### Lifecycle Modes
-
-The `lifecycle:` field on a schema controls how parent items cascade when all children reach terminal. This is only relevant for container items (items with children).
-
-| Mode           | Behavior                                                                                      |
-|----------------|-----------------------------------------------------------------------------------------------|
-| `auto`         | *(default)* Parent automatically advances to terminal when all children reach terminal, unless it is in `review` (that cascade is suppressed with `reason: review-pending`; advance it explicitly). |
-| `manual`       | Suppress auto-cascade - parent must be completed explicitly with an `advance` `transition` (`complete`). |
-| `permanent`    | Parent never auto-terminates, regardless of child state.                                      |
-| `none`         | Lifecycle-free: items have no role and never transition (every `advance` trigger fails `invalid_transition`); cascades skip them. See [Lifecycle-free items](./config-reference.md#lifecycle-free-items). |
-
-The lifecycle also governs tree edits (4.0):
-
-- **A closed parent takes no new children.** Creating an item under a `terminal` parent, or moving an item under
-  one, is rejected when the parent's lifecycle is `auto` (reopen the parent first); under `manual` and `permanent`
-  it is allowed. This applies to `items_write` `create` and `update` and `create_tree` (its `parentId` and an
-  attach-mode `root.id`), on MCP and over REST `POST /api/v1/ops/items_write` (`409 invalid_transition`).
-- **Moving a child away, or deleting it, re-evaluates the old parent** exactly like a child completion: under `auto`
-  the parent completes when every remaining child is terminal and its gate passes (missing required notes suppress
-  it, reported with reason `gate_blocked`), in the same transaction as the move or delete. Nothing happens under `manual` or
-  `permanent`, or when no child remains (deleting the last child never completes the parent). The new parent of a
-  move is never cascaded. `items_write` reports these cascades as `cascade` on the update or delete result.
-- **Items are always created in `queue`;** use `advance` to move them.
-
-Set `lifecycle` at the schema level in `work_item_schemas:`:
-
-```yaml
-work_item_schemas:
-  quick-fix:
-    lifecycle: auto
-    notes:
-      - key: session-tracking
-        role: work
-        required: true
-        description: "One short paragraph: what the fix was and why that way, then the Commits and Verified lines."
-```
-
-### Complete Example Schema
-
-```yaml
-work_item_schemas:
-  feature-implementation:
-    lifecycle: auto
-    notes:
-      - key: feature-summary
-        role: queue
-        required: true
-        description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
-        guidance: "Cover the goal in 2-3 sentences, a findings→tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded."
-      - key: implementation-notes
-        role: work
-        required: true
-        description: "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold."
-        guidance: "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
-      - key: review-checklist
-        role: review
-        required: true
-        description: "Quality gate — plan alignment and test quality review."
-        guidance: "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
-```
-
-> The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `default_traits:` fields.
-
-### Phase Flow with Gates
-
-```
-queue
-  requires: feature-summary (filled)
-      |
-   [start]
-      |
-    work
-  requires: implementation-notes (filled)
-      |
-   [start]
-      |
-   review
-  requires: review-checklist (filled)
-      |
-   [start]
-      |
-  terminal
-```
+Note schemas are described in the [config reference](./config-reference.md) and, key by key, in [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md); the plain-language introduction is [Note Schemas](./integration-guides/note-schemas.md), and `/task-orchestrator:manage-schemas` walks you through writing one.
 
 ---
 
@@ -750,8 +544,6 @@ The `verification` record names how the principal was established (`api-jwks`, `
 
 `items_read` `select: "search"` searches item content, note bodies and documents in one ranked list (`kinds` picks which: `item`, `note`, `document`). Use it over `list` filtering whenever you are looking for items or notes by content rather than metadata.
 
-See [`search-and-discovery.md`](./search-and-discovery.md) for the architecture and score interpretation.
-
 #### Recipe 1 — Find passages mentioning X across all requirements
 
 Find any item whose title or summary mentions "authentication":
@@ -913,406 +705,19 @@ Scope to a subtree:
 
 ## 9. Config Reference
 
-The full schema for `.taskorchestrator/config.yaml`:
-
-### Top-Level Structure
-
-```yaml
-# Preferred — supports lifecycle and default_traits
-work_item_schemas:
-  <schema-key>:
-    lifecycle: <auto|manual|permanent|none>   # optional
-    notes:
-      - <note-entry>
-    default_traits:            # optional — traits added to every item matching this schema
-      - <trait-key>
-
-# Legacy — flat list under each key, still fully supported
-note_schemas:
-  <schema-key>:
-    - <note-entry>
-
-# Composable traits — referenced by default_traits or by an item's own traits
-traits:
-  <trait-key>:
-    notes:                     # the trait's notes go under a notes: key, not directly under the trait
-      - key: <note-key>
-        role: <queue|work|review>
-        required: <true|false>
-        description: "<description>"
-        guidance: "<guidance>"
-```
-
-There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`, plus the text fields `description:` and `applies_when:` (served, never evaluated); see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
-
-Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project`, `independence`, `extensions`, `runs`, `decision_classes`) are supported but not covered in this guide; see the [config reference](./config-reference.md).
-
-### Note Schema Entry Fields
-
-| Field         | Type    | Required | Allowed Values            | Description                                                        |
-|---------------|---------|----------|---------------------------|--------------------------------------------------------------------|
-| `key`         | string  | yes      | Any non-empty string      | Note identifier. Must be unique within the schema.                 |
-| `role`        | string  | yes      | `queue`, `work`, `review` | Phase gate this note belongs to.                                   |
-| `required`    | boolean | no       | `true`, `false`           | If true, must be filled before `start` advances past this phase. Defaults to `false` if omitted — set it explicitly. |
-| `description` | string  | no       | Any string                | Short description (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
-| `guidance`    | string  | no       | Any string                | Longer authoring hint. Named by `guidanceKey` in the gate status; read with `fields: ["guidance"]`.  |
-| `skill`       | string or list | no | Skill name, or a non-empty list of distinct names | Skill to invoke before filling; a list is invoked in order. Shown as `skillPointer` (the first) and `skillPointers`. |
-| `skill_mode`  | string  | no       | `invoke`, `method-on-diff` | How the skill is used; `method-on-diff` applies its method to the diff of the files the seat owns. Shown as `skillMode`. |
-| `lane`        | map     | no       | `output`: `verdict`, `findings`; `after`: note key or list | Review-role notes only. A findings lane reports findings and never sets the item verdict; `after` orders lanes (it never halts or skips). Shown as `lane` on `items_read` `select: "schema"`. |
-
-### Matching Rules
-
-1. **Per-root type** — the item's `type` declared in the root's pushed config.
-2. **Server type** — the same `type` declared in the server config.
-3. **Per-root default**, then **server default** — the `default` schema of the root, then of the server. Items with no match at all advance freely.
-
-Tags never select a schema.
-
-### Minimal Config Example
-
-```yaml
-work_item_schemas:
-  task-implementation:
-    lifecycle: auto
-    notes:
-      - key: acceptance-criteria
-        role: queue
-        required: true
-        description: "Testable acceptance criteria for this task."
-      - key: done-criteria
-        role: work
-        required: true
-        description: "What does done look like? How was it verified?"
-```
-
-### Config Location
-
-- Default: `.taskorchestrator/config.yaml` relative to the working directory.
-- Docker override: set `AGENT_CONFIG_DIR` environment variable to the directory containing `.taskorchestrator/`.
-
-```bash
-docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro task-orchestrator:dev
-```
+Note schemas are described in the [config reference](./config-reference.md) and, key by key, in [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md); the plain-language introduction is [Note Schemas](./integration-guides/note-schemas.md), and `/task-orchestrator:manage-schemas` walks you through writing one.
 
 ---
 
 ## 10. Claim Mechanism for Multi-Agent Fleets
 
-The claim mechanism prevents race conditions between independent agents competing for the same work items. It is optional: single-orchestrator deployments that serialize work dispatch do not need claims. Claims are ops of the `advance` tool (`claim`, `release`, `heartbeat`), orchestration profile only.
-
-> **Operators:** see [Fleet Deployment Guide](./fleet-deployment.md) for fail-closed verification, `DATABASE_BUSY_TIMEOUT_MS`, capacity planning, and a Claims Troubleshooting FAQ. The op-level reference lives in [API Reference](./api-reference.md#advance).
-
-> **Agent implementers:** the bundled Claude Code plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills, hooks, and orchestration context assume the agent-owned phase-entry pattern (`advance` `transition` called directly) - they do not coordinate claim-then-advance sequencing. If you are building agents for a claim-based fleet, treat the bundled plugin's behavior as undefined and build claim-aware skills/hooks against the MCP tool surface directly (`advance`, `items_read` `next` and `context`). See the [Fleet Deployment Guide - Scope](./fleet-deployment.md#scope) for the public contract.
-
-### When to Use Claims
-
-**Skip claims if:**
-- A single orchestrator dispatches work sequentially — it controls which agent gets which item.
-- Your fleet has a natural partition (e.g., each agent handles a different feature tree).
-
-**Use claims when:**
-- 10 or more independent agents poll `items_read` `next` and `advance` concurrently.
-- You observe agents starting the same item twice (the `next` then `transition` race).
-- Crash recovery requirements demand TTL-based automatic release.
-
-### Claim Lifecycle
-
-The standard two-call pattern — discover then claim:
-
-```
-items_read {select: "next"}                             -> find an unclaimed item
-advance    {ops: [{op: "claim", itemId, ttlSeconds}]}   -> claim it (releases any other claim this agent holds)
-  claimed: true     -> proceed with the transition + work
-  claim_held error  -> pick a different item (retryAfterMs available)
-advance    {ops: [{op: "transition", itemId, trigger: "start"}]} -> ownership enforced: caller must be the claim holder
-  ... do work ...
-advance    {ops: [{op: "heartbeat", itemId}]}           -> refresh TTL (if work > TTL/2 = 450s)
-advance    {ops: [{op: "transition", itemId, trigger: "complete"}]} -> ownership enforced at completion too
-```
-
-```json
-{ "ops": [ { "op": "claim", "itemId": "3d7e91ab", "ttlSeconds": 900 } ] }
-```
-
-```json
-{
-  "ok": true,
-  "data": {
-    "results": [
-      { "ok": true, "itemId": "3d7e91ab-5c0e-4f1a-9b2d-0a6e8c4d1f37", "claimed": true, "version": 4,
-        "claimedAt": "2026-10-16T13:00:00Z", "expiresAt": "2026-10-16T13:15:00Z", "originalClaimedAt": "2026-10-16T13:00:00Z" }
-    ],
-    "summary": { "ok": 1, "failed": 0 }
-  },
-  "meta": { "reqId": "k7f3q9ab" }
-}
-```
-
-An actor holds one claim at a time: claiming a second item releases the first and lists it in `released`. Claim writes never bump the item's `version`.
-
-### Serialized Find-and-Claim (Select Mode)
-
-The two-call pattern above has an inherent race: between `next` returning an item ID and the claim locking it, another agent can claim the same item. For high-concurrency fleets, `select` mode eliminates the **user-facing** race window by resolving the filter and claiming the best match in a single call.
-
-`items_read` `next` and the claim's `select` take the same filter shapes - `role`, `parentId`, `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before`, `orderBy` and `includeParents` - backed by the same shared eligibility logic. In the `queue` role both return startable work only: a leaf (no child that has a role) whose schema and traits do not set `builds: false`. `includeParents: true` adds parents.
-
-**Select mode lifecycle:**
-
-```
-advance {ops: [{op: "claim", select: {priority: "high", complexityMax: 4, orderBy: "oldest"}, ttlSeconds: 900}]}
-  claimed: true, selected: true       -> proceed with the transition + work (itemId is in the result)
-  claimed: false, no reason           -> nothing matches these filters at all; back off or wait
-  claimed: false, reason + retryAfterMs -> matches exist but none is claimable now (see `excluded`); retry after `retryAfterMs`
-advance {ops: [{op: "transition", itemId, trigger: "start"}]} -> ownership enforced: caller must be the claim holder
-  ... do work ...
-advance {ops: [{op: "heartbeat", itemId}]}                    -> refresh TTL (use the itemId from the select result)
-advance {ops: [{op: "transition", itemId, trigger: "complete"}]} -> ownership enforced at completion too
-```
-
-**Fleet drain pattern using select mode:**
-
-```json
-{
-  "ops": [
-    {
-      "op": "claim",
-      "select": { "orderBy": "oldest" },
-      "ttlSeconds": 900,
-      "claimRef": "worker-7-drain-loop",
-      "idempotencyKey": "<fresh UUID per iteration>"
-    }
-  ]
-}
-```
-
-`orderBy: "oldest"` provides FIFO (oldest-first) draining: agents process items in creation order rather than racing to the same high-priority items. When a select claim answers `claimed: false` with no `reason`, the queue is genuinely drained - the agent can idle, exit, or poll after a delay. When it answers `claimed: false` with a `reason` (`claim_held` or `dependency_unmet`), matches exist but are all excluded right now; the agent should back off `retryAfterMs` (30000) and retry rather than treating the drain as finished. The `excluded` counts (`claimed`, `ancestorClaimed`, `dependencyBlocked`, `outOfScope`) say why.
-
-**Select hygiene and ancestor-claim filtering.** In select mode, items whose ancestor chain contains a live claim held by a *different* agent are automatically skipped. This sub-tree isolation protects in-progress feature orchestration from fleet drain workers picking up child items. Use specific selects (`parentId`, or tag filters such as `tags: ["feature"]`) when your fleet operates at the top level; broader selects like `role: queue` will naturally skip sub-items of in-progress features without returning errors. Skipped items are counted in `excluded.ancestorClaimed` rather than surfacing information about the competing agent's identity. See [Fleet Deployment Guide - Fleet Topology Patterns](./fleet-deployment.md#fleet-topology-patterns) for recommended patterns.
-
-`claimRef` (up to 64 chars) is echoed verbatim in the result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
-
-**Idempotency with select mode.** An element that committed is stored for 24 hours per (principal, tool, `idempotencyKey`) and replayed verbatim on a retry with the same key - the same `itemId` is returned, and the select is **not** re-evaluated against fresh queue state. An element that failed (a `claim_held` error) is not stored, so retrying it with the same key runs it again. A select that found nothing answers `claimed: false`, which is a successful result: it is stored and replayed for 24 hours like any other, so use a fresh key to look again. Use a fresh key per claim iteration, and the same one for retries of the same iteration.
-
-### Heartbeat Pattern
-
-For long-running work (longer than the TTL - default 900s), send a `heartbeat` before the TTL expires to refresh it. Recommended cadence: **TTL/2 = 450s** for the 900s default - the same convention used by Consul, etcd, and other lease-based distributed systems.
-
-```json
-{ "ops": [ { "op": "heartbeat", "itemId": "3d7e91ab", "ttlSeconds": 900 } ] }
-```
-
-Heartbeating (or re-claiming) an already-held item:
-- Refreshes `expiresAt` (new TTL from now)
-- Preserves `originalClaimedAt` (first claim timestamp is not overwritten)
-
-A `heartbeat` never takes an item: it is `not_claim_holder` unless the caller holds the active claim, so a heartbeat after the claim lapsed cannot silently steal the item back from whoever claimed it since.
-
-Operators can inspect `originalClaimedAt` via `items_read` `select: "context"` with the `itemId` to distinguish freshly-claimed items from long-running renewed work.
-
-**Heartbeat write overhead.** Every heartbeat is a row `UPDATE` on `work_items`. At 30 agents with TTL=900s, heartbeats produce approximately 4 writes/minute versus 30–60 writes/minute from real work transitions (~7% overhead). This is acceptable for v1. If writer contention from heartbeat traffic becomes a measured bottleneck, the mitigation is splitting heartbeats into a separate `claim_heartbeats` table (a non-breaking repository-layer change deferred to v1.5+).
-
-### Effect of `complete` and `cancel` on the Claim
-
-A `complete` or `cancel` transition - and any other transition, path, or cascade that lands the item in TERMINAL - clears the claim record as part of that same transition: `claimedBy`, `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are all reset to `null`. This applies uniformly across `advance` `transition`, `items_write` `complete_tree` and system cascades.
-
-Consequently `reopen` always starts the item **unclaimed** - there is no residual claim to enforce ownership against, and a subsequent claimant does not need to match the item's prior holder. Sending a `release` before completing work is not necessary for claim hygiene (the terminal transition already clears it), though it remains useful for making an early release explicit in the audit trail.
-
-### Crash Recovery via Passive Expiry
-
-When an agent crashes or is killed, its claim expires naturally within the configured TTL (default 900s); no process clears it. Expired claims are filtered at read time, and the server records one `claim.expired` audit event per lapsed claim (hourly sweep, a transition of the item, or a contender's claim; the claim columns are left as they were):
-- `items_read` `next` (default `includeClaimed: false`) excludes items with live claims but includes items with expired claims.
-- `items_read` `list` with `claimStatus: "expired"` surfaces items with elapsed TTLs for operator inspection.
-
-No manual cleanup is needed for correctness. Use `items_read` `select: "context"` with the `itemId` to confirm whether a specific item's claim has expired (`claimDetail.isExpired: true`).
-
-### Discovery Patterns
-
-Multi-role fleets use `next` with a `role` to target different pipeline stages:
-
-| Agent group | Call |
-|---|---|
-| Work-group (implementation) | `{ "select": "next" }` (default `role: "queue"`: leaves that build, no parents) |
-| Review-group | `{ "select": "next", "role": "review" }` |
-| Triage-group | `{ "select": "next", "role": "blocked" }` |
-| Fleet health operator | `{ "select": "next", "includeClaimed": true }` - includes claimed items, shows the `isClaimed` boolean |
-
-### `includeClaimed` for Fleet Visibility
-
-`next` with `includeClaimed: true` and `list` with `claimStatus: "expired"` are the primary operator reads for debugging stale claims:
-
-```json
-{ "select": "list", "claimStatus": "expired" }
-```
-
-Diagnose a specific stalled item (full claim detail including identity):
-
-```json
-{ "select": "context", "itemId": "3d7e91ab" }
-```
-
-The response includes `claimDetail.claimedBy`, `claimDetail.isExpired` and `claimDetail.originalClaimedAt`.
-
-`select: "context"` with an `itemId` is the only read that exposes `claimedBy` identity - all other surfaces expose at most an `isClaimed: boolean`.
+Claims are the `claim`, `release` and `heartbeat` ops of `advance` ([API Reference](./api-reference.md#advance)); rolling them out and running a fleet on them is in [Rolling Out Claim Mode](./fleet-deployment.md#rolling-out-claim-mode) and [Operating a Live Fleet](./fleet-deployment.md#operating-a-live-fleet).
 
 ---
 
 ## 11. Resource Leasing
 
-Resource leasing lets a work item declare — via **traits** — that it needs exclusive or advisory
-access to a named shared resource (a staging slot, a test database, a deploy credential, a
-fleet-wide deployment mutex) before it enters the `work` phase. The server enforces this as a
-**gate inside `advance` `transition`**, the same call agents already use to advance - there is no separate
-acquire/release verb and no new MCP tool.
-
-> Full config syntax (`resources:` on a trait, the optional top-level registry, merge semantics,
-> the leaf-task-types-only rule) is in
-> [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
-> This section covers the runtime behavior and operating discipline.
-
-### What it is (and isn't)
-
-A trait can declare one or more `resources:` — each a short opaque key (e.g. `staging-db`,
-`github-deploy-token`) with a **mode**:
-
-- **`exclusive`** (default) — the server takes a lease on the key when the item enters WORK (via
-  `start` or `resume` — both re-enter WORK). At most one item holds an exclusive key at a time in
-  v1 (the storage is semaphore-ready for `maxHolders > 1` later; admission is capped at 1 today). A
-  second item entering WORK while the key is held gets rejected — see Contention below.
-- **`advisory`** — no lease, no lock, no contention possible. The key is recorded into the
-  transition's `consumedCredentials` audit trail (alongside any caller-supplied `credentialRefs`)
-  purely for visibility — "this item touched this resource" — without serializing anything.
-
-**The single biggest modeling mistake to avoid:** `exclusive` means *"this item's work phase must
-not overlap another item's work phase for this key"* — reserve it for genuinely single-occupancy
-resources (a staging slot only one deployment can hold, a test DB only one suite can migrate at a
-time, a fleet-wide "one deployment in flight" mutex). A credential that is safe for several agents
-to *use concurrently* (most read-only API tokens, most service credentials with their own
-rate-limit budget) should be declared `advisory`, not `exclusive` — tagging it `exclusive` just
-because it's "a credential" needlessly serializes unrelated work. Use `advisory` for "record that
-this item touched this credential"; reserve `exclusive` for "this item must have this resource to
-itself."
-
-### Contention and retry discipline
-
-When an item enters WORK and an exclusive key it declares is already held, `transition` rejects
-the call with a **transient** error, not a gate block:
-
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "resource_unavailable",
-    "kind": "transient",
-    "message": "Resource lease contended: staging-db",
-    "detail": { "itemId": "3d7e91ab-5c0e-4f1a-9b2d-0a6e8c4d1f37", "resources": [ { "name": "staging-db", "mode": "exclusive" } ], "retryAfterMs": 30000 },
-    "retryAfterMs": 30000
-  },
-  "meta": { "reqId": "k7f3q9ab" }
-}
-```
-
-This is deliberately shaped differently from a gate-blocked failure (`gate_blocked` with `detail.missing` / write-more-notes)
-because the fix is different: **wait and retry, or work a different item** — not "fill in more
-context." `detail.resources` names the contended keys and their modes only; **the current holder's identity is
-never disclosed** on this path, by design (see Guarantees below). Agents and Ralph-style loop
-workers should treat `resource_unavailable` the same way they treat `claim_held` from
-the `claim` op: release any claim on the item and move to a different item, never spin-retry the same
-item against the same lock.
-
-On the REST surface, the same contention maps to `409 resource_unavailable`; the envelope carries
-`error.retryAfterMs` (and `detail.retryAfterMs`).
-
-An item that declares **no** `resources:` can never produce `resource_unavailable` — the check
-short-circuits before any lease-repository access, so the overwhelmingly common case (items with no
-resource traits) pays zero extra cost and sees byte-identical behavior to a deployment without this
-feature at all.
-
-### Guarantees vs non-guarantees
-
-Resource leasing gives you a real exclusivity guarantee at a specific moment, not a continuous
-invariant, and not fairness. Read this section before relying on it for anything safety-critical.
-
-**What it DOES guarantee:**
-- **A precondition at WORK entry, not a continuous invariant.** At the instant an item's `start`/`resume`
-  transition acquires an exclusive key, no other item holds that key. The lease is **not**
-  re-checked or re-validated for the remainder of the item's time in WORK — it holds the key until
-  it leaves WORK (complete, cancel, block/hold, reopen, or the TTL elapses), full stop. Both exit
-  paths release leases: `advance` (and the equivalent REST ops route) release inline on
-  every WORK exit, and `items_write` `complete_tree` drives each item through the same `AdvanceService` pipeline,
-  so lease release goes through that same work-exit path - a batch completion via `items_write` `complete_tree`
-  does not orphan leases until TTL expiry.
-- **A transition that acquires a lease and then fails to apply leaves no lease behind.** The lease
-  acquire, the role change, and every cascade of one advance run in ONE transaction: if any of them
-  fails (a DB fault), the whole transaction rolls back — the item never entered WORK and the lease
-  was never committed. A fault while acquiring or releasing a lease fails the advance
-  (`internal` or `unavailable`) the same way.
-- **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
-  not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
-  identity quality - it holds regardless of how many processes share one principal (one credential, or
-  the `local` principal).
-- **A single-DB arbiter.** Admission is enforced by one SQLite transaction (count-guard + insert, or
-  refresh) against the `resource_leases` table. There is no distributed coordination — this is not
-  a substitute for a distributed lock service across multiple database instances.
-- **Keys are opaque labels, never secrets.** A resource key (`staging-db`, `github-deploy-token`) is
-  a name, not a value — no credential material is ever stored by this feature. This is enforced by
-  construction (the key/label charset is deliberately narrow), not by redaction — labels are
-  intentionally NOT hidden from readers, since external verifiability is the point.
-
-**What it does NOT guarantee:**
-- **No fairness, no queueing, no waiting acquire.** A contended item is rejected immediately with
-  `resource_unavailable` — it does not wait in line. Whichever retry happens to land after the
-  holder releases wins; there is no FIFO ordering across contending items. If you need fair
-  ordering, build it in your retry/dispatch logic, not in this feature.
-- **Crash recovery is TTL expiry or an explicit ADMIN force-release — nothing automatic beyond
-  that.** If a holder crashes mid-WORK, the lease sits until its TTL elapses (default 3600s,
-  operator-configurable up to a max of 86400s per resource) or an operator calls
-  `DELETE /api/v1/resources/leases/{key}` (ADMIN capability — see
-  [`fleet-deployment.md`](./fleet-deployment.md)). A lapsed lease row is treated as absent by every
-  read and is stolen by the next acquirer; an hourly sweep (also run once at server start) additionally removes lapsed rows
-  and records one `lease.expired` event for each, closing the history interval as `expired`. The sweep does not change
-  exclusion semantics: it only tidies rows that already no longer exclude anyone.
-- **Identity governs early release, not exclusion.** Because leases are item-keyed (not
-  actor-keyed), *any* successful transition that moves the holding item out of WORK releases the
-  lease — there is no per-actor "only the acquiring actor can release" check. This is a deliberate
-  simplification, not an oversight: the exclusivity guarantee above is about the item, not about who
-  is allowed to touch it.
-- **One item = one concurrent actor is an assumed modelling obligation.** Item-keyed exclusivity
-  arbitrates between *items*, not between actors working inside the same item — two sessions
-  operating under one work item share its lease, and the schema cannot detect that violation (the
-  server sees transitions, not actions). Identity still matters, one level up, in how you cut
-  items: model concurrent actors as separate work items at actor granularity. In fleet
-  deployments, the `claim` op is the opt-in enforcement of exactly this assumption - it binds one
-  verified actor to an item with a TTL, and an agent can hold its item claim and the item's
-  resource leases simultaneously by design. The release-side corollary of the same assumption:
-  any actor's work-exit transition on the shared item releases the lease for all of them.
-- **The kill switch is read once at startup; changing it requires a restart.** `RESOURCE_LEASES_ENFORCED`
-  is parsed a single time into `AppConfig.resourceLeasesEnforced` when the server boots and is handed to
-  the advance machinery from there; it is not re-read per call. A running JVM's environment cannot
-  change mid-process and a container's environment changes only when it is recreated, so flipping this
-  var takes effect only after the process or container restarts. `false`/`0`/`no` disable acquisition
-  (releases still always run); `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and
-  trimmed; any other value logs a WARN and enforcement stays on.
-- **No select-level awareness.** `items_read` `next` and the `claim` op's `select` mode do not know
-  about resource contention — they can still hand an agent an item that will immediately reject with
-  `resource_unavailable` on `start`. (`items_read` `context` with an `itemId` does report `contended` for one item.) This is a known, deliberately deferred gap (see Non-Goals in
-  the implementation plan) — treat `resource_unavailable` as a normal, expected outcome to handle in
-  your retry loop, not a bug.
-
-### Lease-interval history (audit)
-
-Every lease acquire/refresh/release/steal/force-release also writes to an append-only
-`resource_lease_history` table — one row per hold INTERVAL, not per event — answering "who held
-resource `R` at time `T`" after the fact, which the live `resource_leases` table (current holder
-only) cannot: it still has the answer once a lease has already been released, stolen by another
-item, or force-released by an operator. Query it via
-`GET /api/v1/resources/leases/history?key=&at=&limit=&cursor=` —
-omit `at` for a recent-activity feed (newest-first, default 50 rows, max 200, paged by `cursor`); pass `at` as an
-ISO-8601 instant to ask "who held this at exactly this moment" (an open interval is bounded by its
-own `expiresAt`, so a crashed holder's interval reads as "not held" once its TTL lapses, even though
-the operator hasn't force-released it yet). Holder/closer actor identity is ADMIN-only, same
-redaction rule as the live list. History rows carry no foreign key to the holder work item and
-deliberately survive its deletion — this is an audit trail, not a live-state mirror. Closed
-intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0` keeps them forever); open intervals are never pruned. See [Data Retention](./fleet-deployment.md#data-retention).
+Resource leasing is operator-configured and is covered in [Resource Leasing](./fleet-deployment.md#resource-leasing).
 
 ---
 
@@ -1354,21 +759,13 @@ A run is `open`, may be `paused`, and ends `closed` with a terminal reason. An i
  "ops": [{"op": "assign", "runId": "7c0f3a91", "itemId": "a1b2c3d4", "seat": "implementer"}]}
 ```
 
-- A token is never stored or replayed. A keyed retry of `open` or `assign` answers `tokenRedacted: true`; recover a seat token by assigning the seat again (the old token dies and the attempt count goes up).
-- A lost orchestrator token cannot be recovered. Close the run and open a new one.
-- A token is only good from the principal it was issued to, and only while its assignment is active. Anything else is a flat `unauthenticated`.
-- Calls under a token lose ADMIN. Claims and notes are held by the pair (principal, assignment), so two agents that share one `local` principal are still separate holders.
-- Closing a run ends its tokens. A closed run's orchestrator token answers `unauthenticated`, though a director or a human can still `close`.
+A lost orchestrator token cannot be recovered (close the run and open a new one); the other token rules are in the Runs category of the [API Reference](./api-reference.md#category-runs).
 
 ### Seats in a run
 
-Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-transitions)). Inside a run that is not closed, on a member whose pinned schema declares seats, the server enforces them:
+Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-transitions)). Inside a run that is not closed, on a member whose pinned schema declares seats, the server enforces them.
 
-- A seat token acts only on its own item. It may `start` that item only into the phase of the seat that `enters`, and may send another trigger only if the seat's `transitions:` lists it (default `block` and `hold`).
-- A seat writes only the note keys its seat owns, plus unowned keys. The run token of the run writes the orchestrator notes (labelled `seat: orchestrator`), and unowned ones.
-- A human credential without a token is exempt. Over stdio the caller is the `local` principal, which is an agent, so it is not exempt.
-- A refusal is `seat_forbidden` (or `note_owned_by_other` for a note) and applies nothing.
-- A seat entry may set `writes` (whether the seat changes files and commits; default true in the work phase, false elsewhere), served on every seat and never enforced, and may list `rules:` (rule keys) and `skills:` (skill names). The server serves each list and never enforces it; the run-wave plugin hands them to the seat's agent. `items_read` `context` and `advance` `transition` carry `callerSeat`, the seat a seat token holds on its own item.
+The enforcement rules (what a seat token may start, which note keys it may write, and the `seat_forbidden` and `note_owned_by_other` refusals) are in [Seat transitions](./config-reference.md#seat-transitions).
 
 ```json
 {"seatToken": "<seatToken>",
@@ -1379,23 +776,15 @@ Outside a run, seats stay an orchestration signal and nothing is enforced. A sea
 
 ### Cascades into seat-enforced members
 
-A cascade is a write too. When a child's change would move a parent that is a member of a run that is not closed, the cascade is applied only if the caller could have sent the equivalent trigger to that parent directly. Otherwise it is suppressed and reported as `blocked: seat` (and `seat_forbidden` on an `items_write`), after the ownership check and before the gates. In practice a seat child does not complete its member parent by cascade unless its token is bound to that parent. The recovery is to advance the parent with the orchestrator token or a human credential. See the [cascade rules](./api-reference.md#advance).
+A cascade that would move a member parent is applied only if the caller could have sent the equivalent trigger to that parent directly; otherwise it is reported as `blocked: seat`. Advance the parent with the orchestrator token or a human credential (see the [cascade rules](./api-reference.md#advance)).
 
 ### Liveness and the frontier
 
-A seat or the orchestrator is **stalled** when it has been quiet for strictly longer than the run's `stallAfterSeconds` (pinned when the run opens; default 600). Quiet means no call under its token on a tool that takes `ops`; a read through a `select` tool does not count, so a long-running seat makes some call on an `ops` tool now and then, for example an `advance` `heartbeat` on its claim. Stalled is only a view: nothing is ended or released for you.
-
-`runs_read` with `select: "frontier"` is the one read that tells the orchestrator what to do next:
-
-```json
-{"select": "frontier", "runId": "7c0f3a91"}
-```
-
-It returns the members that are `ready` (no active seat, no unmet dependency, no claim held outside the run), the `inFlight` seats with their stalled flag, and the `waiting` members with a reason.
+A seat or the orchestrator is **stalled** when it has been quiet for longer than the run's `stallAfterSeconds`; a read through a `select` tool does not count as activity, and stalled is only a view. `runs_read` with `select: "frontier"` is the one read that tells the orchestrator what to do next (see the Runs category of the [API Reference](./api-reference.md#category-runs)).
 
 ### Why an item is blocked
 
-`block` and `hold` take a `reason` (`awaiting_decision`, `dependency`, `resource`, default `manual`). `awaiting_decision` carries a `decisionId` naming an open decision on that item. The reason shows on the item as `blockedReason`, and every way out of `blocked` (`resume`, `cancel`, `items_write` `complete_tree`) clears it. Answering a decision never resumes the item: the orchestrator does that, after reading the answer.
+`block` and `hold` take a `reason` (see the [API Reference](./api-reference.md#advance)). Answering a decision never resumes the item: the orchestrator does that, after reading the answer.
 
 ### Decisions
 
@@ -1419,53 +808,15 @@ The director (or the human) lists and reads decisions with `decisions_read` `lis
 
 A run can carry an attempt cap per (item, seat) and a cap on concurrently active seats; both are checked on `assign`. Token and cost budgets and agent-reported usage were removed in 4.0.1 (a run still reports `usage.observedTokens`, the server's own estimate, which enforces nothing); see [Run Budgets and Caps](fleet-deployment.md#run-budgets-and-caps).
 
-- **Attempt cap.** An `assign` past `attemptsPerSeat` is refused `run_paused`, the run pauses (`attempts`) and an `attempt-cap` decision is raised (`allow_one`, `skip_item`, `stop`).
-- **Concurrency.** An `assign` past `maxActiveSeats` is a transient `run_at_capacity`. Retry when a seat ends.
-- **Manual pause.** A director or human can `pause` and `resume` a run. Members in flight can still finish. A pause for `attempts` (or a `budget` pause stored by 4.0.0) cannot be resumed by the orchestrator; only the answer resumes it, or a `close` ends it. While a run is paused for a limit, a `start` under any of its tokens is refused.
+A run paused for a limit is resumed by the answer to its decision, or ended by a `close`.
 
 Operator-side detail, including what the numbers mean and what is only an estimate, is in [Run Budgets and Caps](./fleet-deployment.md#run-budgets-and-caps).
 
 ### Closing a run
 
-`close` takes a reason (`completed`, `cancelled`, `failed` or `abandoned`; `budget_exhausted` is the server's own) and is allowed to the orchestrator, the director profile or a human. Any reason but `completed` ends the active seats and releases the members' claims and leases; `completed` is refused while a seat is active. The answer carries a `snapshot` of what the close recorded, the stored `run.ended` event carries the run rollup computed at that moment, and `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers that snapshot for a closed run, so the figures survive retention.
-
-`runs_write` `mark` (REST only) stamps a named instant on a run, for example a retrospective marker. A mark is first-write-wins and cannot be removed, and `runs_read` `list` with `unmarked` returns the closed runs that lack it.
+`close` is allowed to the orchestrator, the director profile or a human; `report` with `select: "rollup"` and a `runId` (see [reporting.md](./reporting.md)) answers the run's snapshot for a closed run, and `runs_write` `mark` (REST only) stamps a named instant on a run.
 
 ### Answering a decision as a single developer
 
 A person working alone usually has one stdio server, and stdio serves the orchestration profile, which cannot answer decisions. `/task-orchestrator:init` registers that second entry by default (`--no-director` opts out); by hand, start a second stdio entry with `MCP_TOOL_PROFILE=director` (or point at `/mcp/director` over HTTP). That entry lists, acknowledges and answers decisions, pauses and resumes runs, and closes them. If you have no director entry and a run is paused for a limit, the only way out from the orchestration side is to `close` it. See the [director endpoint](./fleet-deployment.md#mcp-authentication---read-first) notes for the HTTP and REST forms. The director path is hygiene that keeps a session at altitude, not a security boundary.
 
----
-
-## Quick Reference
-
-### Common Call Patterns
-
-Each row is the request body of one call to the named tool (orchestration profile).
-
-| Goal                              | Call                                                            |
-|-----------------------------------|-----------------------------------------------------------------|
-| Check what to work on next        | `items_read` `{"select":"next","fields":["ancestors"]}`         |
-| See all active work               | `items_read` `{"select":"context","fields":["ancestors"]}`      |
-| See container overview            | `items_read` `{"select":"overview"}`                            |
-| Check gate before advancing       | `items_read` `{"select":"context","itemId":"3d7e91ab"}`         |
-| Advance to next phase             | `advance` `{"ops":[{"op":"transition","itemId":"3d7e91ab","trigger":"start"}]}` |
-| Fill a note                       | `notes_write` `{"ops":[{"op":"upsert","itemId":"3d7e91ab","key":"...","role":"work","body":"..."}]}` |
-| Guidance consumption              | `items_read` `context` gives `guidanceKey`; `items_read` `{"select":"schema","itemId":"3d7e91ab","fields":["guidance"]}` gives the text |
-| Find blocked items                | `items_read` `{"select":"blocked","fields":["ancestors"]}`      |
-| Create a dependency chain         | `deps_write` `{"ops":[{"op":"linear","ids":["a1b2c3d4","b2c3d4e5"]}]}` |
-| Cancel an item                    | `advance` `{"ops":[{"op":"transition","itemId":"3d7e91ab","trigger":"cancel"}]}` |
-| Reopen a terminal item            | `advance` `{"ops":[{"op":"transition","itemId":"3d7e91ab","trigger":"reopen"}]}` |
-| Filter by phase                   | `items_read` `{"select":"list","role":"work"}`                  |
-| Claim an item (fleet, id mode)    | `advance` `{"ops":[{"op":"claim","itemId":"3d7e91ab","ttlSeconds":900}]}` |
-| Claim next eligible (select mode) | `advance` `{"ops":[{"op":"claim","select":{"orderBy":"oldest"}}]}` |
-| Release a claim                   | `advance` `{"ops":[{"op":"release","itemId":"3d7e91ab"}]}`      |
-| Heartbeat (refresh TTL)           | `advance` `{"ops":[{"op":"heartbeat","itemId":"3d7e91ab"}]}`    |
-| Find expired claims               | `items_read` `{"select":"list","claimStatus":"expired"}`        |
-| Diagnose stalled claim            | `items_read` `context` with the `itemId` - returns `claimDetail` with `claimedBy` |
-| Filter next item by tag           | `items_read` `{"select":"next","tags":["task-implementation"]}` |
-| FIFO queue drain                  | `items_read` `{"select":"next","orderBy":"oldest"}`             |
-| Record a consumed credential/resource | `advance` `{"ops":[{"op":"transition","itemId":"3d7e91ab","trigger":"start","credentialRefs":["vault/prod-db-password"]}]}` |
-| Diagnose a stuck resource lease   | `items_read` `context` with the `itemId` - `resourceLeases` block; or `GET /api/v1/resources/leases` (ADMIN sees holder actor) |
-| Force-release a stuck lease (operator) | `DELETE /api/v1/resources/leases/{key}` (ADMIN capability) |
-| Read a tool's own contract        | any tool, `{"describe":true}`                                   |

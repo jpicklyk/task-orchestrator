@@ -22,9 +22,6 @@ an `actor`: the caller is the principal its transport established (the bearer cr
 the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
 with no principal is `unauthenticated` before anything in it is read.
 
-**See also:** [`search-and-discovery.md`](./search-and-discovery.md) for the architecture behind
-FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score interpretation).
-
 **Server capabilities:** the `initialize` result advertises `tools` (`listChanged`) and `logging`
 only; there are no `prompts` or `resources` capabilities, since the server registers neither. `logging` is still
 declared, but no tool path sends `notifications/message` any more: failures are reported in the response

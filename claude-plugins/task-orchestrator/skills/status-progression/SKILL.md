@@ -129,7 +129,7 @@ Use `/dependency-manager` to view or change the edges.
 
 **Skip the review phase.** `complete` jumps from work straight to terminal but checks every phase's required notes; fill what is missing or use `cancel`.
 
-**`resource_unavailable` (kind transient).** A shared resource the item declares through a trait is held by another item. This is not a note gate: do not fill notes and do not spin-retry. Report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs`, work a different item, and retry later. To see the holder, read `context` `resourceLeases` (`holderItemId`, `expiresAt`); an operator can clear a stuck lease with `DELETE /api/v1/resources/leases/{key}` (admin). See [Workflow Guide, Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing).
+**`resource_unavailable` (kind transient).** A shared resource the item declares through a trait is held by another item. This is not a note gate: do not fill notes and do not spin-retry. Report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs`, work a different item, and retry later. To see the holder, read `context` `resourceLeases` (`holderItemId`, `expiresAt`); an operator can clear a stuck lease with `DELETE /api/v1/resources/leases/{key}` (admin).
 
 **A parent cascaded unexpectedly.** Cascades are by design: the first child starting moves a queued parent to work; the last child reaching terminal moves the parent to terminal. The `cascades` list shows each parent and why. A parent in review is never moved by that cascade (`applied: false`, review-pending): it needs its own explicit `complete` (or its review, then `start`).
 
