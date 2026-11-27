@@ -42,7 +42,7 @@ class SeatTokenSchemaTest {
     @Test
     fun `S1 every orchestration tool declares seatToken as a described top-level string`() {
         val tools = rendered(ToolProfile.ORCHESTRATION)
-        assertEquals(12, tools.size, "control: the orchestration profile renders 12 tools")
+        assertEquals(13, tools.size, "control: the orchestration profile renders 13 tools")
         for ((_, tool) in tools) {
             val seat = props(tool)["seatToken"]?.jsonObject
             assertNotNull(seat, "${tool.name} declares seatToken")
