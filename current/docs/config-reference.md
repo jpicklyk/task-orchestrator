@@ -174,7 +174,8 @@ match the rule key grammar is a parser finding and is dropped. Existence is not 
 separately: the server only serves the list, and only on a seat that declares it. Nothing in the server enforces it.
 
 The plugin gives each seat three classes of rule key, from one table (`claude-plugins/task-orchestrator/hooks/lib/seat-rules.json`):
-the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`), tool
+the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`; the role
+comes from the seat's served `enters` and `writes`, [0016](../../design/decisions/0016-seat-capability-and-orchestrator-notes.md)), tool
 mechanics the plugin chooses; the rules the plugin adds for the role (`commit-discipline` for a writing seat); and the
 role's defaults, which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
 `protocol.*` key that is not the role's own is dropped and reported. A project may still replace a protocol rule's text

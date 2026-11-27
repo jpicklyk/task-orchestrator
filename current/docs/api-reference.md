@@ -508,9 +508,7 @@ its pinned config versions and base schema, so `configFingerprint` is the pinned
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
 guidance?, skill?, skills?, skillMode?, maxLength?, seat?, owningSeat, independentOf?, shared?, lane?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
 `schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). `owningSeat` is the
-entry's computed owner, a string or JSON `null` (unowned), present on every entry of every schema: the seat its `seat` label names
-when that seat is declared for the entry's phase, and `orchestrator` for a label `orchestrator` in every seat-aware schema, declared
-seat or not (the orchestrator is not a seat; it is a reserved note owner). Seats,
+entry's [owning seat](../../GLOSSARY.md#owning-seat), a string or JSON `null` (unowned), on every entry. Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
 No matching schema is not an error: the answer is `{schemaFree: true}`. Giving both or neither of `type`

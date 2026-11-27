@@ -454,10 +454,7 @@ components:
           type: string
           nullable: true
           description: >-
-            This entry's computed owner, always present (null when unowned), in seat-aware and seat-less schemas
-            alike: the declared seat of the entry's phase named by `seat`, and `orchestrator` for a label
-            `orchestrator` in every seat-aware schema whether or not a seat of that name is declared (the
-            orchestrator is a reserved note owner, not a seat).
+            This entry's owning seat (GLOSSARY.md, Owning seat), always present; null when unowned.
         independentOf:
           type: array
           items:
