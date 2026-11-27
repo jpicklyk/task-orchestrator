@@ -191,7 +191,10 @@ internal object DecisionsParityScenarios {
         )
     }
 
-    /** Effective-severity fixture: [sOverdue] is a normal deviation whose expiry has passed, [sFresh] one that has not, [sLow] a question. */
+    /**
+     * Effective-severity fixture: [sOverdue] is a normal deviation whose expiry has passed, [sFresh] one that has not,
+     * [sLow] a question.
+     */
     val seedSeverity: suspend ParitySeeder.() -> Unit = {
         RunsParityScenarios.tree.invoke(this)
         decision(
@@ -236,7 +239,8 @@ internal object DecisionsParityScenarios {
     fun raise(
         key: String,
         extra: String = ""
-    ) = """{"op":"raise","class":"question","question":"Which one?","options":[{"key":"a","label":"Label A"},{"key":"b","label":"Label B"}],""" +
+    ) = """{"op":"raise","class":"question","question":"Which one?",""" +
+        """"options":[{"key":"a","label":"Label A"},{"key":"b","label":"Label B"}],""" +
         """"dedupeKey":"$key"$extra}"""
 
     fun ack(decisionId: Any) = """{"op":"ack","decisionId":"$decisionId"}"""
@@ -732,7 +736,14 @@ internal object DecisionsParityScenarios {
                 ParityKind.OTHER,
                 decider,
                 ops(answer(dcDev, "b", ""","decidedBy":"user"""")),
-                contains = listOf("\"$dcDev\"", "\"status\":\"answered\"", "\"decidedBy\":\"user\"", "\"relayed\":true", "\"basis\":\"relayed\"")
+                contains =
+                    listOf(
+                        "\"$dcDev\"",
+                        "\"status\":\"answered\"",
+                        "\"decidedBy\":\"user\"",
+                        "\"relayed\":true",
+                        "\"basis\":\"relayed\""
+                    )
             ),
             wrote(
                 "answer with citation links stores them in the answer",
@@ -947,7 +958,11 @@ class DecisionsParityTest {
             ParityCoverage.profilesOf(registry, "decisions_write", "withdraw")
         )
         for (op in listOf("ack", "escalate", "answer")) {
-            assertEquals(setOf(ToolProfile.DIRECTOR), ParityCoverage.profilesOf(registry, "decisions_write", op), "S11: $op is director only")
+            assertEquals(
+                setOf(ToolProfile.DIRECTOR),
+                ParityCoverage.profilesOf(registry, "decisions_write", op),
+                "S11: $op is director only"
+            )
         }
     }
 
@@ -962,26 +977,102 @@ class DecisionsParityTest {
             "raisedAt descending, then id ascending (B and C share an instant)"
         )
         val byId = items(o).associateBy { it.getValue("id").jsonPrimitive.content }
-        assertEquals("deviation", byId.getValue(DecisionsParityScenarios.oB.toString()).getValue("class").jsonPrimitive.content)
-        assertEquals("acknowledged", byId.getValue(DecisionsParityScenarios.oB.toString()).getValue("status").jsonPrimitive.content)
-        assertEquals("answered", byId.getValue(DecisionsParityScenarios.oC.toString()).getValue("status").jsonPrimitive.content)
-        assertEquals("open", byId.getValue(DecisionsParityScenarios.oA.toString()).getValue("status").jsonPrimitive.content)
+        assertEquals(
+            "deviation",
+            byId
+                .getValue(DecisionsParityScenarios.oB.toString())
+                .getValue("class")
+                .jsonPrimitive.content
+        )
+        assertEquals(
+            "acknowledged",
+            byId
+                .getValue(DecisionsParityScenarios.oB.toString())
+                .getValue("status")
+                .jsonPrimitive.content
+        )
+        assertEquals(
+            "answered",
+            byId
+                .getValue(DecisionsParityScenarios.oC.toString())
+                .getValue("status")
+                .jsonPrimitive.content
+        )
+        assertEquals(
+            "open",
+            byId
+                .getValue(DecisionsParityScenarios.oA.toString())
+                .getValue("status")
+                .jsonPrimitive.content
+        )
         for ((id, view) in byId) {
             assertFalse("context" in view, "$id: a list row carries no context member unless includeContext is true")
             assertTrue("question" in view && "options" in view, "$id: a full view carries its question and options")
         }
-        val classes = data(o).getValue("classes").jsonObject.getValue(RunsParityScenarios.r1.toString()).jsonObject
+        val classes =
+            data(o)
+                .getValue("classes")
+                .jsonObject
+                .getValue(RunsParityScenarios.r1.toString())
+                .jsonObject
         assertEquals(setOf("run-budget", "attempt-cap", "deviation", "question"), classes.keys)
         assertEquals(
             14_400L,
-            classes.getValue("deviation").jsonObject.getValue("expiresAfterSeconds").jsonPrimitive.content.toLong()
+            classes
+                .getValue("deviation")
+                .jsonObject
+                .getValue("expiresAfterSeconds")
+                .jsonPrimitive.content
+                .toLong()
         )
-        assertEquals(true, classes.getValue("question").jsonObject.getValue("freeform").jsonPrimitive.booleanOrNull)
-        assertEquals(false, classes.getValue("deviation").jsonObject.getValue("freeform").jsonPrimitive.booleanOrNull)
-        assertEquals(true, classes.getValue("run-budget").jsonObject.getValue("serverRaised").jsonPrimitive.booleanOrNull)
-        assertEquals(false, classes.getValue("question").jsonObject.getValue("serverRaised").jsonPrimitive.booleanOrNull)
-        assertEquals("director-or-human", classes.getValue("deviation").jsonObject.getValue("answerers").jsonPrimitive.content)
-        assertEquals("any-actor", classes.getValue("question").jsonObject.getValue("answerers").jsonPrimitive.content)
+        assertEquals(
+            true,
+            classes
+                .getValue("question")
+                .jsonObject
+                .getValue("freeform")
+                .jsonPrimitive.booleanOrNull
+        )
+        assertEquals(
+            false,
+            classes
+                .getValue("deviation")
+                .jsonObject
+                .getValue("freeform")
+                .jsonPrimitive.booleanOrNull
+        )
+        assertEquals(
+            true,
+            classes
+                .getValue("run-budget")
+                .jsonObject
+                .getValue("serverRaised")
+                .jsonPrimitive.booleanOrNull
+        )
+        assertEquals(
+            false,
+            classes
+                .getValue("question")
+                .jsonObject
+                .getValue("serverRaised")
+                .jsonPrimitive.booleanOrNull
+        )
+        assertEquals(
+            "director-or-human",
+            classes
+                .getValue("deviation")
+                .jsonObject
+                .getValue("answerers")
+                .jsonPrimitive.content
+        )
+        assertEquals(
+            "any-actor",
+            classes
+                .getValue("question")
+                .jsonObject
+                .getValue("answerers")
+                .jsonPrimitive.content
+        )
     }
 
     // ------------------------------------------------------------------ S2 the filters, each alone
@@ -1117,8 +1208,16 @@ class DecisionsParityTest {
 
     @Test
     fun `S6 an answer on behalf of the user records the relay and its cited links, and a plain answer records neither`() {
-        val relayed = harness.run(named("answer by a director on behalf of the user records decidedBy user, relayed true and basis relayed"))
-        val view = data(relayed).getValue("results").jsonArray.single().jsonObject
+        val relayed =
+            harness.run(
+                named("answer by a director on behalf of the user records decidedBy user, relayed true and basis relayed")
+            )
+        val view =
+            data(relayed)
+                .getValue("results")
+                .jsonArray
+                .single()
+                .jsonObject
         val decision = view.getValue("answer").jsonObject
         assertEquals("user", decision.getValue("decidedBy").jsonPrimitive.content)
         assertEquals(true, decision.getValue("relayed").jsonPrimitive.booleanOrNull)

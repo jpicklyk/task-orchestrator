@@ -664,7 +664,8 @@ internal fun profileInstructions(profile: ToolProfile): String =
                 "deps_write: dependency edges. docs_read and docs_write: versioned plans, rules and pages. advance: " +
                 "phase transitions and claims. config: a root's schemas and rule text. runs_read and runs_write: " +
                 "runs and seats. decisions_write: raise, delegate and withdraw decisions. Start with items_read " +
-                "context (an item's gate state) or next (what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
+                "context (an item's gate state) or next (what to pick up). Under a run seat, pass its token as the " +
+                "top-level seatToken of every call. " +
                 "Decisions are answered, runs paused or resumed and a lost run token reissued, on the director " +
                 "profile: HTTP path /mcp/director, or stdio with MCP_TOOL_PROFILE=director. A client that loads " +
                 "tool schemas on demand should load the tools a task needs together, in one step."

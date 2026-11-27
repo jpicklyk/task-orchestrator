@@ -140,6 +140,7 @@ class DecisionToolsSurfaceTest {
         val list = read.selects.single()
         assertEquals(setOf(ToolProfile.DIRECTOR), list.profiles)
         assertEquals(ApiCapability.READ, list.capability)
+
         fun op(name: String) = write.ops.single { it.name == name }
         assertEquals(setOf(ToolProfile.ORCHESTRATION), op("raise").profiles)
         assertEquals(ApiCapability.RUNS, op("raise").capability)
@@ -254,7 +255,10 @@ class DecisionToolsSurfaceTest {
         for (op in listOf("delegate", "escalate", "answer", "ack", "withdraw")) {
             assertFalse(memberDoc(write, ToolProfile.DIRECTOR, op).startsWith("Deprecated"), "decisions_write $op is not deprecated")
         }
-        assertFalse(memberDoc(write, ToolProfile.ORCHESTRATION, "raise").startsWith("Deprecated"), "decisions_write raise is not deprecated")
+        assertFalse(
+            memberDoc(write, ToolProfile.ORCHESTRATION, "raise").startsWith("Deprecated"),
+            "decisions_write raise is not deprecated"
+        )
         assertFalse(memberDoc(read, ToolProfile.DIRECTOR, "list").startsWith("Deprecated"), "decisions_read list is not deprecated")
         // Control: the tool-level text of the runs tools says nothing of deprecation (D12: descriptions unchanged).
         assertFalse(ToolTextOracle.servedDescription(runsWrite, ToolProfile.DIRECTOR).contains("Deprecated (removed in 5.0)"))
@@ -445,9 +449,15 @@ class DecisionToolsSurfaceTest {
 
     private fun events(type: String) = snapshot().getValue("events").filter { it["type"] == type }
 
-    private fun results(result: McpResult): List<JsonObject> = result.structured.getValue("data").jsonObject.getValue("results").jsonArray.map { it.jsonObject }
+    private fun results(result: McpResult): List<JsonObject> =
+        result.structured.getValue("data").jsonObject.getValue("results").jsonArray.map {
+            it.jsonObject
+        }
 
-    private fun items(result: McpResult): List<JsonObject> = result.structured.getValue("data").jsonObject.getValue("items").jsonArray.map { it.jsonObject }
+    private fun items(result: McpResult): List<JsonObject> =
+        result.structured.getValue("data").jsonObject.getValue("items").jsonArray.map {
+            it.jsonObject
+        }
 
     private fun raiseDeviation(
         key: String,
@@ -458,7 +468,7 @@ class DecisionToolsSurfaceTest {
     private val tree: suspend ParitySeeder.() -> Unit = { RunsParityScenarios.tree.invoke(this) }
 
     @Test
-    fun `S11 ack, answer and escalate are unknown on the orchestration profile and raise on the director profile, and nothing is written`() {
+    fun `S11 ack, answer, escalate unknown on orchestration and raise unknown on director, nothing written`() {
         val rig = rig(DecisionsParityScenarios.seedDecisions)
         val before = snapshot()
         val refused =
@@ -466,7 +476,11 @@ class DecisionToolsSurfaceTest {
                 Triple("ack", DecisionsParityScenarios.ack(DecisionsParityScenarios.dcOpen), ToolProfile.ORCHESTRATION),
                 Triple("answer", DecisionsParityScenarios.answer(DecisionsParityScenarios.dcOpen), ToolProfile.ORCHESTRATION),
                 Triple("escalate", DecisionsParityScenarios.escalate(DecisionsParityScenarios.dcDev), ToolProfile.ORCHESTRATION),
-                Triple("raise", DecisionsParityScenarios.raise("new-key", ""","rootId":"${RunsParityScenarios.r1}""""), ToolProfile.DIRECTOR)
+                Triple(
+                    "raise",
+                    DecisionsParityScenarios.raise("new-key", ""","rootId":"${RunsParityScenarios.r1}""""),
+                    ToolProfile.DIRECTOR
+                )
             )
         for ((label, element, profile) in refused) {
             val result = mcp(rig, decider, "decisions_write", DecisionsParityScenarios.ops(element), profile)
@@ -485,7 +499,14 @@ class DecisionToolsSurfaceTest {
         }
         assertEquals(before, snapshot(), "the refused calls wrote nothing")
         // Control: the same ops succeed on the profile that serves them, so the refusals above are about placement.
-        val ack = mcp(rig, decider, "decisions_write", DecisionsParityScenarios.ops(DecisionsParityScenarios.ack(DecisionsParityScenarios.dcOpen)), ToolProfile.DIRECTOR)
+        val ack =
+            mcp(
+                rig,
+                decider,
+                "decisions_write",
+                DecisionsParityScenarios.ops(DecisionsParityScenarios.ack(DecisionsParityScenarios.dcOpen)),
+                ToolProfile.DIRECTOR
+            )
         assertFalse(ack.isError, ack.structured.toString())
         val raise =
             mcp(
@@ -515,7 +536,13 @@ class DecisionToolsSurfaceTest {
             for (row in rows) assertFalse("context" in row, "[$extra]: no context member: $row")
         }
         val rows = list(""","includeContext":true""").associateBy { it.getValue("id").jsonPrimitive.content }
-        assertEquals("the-background", rows.getValue(idWith).getValue("context").jsonPrimitive.content)
+        assertEquals(
+            "the-background",
+            rows
+                .getValue(idWith)
+                .getValue("context")
+                .jsonPrimitive.content
+        )
         assertFalse("context" in rows.getValue(idWithout), "a decision raised without context has none to show: ${rows[idWithout]}")
     }
 
@@ -524,7 +551,11 @@ class DecisionToolsSurfaceTest {
         val rig = rig(tree)
         val raised = mcp(rig, coord, "decisions_write", DecisionsParityScenarios.ops(raiseDeviation("chain")), ToolProfile.ORCHESTRATION)
         assertFalse(raised.isError, raised.structured.toString())
-        val id = results(raised).single().getValue("id").jsonPrimitive.content
+        val id =
+            results(raised)
+                .single()
+                .getValue("id")
+                .jsonPrimitive.content
 
         fun waiting(value: String) =
             items(mcp(rig, decider, "decisions_read", DecisionsParityScenarios.list(""","waitingOn":"$value""""), ToolProfile.DIRECTOR))
@@ -533,7 +564,14 @@ class DecisionToolsSurfaceTest {
         assertEquals(emptyList(), waiting("director"), "nothing waits before a delegate")
         assertEquals(emptyList(), waiting("user"))
 
-        val delegated = mcp(rig, decider, "decisions_write", DecisionsParityScenarios.ops(DecisionsParityScenarios.delegate(id)), ToolProfile.ORCHESTRATION)
+        val delegated =
+            mcp(
+                rig,
+                decider,
+                "decisions_write",
+                DecisionsParityScenarios.ops(DecisionsParityScenarios.delegate(id)),
+                ToolProfile.ORCHESTRATION
+            )
         assertFalse(delegated.isError, delegated.structured.toString())
         val first = results(delegated).single()
         assertEquals("director", first.getValue("waitingOn").jsonPrimitive.content)
@@ -542,12 +580,26 @@ class DecisionToolsSurfaceTest {
         assertEquals(emptyList(), waiting("user"))
         assertEquals(1, events("decision.delegated").size)
 
-        val again = mcp(rig, decider, "decisions_write", DecisionsParityScenarios.ops(DecisionsParityScenarios.delegate(id)), ToolProfile.ORCHESTRATION)
+        val again =
+            mcp(
+                rig,
+                decider,
+                "decisions_write",
+                DecisionsParityScenarios.ops(DecisionsParityScenarios.delegate(id)),
+                ToolProfile.ORCHESTRATION
+            )
         assertFalse(again.isError, "a repeated delegate is not an error: ${again.structured}")
         assertEquals(first.getValue("version"), results(again).single().getValue("version"), "a repeated delegate leaves the version")
         assertEquals(1, events("decision.delegated").size, "a repeated delegate records no second event")
 
-        val escalated = mcp(rig, decider, "decisions_write", DecisionsParityScenarios.ops(DecisionsParityScenarios.escalate(id, "needs a human")), ToolProfile.DIRECTOR)
+        val escalated =
+            mcp(
+                rig,
+                decider,
+                "decisions_write",
+                DecisionsParityScenarios.ops(DecisionsParityScenarios.escalate(id, "needs a human")),
+                ToolProfile.DIRECTOR
+            )
         assertFalse(escalated.isError, escalated.structured.toString())
         val view = results(escalated).single()
         assertEquals("user", view.getValue("waitingOn").jsonPrimitive.content)
