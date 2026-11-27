@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **`current/docs/api-rest.md` is removed.** The REST facts are in the route code and `current/docs/api-reference.md`.
-- **`current/docs/api/openapi.yaml` and `current/docs/search-and-discovery.md` are removed.** The tool surface is served by `describe: true` and generated into `current/docs/api-reference.md`; the search design is in the KDoc of `RrfFusion.kt` and `SqliteSearchEngine.kt`.
+- **`current/docs/api/openapi.yaml` and `current/docs/search-and-discovery.md` are removed, and the user docs are cut to their how-to.** The tool surface is served by `describe: true` and generated into `current/docs/api-reference.md`; the search design is in the KDoc of `RrfFusion.kt` and `SqliteSearchEngine.kt`. The README, Home, quick start, workflow guide, config reference, fleet deployment guide, the plugin, note-schema, orchestration-mode and self-improving-workflow guides, both mod READMEs and the plugin's config-format and runtime-config references drop the field tables, inventories and restated behaviour that `config validate`, `describe: true`, the served config schema and the hooks README already give.
 
 ### Fixed
 
