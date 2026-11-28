@@ -10,7 +10,7 @@
 #   - :current:test, :current:ktlintCheck, bare test/check/build, and --rerun-tasks are
 #     orchestrator-only. They are refused (EXIT=98) unless TO_GRADLE_OWNER=orchestrator is set in
 #     the calling process. The orchestrator sets it inline on its own call and nowhere else:
-#         $env:TO_GRADLE_OWNER='orchestrator'; & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree ... -Tasks ":current:test",":current:ktlintCheck"
+#         $env:TO_GRADLE_OWNER='orchestrator'; & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree ... -Tasks ":current:ktlintCheck",":current:compileTestKotlin",":current:repoReadTest"
 #   - --rerun-tasks is accepted from the orchestrator with a warning: it is for the run after a
 #     dependency or Gradle upgrade, never a routine verification.
 #

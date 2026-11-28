@@ -16,7 +16,8 @@ import kotlin.test.assertTrue
  * or a `// repo-read: exempt - <reason>` line saying why the read stays inside `current/src`. A non-test
  * helper that reaches outside the module must be listed in [HELPERS] with the text its callers carry.
  * Limits: the scan is textual, so a read written another way (a literal `"../"` path, a new helper) is
- * caught only by the helper rule or by review; pushes to main always run the full suite.
+ * caught only by the helper rule or by review; the tag and the exemption cover the whole file, so a
+ * new read added to an exempt file is not flagged. Pushes to main always run the full suite.
  */
 class RepoReadTagGuardTest {
     companion object {

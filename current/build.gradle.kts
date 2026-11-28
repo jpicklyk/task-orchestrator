@@ -215,7 +215,7 @@ tasks.withType<Test>().configureEach {
         .withPropertyName("kotlinLoggingCatalogInput")
 
     // Never load a test result from the build cache: @Tag("repo-read") tests read repo files that
-    // are not declared above (.taskorchestrator/config.yaml, the plugin tree, CHANGELOG.md, ...), so
+    // are not declared above (.taskorchestrator/config.yaml, deploy/global-config, the plugin tree, ...), so
     // a cache hit could report green for a change the tests never saw. Compile tasks stay cached.
     outputs.cacheIf("tests read undeclared repo files") { false }
 }
