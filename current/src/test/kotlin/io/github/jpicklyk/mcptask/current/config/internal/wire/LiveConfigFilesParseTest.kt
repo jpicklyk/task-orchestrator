@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -48,6 +49,7 @@ import java.util.UUID
  * The problem-finding helpers take YAML text so negative self-tests can prove the guard is not
  * vacuous.
  */
+@Tag("repo-read")
 class LiveConfigFilesParseTest {
     @TempDir
     lateinit var tempDir: Path

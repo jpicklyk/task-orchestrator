@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.test.tools.ApiReferenceDocs
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -11,6 +12,7 @@ import kotlin.test.assertNotNull
  * The tables are never edited by hand; run [ApiReferenceDocs.REGENERATE_TASK] after a request class, `@Doc`, error set,
  * profile or capability change.
  */
+@Tag("repo-read")
 class ApiReferenceFreshnessTest {
     private val registry = ToolRegistry(buildToolSpecs())
     private val text = ApiReferenceDocs.read()

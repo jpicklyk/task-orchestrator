@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test.tools
 
+// repo-read: exempt - rewrites docs/api-reference.md on demand only (regenerateApiReference)
+
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import org.junit.jupiter.api.Test

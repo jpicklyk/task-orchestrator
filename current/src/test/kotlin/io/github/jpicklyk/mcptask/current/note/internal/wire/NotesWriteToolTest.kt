@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.note.internal.wire
 
+// repo-read: exempt - user.dir picks any small file in the working directory as a control
+
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.config.PerRootConfigSource

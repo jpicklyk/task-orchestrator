@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.architecture
 
+// repo-read: exempt - user.dir appears only inside a source fixture string
+
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

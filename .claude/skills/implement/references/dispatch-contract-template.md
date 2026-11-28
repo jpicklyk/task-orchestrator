@@ -150,7 +150,7 @@ and when; this table keeps this repo's mechanics (lock helper, `-TestFiles`, `TO
 | Implementer | The two pinned compile tasks above, ONCE, through the lock helper. Plus, at most once more, a SCOPED run of the test classes in the packages it changed: `-TestFiles "<those test files>"` (the helper maps them to `--tests`). Never bare `:current:test`, never `:current:ktlintCheck`, never `--rerun-tasks` — the helper refuses them. |
 | Test author | The two pinned compile tasks above, ONCE, through the lock helper. Plus scoped runs of ITS OWN test files (`-TestFiles`, the run plan's `<ownedTests>`) to see them red and then green. The same three nevers; a `VERIFY` line in `test-manifest` that cites a whole-suite count is a contract breach, not evidence. |
 | Hand-dispatched post-run seats (fix implementer, `<seat>-a<n>`, a second test author, a docs seat) | Exactly their base seat's row. Being dispatched outside the run plan does not lift the rule; the prompt points at this table like any other. |
-| Orchestrator | `:current:test` and `:current:ktlintCheck` through the lock helper, with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. |
+| Orchestrator | `wave-build` (`:current:ktlintCheck`, `:current:compileTestKotlin`, `:current:repoReadTest`) and the scoped run the front door "Verification command" names, through the lock helper, with `TO_GRADLE_OWNER=orchestrator` set inline on that call. The full suite runs in the PR's CI, not locally. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. |
 | Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. A doubted red-proof result is re-run scoped (`-TestFiles`), never as the whole suite. |
 
 ## File ownership
@@ -279,7 +279,7 @@ The last two rows keep every commit on the branch accounted for: a reviewer diff
 would otherwise meet docs and fixture-repair commits with no owner and read them as a boundary
 violation.
 
-Build state reviewers rely on: `Build state: <:current:test and :current:ktlintCheck> green|red at <sha>` (no tally; the orchestrator's one wave run). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
+Build state reviewers rely on: `Build state: wave-build green|red at <sha>; full suite: CI <run url> pending|green|red` (no tally; the orchestrator's one wave run, and the PR's CI run of the same SHA). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
 
 Seat token (reviewer): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.read-only-agent` `claude:`.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
@@ -291,7 +291,7 @@ merge"), on the wave parent's `red-proof-results` note, per item: `<proofs run, 
 equivalents, approx minutes>`.
 
 Red-proof run rules (every red-proof run and any red-proof runner prompt; proposal `4ba93956`):
-1. Expected durations: the full Kotlin suite takes about 6-7 minutes on 4.0; a targeted class run
+1. Expected durations: the full Kotlin suite takes about 6-7 minutes locally; a targeted class run
    (`--tests`) about 1 minute.
 2. Beyond 2x the expected time, take a `jstack` of the test worker, kill only that worker (a
    process this seat started, never another seat's or the orchestrator's), and report HUNG with the

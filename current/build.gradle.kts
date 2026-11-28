@@ -211,7 +211,25 @@ tasks.withType<Test>().configureEach {
     inputs
         .files(rootProject.file("gradle/libs.versions.toml"))
         .withPropertyName("kotlinLoggingCatalogInput")
+
+    // Never load a test result from the build cache: @Tag("repo-read") tests read repo files that
+    // are not declared above (.taskorchestrator/config.yaml, the plugin tree, CHANGELOG.md, ...), so
+    // a cache hit could report green for a change the tests never saw. Compile tasks stay cached.
+    outputs.cacheIf("tests read undeclared repo files") { false }
 }
+
+// CI shards the non-serial suite across parallel jobs: -PtestShard=<index>/<count> (1-based) keeps the
+// test classes whose top-level class name hashes to that shard. Nested classes follow their outer class.
+val testShard: Pair<Int, Int>? =
+    providers.gradleProperty("testShard").orNull?.let { raw ->
+        val parts = raw.split("/").map { it.trim().toIntOrNull() }
+        val index = parts.getOrNull(0)
+        val count = parts.getOrNull(1)
+        require(parts.size == 2 && index != null && count != null && count > 0 && index in 1..count) {
+            "testShard must be <index>/<count> with 1 <= index <= count, got '$raw'"
+        }
+        index to count
+    }
 
 tasks.test {
     // Wall-clock- and CPU-sensitive tests carry @Tag("serial") and run in `serialTest`, alone in a
@@ -219,6 +237,21 @@ tasks.test {
     // starve them.
     useJUnitPlatform { excludeTags("serial") }
     finalizedBy("serialTest")
+    testShard?.let { (index, count) ->
+        exclude { element ->
+            val topLevel = element.path.removeSuffix(".class").substringBefore('$')
+            !element.isDirectory && Math.floorMod(topLevel.hashCode(), count) != index - 1
+        }
+    }
+}
+
+tasks.register<Test>("repoReadTest") {
+    description = "Runs only the @Tag(\"repo-read\") tests: those that read repo files outside current/src."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform { includeTags("repo-read") }
 }
 
 tasks.register<Test>("serialTest") {
@@ -232,10 +265,14 @@ tasks.register<Test>("serialTest") {
     shouldRunAfter(testTask)
     // A targeted `:current:test --tests X` run must not drag in the whole serial set.
     // Target a serial test directly with `:current:serialTest --tests X`.
-    onlyIf {
-        testTask.filter.includePatterns.isEmpty() &&
-            (testTask.filter as org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter).commandLineIncludePatterns.isEmpty()
-    }
+    // The configuration cache cannot store a task reference, so the filter state is read into a provider,
+    // which the cache evaluates and stores as a plain value once `--tests` has been applied.
+    val testTaskUnfiltered =
+        provider {
+            testTask.filter.includePatterns.isEmpty() &&
+                (testTask.filter as org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter).commandLineIncludePatterns.isEmpty()
+        }
+    onlyIf { testTaskUnfiltered.get() }
 }
 
 // Rewrites the per-tool 4.0 schema goldens (src/test/resources/golden/tools/<tool>.<profile>.json) from the

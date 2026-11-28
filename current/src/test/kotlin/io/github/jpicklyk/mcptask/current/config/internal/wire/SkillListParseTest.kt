@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import kotlin.test.assertEquals
@@ -32,6 +33,7 @@ import kotlin.test.assertTrue
  * NEW-SURFACE: S1 and S11 bind to SkillMode, NoteSchemaEntry.skills and NoteSchemaEntry.skillMode; a plain revert only
  * fails to compile. Forbidden-construct declaration: none.
  */
+@Tag("repo-read")
 class SkillListParseTest {
     private val schemaPath = "/work_item_schemas/t/notes/0"
     private val traitPath = "/traits/tr/notes/0"

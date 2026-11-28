@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -35,6 +36,7 @@ import kotlin.test.fail
  * `runtime-current` stage's own `ENV DATABASE_PATH=data/current-tasks.db`) or a typo — either way
  * the test should fail and name the offending key(s).
  */
+@Tag("repo-read")
 class DistributionManifestConsistencyTest {
     // ---- repo-root / file access -------------------------------------------------------------
 

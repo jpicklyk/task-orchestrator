@@ -13,7 +13,8 @@ This supplements the generic review method; it never repeats it.
 Read the build state the orchestrator recorded (the review scoping slot's build-state line, the
 `session-tracking` `Verified:` line or the `test-manifest` VERIFY line) and run no Gradle suite:
 rule `test-author` section 5 points 8 and 11. A missing build state, or one for an older SHA than
-the diff under review, is a blocking finding.
+the diff under review, is a blocking finding. The full suite runs in the PR's CI: a red CI run of
+the reviewed SHA is a blocking finding, a pending one is not (the merge gate waits for it).
 
 ## Test substance (every reviewed item, with or without `needs-test-author`)
 

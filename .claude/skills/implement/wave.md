@@ -243,8 +243,8 @@ You are reviewing one child task within a shared feature worktree.
 Run ALL commands from within the feature worktree.
 Read ALL files from that directory. Do NOT read from the main working directory.
 
-Tests have already been verified green by the orchestrator after the most recent
-commit batch. Run no gradle — the contract's Compile self-check slot states who runs
+The orchestrator's wave-build passed after the most recent commit batch, and the PR's
+CI runs the full suite on the same SHA. Run no gradle — the contract's Compile self-check slot states who runs
 it, and the Review scoping slot records the build state you rely on.
 
 Before your first review-note write, load the reviewer seat's skills as `items_read`

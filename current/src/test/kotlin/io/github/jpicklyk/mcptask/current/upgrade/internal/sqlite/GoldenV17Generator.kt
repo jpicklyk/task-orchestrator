@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.upgrade.internal.sqlite
 
+// repo-read: exempt - writes src/test/resources goldens on demand only
+
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.docs
 
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -28,6 +29,7 @@ import kotlin.test.fail
  * survives Dockerfile formatting choices (single-line vs. multi-line HEALTHCHECK) without needing
  * to read the file first to see which style was used.
  */
+@Tag("repo-read")
 class DockerHealthcheckTest {
     private fun dockerfileLogicalText(): String {
         val dockerfile = repoRoot().resolve("Dockerfile")

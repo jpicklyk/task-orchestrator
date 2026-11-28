@@ -53,6 +53,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -92,6 +93,7 @@ import kotlin.test.assertTrue
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
  */
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
+@Tag("repo-read")
 class RestOnlyMemberContractTest {
     @RegisterExtension
     @JvmField
