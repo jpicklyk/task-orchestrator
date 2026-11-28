@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
@@ -30,6 +31,7 @@ import java.nio.file.Paths
  * `isAllowDuplicateKeys` contract (default last-wins; `false` throws a MarkedYAMLException whose problem is
  * `found duplicate key <name>`). Built from the dispatch declarations only; no `src/main` file was opened.
  */
+@Tag("repo-read")
 class YamlLoadersTest {
     @TempDir
     lateinit var tempDir: Path

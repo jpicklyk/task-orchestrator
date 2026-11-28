@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+// repo-read: exempt - user.dir locates the current/ module for its src/test/resources goldens
+
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition

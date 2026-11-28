@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.docs
 
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,6 +20,7 @@ import kotlin.test.fail
  * `mcp-task-orchestrator-http-rest` services are untouched by this item and must keep their
  * existing `http`/`http-rest` profiles.
  */
+@Tag("repo-read")
 class RuntimeHardeningManifestTest {
     private fun repoRoot(): Path {
         var dir: Path? = Paths.get(System.getProperty("user.dir")).toAbsolutePath()

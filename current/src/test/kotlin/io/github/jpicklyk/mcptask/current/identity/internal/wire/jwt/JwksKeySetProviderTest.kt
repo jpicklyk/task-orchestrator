@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.identity.internal.wire.jwt
 
+// repo-read: exempt - user.dir is saved and pointed at a temp directory
+
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import io.github.jpicklyk.mcptask.current.test.publicEgressGuard

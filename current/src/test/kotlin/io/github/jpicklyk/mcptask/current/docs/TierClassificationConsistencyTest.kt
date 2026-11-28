@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.docs
 
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -24,6 +25,7 @@ import kotlin.test.fail
  * The out-of-repo project-level style (`~/.claude/output-styles/workflow-analyst.md`) is
  * intentionally NOT guarded here — it is not part of the repository and CI cannot see it.
  */
+@Tag("repo-read")
 class TierClassificationConsistencyTest {
     private val marker = "tier-classification"
     private val beginPrefix = "<!-- BEGIN GENERATED:$marker"

@@ -145,13 +145,18 @@ run-profile wins. `wave-build` runs through the lock helper, which serializes gr
 `EXIT=<n> (log: <path>)` line. Read that line, and read the log when it is non-zero:
 
 ```
-$env:TO_GRADLE_OWNER='orchestrator'; & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:test",":current:ktlintCheck"
+$env:TO_GRADLE_OWNER='orchestrator'; & "<wt>\.claude\skills\implement\references\gradle-locked.ps1" -Worktree "<wt>" -Tasks ":current:ktlintCheck",":current:compileTestKotlin",":current:repoReadTest"
 ```
 
 (PowerShell tool; this is `run-profile.json` `wave-build`; `<wt>` is the checkout the work is in:
-the main checkout, the item's worktree or the feature worktree.) Without the helper: redirect
+the main checkout, the item's worktree or the feature worktree.) When the branch changes Kotlin
+source, follow it with one scoped run of the test classes the branch adds or changes plus the
+architecture guards:
+`-TestFiles "<changed test files> current/src/test/kotlin/io/github/jpicklyk/mcptask/current/architecture/*"`.
+The full suite is not run locally: the PR's CI runs it, sharded, on every push. Open the PR as a
+draft as soon as this passes, so CI runs while the review does. Without the helper: redirect
 gradle to a log, capture `EXIT=$?`, then read the log. Never pipe gradle into `tail`: the pipe
-reports the pager's exit code. On a lint failure run `:current:ktlintFormat`, then re-run both.
+reports the pager's exit code. On a lint failure run `:current:ktlintFormat`, then re-run.
 The helper refuses the suite, `ktlintCheck` and `--rerun-tasks` from any seat (EXIT=98);
 `--rerun-tasks` is for the run after a dependency or Gradle upgrade only. The helper's header
 explains a held or reclaimed lock (`LOCK HELD`, `LOCK RECLAIMED`).

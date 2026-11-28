@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.settings
 
+// repo-read: exempt - user.dir is the expected AGENT_CONFIG_DIR fallback value, no file is read
+
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.logging
 
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
@@ -27,6 +28,7 @@ import kotlin.test.fail
  *     coverage can't catch a runtime regression in a `compileOnly` dependency);
  * (c) the flag's setter/getter round-trip.
  */
+@Tag("repo-read")
 class KotlinLoggingBannerGuardTest {
     // ---- (a) pin matches the resolved jar ------------------------------------------------------
 

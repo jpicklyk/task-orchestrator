@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import kotlin.io.path.name
@@ -26,6 +27,7 @@ import kotlin.test.assertTrue
  * (`work_item_schemas.<type>.notes[]`, `traits.<name>`), following local `$ref`s generically, so it does not depend on
  * the schema's internal definition names.
  */
+@Tag("repo-read")
 class ConfigJsonSchemaTest {
     private val schema: JsonObject get() = Json.parseToJsonElement(ConfigJsonSchema.text).jsonObject
 

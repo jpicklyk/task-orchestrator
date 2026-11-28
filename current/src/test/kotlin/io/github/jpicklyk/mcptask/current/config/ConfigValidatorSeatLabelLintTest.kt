@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.config.internal.wire.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -32,6 +33,7 @@ import kotlin.test.assertTrue
  *
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions, no disjunctive assertions.
  */
+@Tag("repo-read")
 class ConfigValidatorSeatLabelLintTest {
     private val validator = ConfigValidator(NetworkntConfigStructuralValidator(), GlobalConfigSource { null })
 

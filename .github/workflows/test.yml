@@ -18,9 +18,81 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  # Decides whether this run needs the full Kotlin suite. Only a pull request can skip it: when its diff
+  # (from the merge-base) touches no Kotlin source or build input, the Kotlin jobs below are skipped and
+  # repo-read-tests runs the @Tag("repo-read") tests instead (the tests that read repo files outside
+  # current/src; RepoReadTagGuardTest keeps that tag complete). Pushes to main/release, workflow_call and
+  # workflow_dispatch always run everything, so every merged commit gets the full suite.
+  # The skip happens inside the run, never through on.paths: `test` is a required check and must report.
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      kotlin: ${{ steps.diff.outputs.kotlin }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
+    - name: Classify the diff
+      id: diff
+      env:
+        EVENT: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        if [ "$EVENT" != "pull_request" ]; then
+          echo "kotlin=true" >> "$GITHUB_OUTPUT"; echo "$EVENT: full suite"; exit 0
+        fi
+        if ! files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
+          echo "::warning::diff against the merge-base failed; running the full suite"
+          echo "kotlin=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        pattern='^(current/src/|current/build\.gradle\.kts$|build\.gradle\.kts$|settings\.gradle\.kts$|gradle/|gradle\.properties$|gradlew(\.bat)?$|version\.properties$|\.editorconfig$|\.github/workflows/test\.yml$)'
+        hits=$(printf '%s\n' "$files" | grep -E "$pattern" || true)
+        if [ -n "$hits" ]; then
+          echo "kotlin=true" >> "$GITHUB_OUTPUT"
+          echo "Kotlin inputs changed, full suite:"; printf '%s\n' "$hits" | head -20
+        else
+          echo "kotlin=false" >> "$GITHUB_OUTPUT"
+          echo "No Kotlin source or build input changed: repo-read tests only."
+        fi
+
+  # ktlint needs no compiled classes, so it runs beside the tests instead of before them.
+  lint:
+    needs: changes
+    if: needs.changes.outputs.kotlin == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    # Only main and release branches write the cache; PR runs read the cache of their base branch.
+    # The cache holds the Gradle build cache, so a PR reuses main's compile outputs where its sources match.
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
+
+    - name: Lint check
+      run: ./gradlew :current:ktlintCheck
+
+  # The non-serial suite, split across parallel jobs by -PtestShard (current/build.gradle.kts). Each shard
+  # compiles on its own, from the build cache when main already built the same sources.
+  kotlin-tests:
+    needs: changes
+    if: needs.changes.outputs.kotlin == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -33,40 +105,129 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    # v3 (v3.5.0, 2024) used the retired legacy cache service: every restore failed with HTTP 400
-    # and every run started from an empty Gradle User Home. Only main and release branches write
-    # the cache; PR runs read the cache of their base branch.
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v6
       with:
         cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
 
-    - name: Make gradlew executable
-      run: chmod +x gradlew
-
-    # No --no-daemon: the daemon started by the lint step is reused by the test step instead of
-    # forking a second single-use daemon; setup-gradle stops it in its post-job step.
-    - name: Lint check
-      run: ./gradlew :current:ktlintCheck
-
-    - name: Run tests
-      run: ./gradlew :current:test
-
-    - name: Publish Test Report
-      uses: mikepenz/action-junit-report@v4
-      if: always()
-      with:
-        report_paths: '**/build/test-results/*/TEST-*.xml'
-        check_name: 'Test Results'
+    # serialTest runs in its own job below, so the shards skip the finalizer.
+    - name: Run tests (shard ${{ matrix.shard }} of 3)
+      run: ./gradlew :current:test -PtestShard=${{ matrix.shard }}/3 -x serialTest
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results
+        name: test-results-shard-${{ matrix.shard }}
         path: |
           **/build/test-results/*/TEST-*.xml
           **/build/reports/tests/*/**
+
+  # The @Tag("serial") timing-sensitive tests, alone in one fork, beside the shards instead of after them.
+  serial-tests:
+    needs: changes
+    if: needs.changes.outputs.kotlin == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for version calculation
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
+
+    - name: Run serial tests
+      run: ./gradlew :current:serialTest
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-serial
+        path: |
+          **/build/test-results/*/TEST-*.xml
+          **/build/reports/tests/*/**
+
+  # A pull request with no Kotlin change runs only the repo-read tests. Pushes run it too (beside the full
+  # suite) so this job keeps a cache entry of its own on main, holding the compile outputs PRs reuse.
+  repo-read-tests:
+    needs: changes
+    if: needs.changes.outputs.kotlin != 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for version calculation
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
+
+    - name: Run repo-read tests
+      run: ./gradlew :current:repoReadTest
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-repo-read
+        path: |
+          **/build/test-results/*/TEST-*.xml
+          **/build/reports/tests/*/**
+
+  # The required check. It passes when every Kotlin job that ran passed (a job skipped by the diff gate
+  # counts as passed) and publishes one report over all of them.
+  test:
+    needs: [changes, lint, kotlin-tests, serial-tests, repo-read-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download test results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: test-results-*
+        path: test-results
+
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: always()
+      with:
+        report_paths: 'test-results/**/TEST-*.xml'
+        check_name: 'Test Results'
+
+    - name: Upload merged test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: test-results/
+
+    - name: Check job results
+      if: always()
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+      run: |
+        echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+        bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")')
+        if [ "$(echo "$RESULTS" | jq -r '.changes.result')" != "success" ]; then bad="changes${bad:+, $bad}"; fi
+        if [ -n "$bad" ]; then echo "::error::Failed or cancelled: $bad"; exit 1; fi
 
   # Node and Python suites need no JVM, so they run alongside the Gradle job instead of after it.
   plugin-tests:
@@ -133,8 +294,8 @@ jobs:
         fi
         echo "Ran $test_count project skill helper tests."
 
-  # Runs in parallel with the test jobs (no `needs:`), so the image build no longer adds its
-  # ~4 minutes after the Gradle suite. Skipped for the release workflow_call: docker-publish.yml's
+  # Runs in parallel with the test jobs (no `needs:`), so the image build adds no time after the
+  # Gradle suite. Skipped for the release workflow_call: docker-publish.yml's
   # build job runs the same smoke test and Trivy gate on the release image itself.
   image-smoke:
     if: >-
