@@ -30,7 +30,9 @@ version = if (ciBuildNumber != null) "$baseVersion.$ciBuildNumber" else baseVers
 
 // For git tag validation — always the clean semver, never with build suffix
 tasks.register("printTagVersion") {
-    doLast { println(baseVersion) }
+    // A local copy: the configuration cache cannot store a reference to the build script object.
+    val tagVersion = baseVersion
+    doLast { println(tagVersion) }
 }
 
 // Generate build-info resource so the app can read its version at runtime
@@ -252,6 +254,8 @@ tasks.register<Test>("repoReadTest") {
     testClassesDirs = testTask.testClassesDirs
     classpath = testTask.classpath
     useJUnitPlatform { includeTags("repo-read") }
+    // Its tests read repo files no task input tracks, so a docs- or config-only edit must still re-run them.
+    outputs.upToDateWhen { false }
 }
 
 tasks.register<Test>("serialTest") {

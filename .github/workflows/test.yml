@@ -204,7 +204,6 @@ jobs:
       with:
         pattern: test-results-*
         path: test-results
-        merge-multiple: true
 
     - name: Publish Test Report
       uses: mikepenz/action-junit-report@v4
